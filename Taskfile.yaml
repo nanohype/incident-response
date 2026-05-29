@@ -1,0 +1,110 @@
+version: "3"
+
+vars:
+  IMAGE: '{{.IMAGE | default "incident-response:dev"}}'
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  # === Composite ===
+
+  ci:
+    desc: "Full local CI: install, build, lint, typecheck (src + tests), unit tests, format:check, helm lint/template (staging+prod), docker build"
+    cmds:
+      - task: install
+      - task: build
+      - task: lint
+      - task: typecheck
+      - task: typecheck:tests
+      - task: test:unit
+      - task: format:check
+      - task: helm:lint
+      - task: helm:template
+      - task: docker:build
+
+  # === Install ===
+
+  install:
+    desc: "Install deps from the committed lockfile (npm ci)"
+    cmds:
+      - npm ci
+
+  # === TypeScript ===
+
+  build:
+    desc: "Compile to dist/ (tsc)"
+    cmds:
+      - npm run build
+
+  lint:
+    desc: "ESLint over src + test"
+    cmds:
+      - npm run lint
+
+  typecheck:
+    desc: "tsc --noEmit over src"
+    cmds:
+      - npm run typecheck
+
+  typecheck:tests:
+    desc: "Typecheck the test suite too (tsconfig.eslint.json includes test/**)"
+    cmds:
+      - npm run typecheck:tests
+
+  format:check:
+    desc: "Prettier --check"
+    cmds:
+      - npm run format:check
+
+  # === Tests ===
+
+  test:unit:
+    desc: "Unit tests — enforces 100% branch on audit.ts + statuspage-approval-gate.ts"
+    cmds:
+      - npm run test:unit
+
+  test:integration:
+    desc: "Integration tests against dynamodb-local (spins up the container)"
+    cmds:
+      - npm run test:integration:docker
+
+  # === Helm ===
+
+  helm:lint:
+    desc: "Lint the chart"
+    cmds:
+      - npm run chart:lint
+
+  helm:template:
+    desc: "Render the chart against staging + production values"
+    cmds:
+      - npm run chart:template:staging > /dev/null
+      - npm run chart:template:production > /dev/null
+
+  # === Docker ===
+
+  docker:build:
+    desc: "Build the container image (no push)"
+    cmds:
+      - docker build -t {{.IMAGE}} .
+
+  # === Security ===
+
+  security:scan:
+    desc: "Run security scanners (gitleaks + trivy config) if available locally"
+    cmds:
+      - |
+        if command -v gitleaks >/dev/null 2>&1; then
+          gitleaks git --config .gitleaks.toml --redact --no-banner .
+        else
+          echo "gitleaks not installed — install via 'brew install gitleaks' to run locally"
+        fi
+      - |
+        if command -v trivy >/dev/null 2>&1; then
+          trivy config Dockerfile --severity HIGH,CRITICAL --exit-code 1
+        else
+          echo "trivy not installed — install via 'brew install trivy' to run locally"
+        fi

@@ -1,0 +1,27 @@
+node_modules/
+dist/
+coverage/
+cdk.out/
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+# Populated secret seed files (see scripts/seed-secrets.sh + secrets.template.json).
+# `secrets.template.json` itself IS committed — it's the shape doc.
+#
+# The intended convention is `marshal-secrets.{env}.json` at the repo root or
+# under marshal/. Extra patterns below catch common "I just named it whatever"
+# cases — belt-and-braces so a wrong-named seed file can't be accidentally
+# pulled into a `git add -A` commit. Add new patterns here, don't narrow these.
+marshal-secrets.*.json
+marshal-secrets*.json
+*-secrets.json
+*-creds.json
+*-tokens.json
+# One-off seed-file names, root-anchored so they only guard the repo root and
+# can't collide with chart assets deeper in the tree (e.g.
+# chart/dashboards/marshal.json). The documented convention is
+# marshal-secrets.{env}.json; these are belt-and-braces.
+/secrets.json
+/creds.json

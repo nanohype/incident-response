@@ -1,0 +1,66 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "marshal.fullname" . }}-webhook
+  labels:
+    {{- include "marshal.labels" . | nindent 4 }}
+    marshal.io/service: webhook
+spec:
+  replicas: {{ .Values.webhook.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "marshal.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "service" "webhook") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "marshal.labels" . | nindent 8 }}
+        marshal.io/service: webhook
+      annotations:
+        checksum/external-secret: {{ printf "%s-%s-%s" .Values.externalSecret.hmacSecret .Values.externalSecret.appSecret .Values.externalSecret.refreshInterval | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "marshal.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: webhook
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: {{ .Values.webhook.command }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.webhook.port }}
+              protocol: TCP
+          env:
+            {{- include "marshal.env" (dict "Values" .Values "service" "webhook") | nindent 12 }}
+            - name: OTEL_SERVICE_NAME
+              value: marshal-webhook
+            - name: PORT
+              value: {{ .Values.webhook.port | quote }}
+            # webhook handler only needs the HMAC secret name; it fetches +
+            # caches the value at request time (keyed on VersionId, 5-min TTL)
+            - name: GRAFANA_ONCALL_HMAC_SECRET_ID
+              value: {{ .Values.externalSecret.hmacSecret | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ include "marshal.fullname" . }}-secrets
+          livenessProbe:
+            {{- toYaml .Values.probes.webhook.liveness | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.probes.webhook.readiness | nindent 12 }}
+          resources:
+            {{- toYaml .Values.webhook.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

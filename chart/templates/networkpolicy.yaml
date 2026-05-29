@@ -1,0 +1,51 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "marshal.fullname" . }}
+  labels:
+    {{- include "marshal.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/name: {{ include "marshal.name" . }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Webhook accepts from ingress-nginx only. Processor accepts no ingress
+    # (Slack socket-mode is outbound) — the empty selector below means only
+    # webhook pods match, since selector.matchLabels above scopes to release
+    # but the ingress-nginx ports here are the webhook listening port.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: {{ .Values.webhook.port }}
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+        - podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+    # HTTPS — AWS APIs (DynamoDB, SQS, Bedrock, Secrets Manager, Scheduler,
+    # CloudWatch), Slack (WebSocket + REST), Grafana Cloud OnCall + Mimir,
+    # Linear, Statuspage, WorkOS
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}

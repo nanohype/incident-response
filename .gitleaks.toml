@@ -1,0 +1,66 @@
+# gitleaks configuration for incident-response (internal service handle: marshal).
+#
+# Strategy: extend the default ruleset, then allowlist only the placeholder
+# strings we intentionally commit. Suppression is path- and stopword-scoped,
+# never a bare filename glob that could swallow a real secret file. Real
+# `.env` / credential files are gitignored and never committed; only the
+# committed `.env.example` and `secrets.template.json` (placeholders) are
+# allowlisted, by exact path.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Committed placeholder + example strings only"
+paths = [
+  # The committed env template — placeholders only, no real secrets. Anchored
+  # to the exact repo-root path so it never matches a real `.env*` file.
+  '''^\.env\.example$''',
+  # The secret-inventory template — every value is a `REPLACE_ME` placeholder
+  # (xoxb-REPLACE_ME, ghp_REPLACE_ME, glc_REPLACE_ME, etc.) that documents the
+  # secret shape for operators copying it to a gitignored marshal-secrets.*.json.
+  # The provider prefixes trip gitleaks' default token rules, so allowlist the
+  # whole file by exact repo-root path. The CI secret-inventory-drift gate keeps
+  # this file honest against scripts/seed-secrets.sh.
+  '''^secrets\.template\.json$''',
+]
+regexes = [
+  # `replace-me` / `replace_me` / `REPLACE_ME` placeholders used across the env
+  # template, the secret template, and docs.
+  '''(?i)replace[-_](me|with|[a-z0-9-]+)''',
+  # Example ARNs in docs/prose (zeroed or example account IDs)
+  '''arn:aws:[a-z0-9-]+:[a-z0-9-]*:(000000000000|123456789012):[a-z0-9/_:-]+''',
+  # Angle-bracket placeholders in doc examples (e.g. <cloud-org-id>, <token>) —
+  # a real secret value never contains a literal <...> placeholder.
+  '''<[a-z][a-z0-9-]*>''',
+  # Truncated example tokens shown as prefix + ellipsis (e.g. glc_..., xoxb-...).
+  '''[a-z]{2,5}[_-]\.\.\.''',
+]
+stopwords = [
+  "replace-me",
+  "replace_me",
+  "REPLACE_ME",
+]
+
+# Custom rule: AWS account IDs in IAM ARN context. Bare 12-digit matching
+# flags Unix timestamps and port sequences (high false-positive rate);
+# narrowed to require the IAM ARN prefix so we only flag plausible account
+# IDs rather than every dozen-digit number.
+[[rules]]
+id = "aws-account-id-in-arn"
+description = "12-digit AWS account ID embedded in an IAM ARN"
+regex = '''arn:aws:[a-z0-9-]*:[a-z0-9-]*:([0-9]{12}):'''
+keywords = ["arn:aws"]
+[[rules.allowlists]]
+description = "Allow zeroed (mock) + example account IDs in docs + tests"
+regexes = [
+  '''000000000000''',
+  '''123456789012''',
+  '''REPLACE''',
+]
+paths = [
+  '''docs/.*\.md$''',
+  '''README\.md$''',
+  '''chart/.*''',
+  '''test/.*''',
+]

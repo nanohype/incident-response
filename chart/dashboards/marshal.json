@@ -1,0 +1,216 @@
+{
+  "title": "Marshal — Operational Dashboard",
+  "uid": "marshal-ops",
+  "tags": ["marshal", "incident-response"],
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "SLO — Assembly",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "War Room Assembly Duration — p50 / p99 (ms)",
+      "description": "SLO: p99 ≤ 5 min (300000 ms). Source: OTel histogram assembly_duration_ms.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${DS_MIMIR}" },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [
+        {
+          "refId": "P50",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(assembly_duration_ms_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "P99",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(assembly_duration_ms_bucket[5m])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Approval Gate Latency — p50 / p99 (ms)",
+      "description": "Time between IC approval click and Statuspage.io publish. Source: OTel histogram approval_gate_latency_ms.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${DS_MIMIR}" },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "targets": [
+        {
+          "refId": "P50",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(approval_gate_latency_ms_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "P99",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(approval_gate_latency_ms_bucket[5m])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "row",
+      "title": "Counters",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Statuspage Publishes (by outcome, 5-min rate)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "${DS_MIMIR}" },
+      "targets": [
+        {
+          "refId": "R",
+          "expr": "sum by (outcome) (rate(statuspage_publish_count_total[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Directory Lookup Failures (5-min rate)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "${DS_MIMIR}" },
+      "targets": [
+        {
+          "refId": "R",
+          "expr": "sum(rate(directory_lookup_failure_count_total[5m]))",
+          "legendFormat": "failures/s"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "Infrastructure (AWS-native)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "SQS Depth — incident-events + DLQ",
+      "description": "Source: CloudWatch via Grafana Cloud CloudWatch datasource.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+      "datasource": { "type": "cloudwatch", "uid": "${DS_CW}" },
+      "targets": [
+        {
+          "refId": "A",
+          "namespace": "AWS/SQS",
+          "metricName": "ApproximateNumberOfMessagesVisible",
+          "dimensions": { "QueueName": "marshal-incident-events.fifo" },
+          "statistic": "Average",
+          "region": "us-west-2",
+          "period": "60"
+        },
+        {
+          "refId": "B",
+          "namespace": "AWS/SQS",
+          "metricName": "ApproximateNumberOfMessagesVisible",
+          "dimensions": { "QueueName": "marshal-incident-events-dlq.fifo" },
+          "statistic": "Average",
+          "region": "us-west-2",
+          "period": "60"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "ECS Processor — Running Task Count",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+      "datasource": { "type": "cloudwatch", "uid": "${DS_CW}" },
+      "targets": [
+        {
+          "refId": "A",
+          "namespace": "ECS/ContainerInsights",
+          "metricName": "RunningTaskCount",
+          "dimensions": { "ClusterName": "marshal", "ServiceName": "marshal-processor" },
+          "statistic": "Minimum",
+          "region": "us-west-2",
+          "period": "60"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Webhook Lambda — Duration + Errors",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 27 },
+      "datasource": { "type": "cloudwatch", "uid": "${DS_CW}" },
+      "targets": [
+        {
+          "refId": "D",
+          "namespace": "AWS/Lambda",
+          "metricName": "Duration",
+          "statistic": "p99",
+          "region": "us-west-2",
+          "period": "60"
+        },
+        {
+          "refId": "E",
+          "namespace": "AWS/Lambda",
+          "metricName": "Errors",
+          "statistic": "Sum",
+          "region": "us-west-2",
+          "period": "60"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Logs",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 }
+    },
+    {
+      "id": 12,
+      "type": "logs",
+      "title": "Processor — warnings + errors (Loki)",
+      "description": "Log line clicks expose trace_id when a span was active — Tempo jump is one-click.",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 36 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=\"marshal-processor\"} | json | level=~\"warn|error\""
+        }
+      ],
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none" }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_MIMIR",
+        "type": "datasource",
+        "query": "prometheus",
+        "label": "Mimir",
+        "hide": 0
+      },
+      {
+        "name": "DS_CW",
+        "type": "datasource",
+        "query": "cloudwatch",
+        "label": "CloudWatch",
+        "hide": 0
+      },
+      {
+        "name": "DS_LOKI",
+        "type": "datasource",
+        "query": "loki",
+        "label": "Loki",
+        "hide": 0
+      }
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+# Dev delta.
+image:
+  tag: dev
+
+ingress:
+  host: marshal-webhook-dev.example.com
+
+externalSecret:
+  hmacSecret: marshal/dev/grafana-oncall-hmac
+  appSecret: marshal/dev/app-secrets
+  grafanaCloudSecret: marshal/dev/grafana-cloud
+
+env:
+  OTEL_RESOURCE_ATTRIBUTES: "service.namespace=marshal,service.version=0.1.0,deployment.environment=dev,agents.tenant=protohype,agents.platform=marshal"
+
+aws:
+  # Fill from landing-zone `marshal-platform` (dev) output: irsa_role_arn.
+  # `cd live/aws/workload-dev/us-west-2/dev/marshal-platform && tofu output -raw irsa_role_arn`
+  platformRoleArn: ""
+
+tenantInfra:
+  # Fill the empties below from the landing-zone marshal-platform dev
+  # outputs (terragrunt output -json) — the rest of the slot names match
+  # output names 1:1 (identity_cache_table_name, incident_events_queue_url,
+  # nudge_events_queue_url, nudge_events_queue_arn, sla_check_queue_url,
+  # scheduler_role_arn, audit_bucket_name).
+  incidentsTableName: marshal-incidents-dev
+  auditTableName: marshal-audit-dev
+  identityCacheTableName: ""    # output: identity_cache_table_name
+  incidentEventsQueueUrl: ""
+  nudgeEventsQueueUrl: ""
+  nudgeEventsQueueArn: ""
+  slaCheckQueueUrl: ""
+  schedulerRoleArn: ""
+  schedulerGroupName: marshal-nudges-dev
+  auditBucketName: ""           # output: audit_bucket_name

@@ -1,0 +1,76 @@
+# Platform CR — declares marshal as a tenant of the protohype team on the
+# eks-agent-platform operator. Apply once per cluster before the
+# ApplicationSet entry starts reconciling the chart.
+#
+# Two CRs declared here:
+#   - BudgetPolicy (referenced by Platform.spec.budget — required)
+#   - Platform     (the actual tenant declaration)
+#
+# What the operator reconciles from the Platform CR:
+#   - Namespace `tenants-protohype` (Pod Security Standards baseline)
+#   - ResourceQuota + LimitRange
+#   - Default-deny NetworkPolicy (the chart layers app-specific rules on top)
+#   - ArgoCD AppProject scoped to this Platform
+#   - Per-Platform IRSA role with baseline policy + spec.identity.extraPolicyArns
+#     attached. Trust policy permits the `tenant-runtime` ServiceAccount in
+#     the tenant namespace
+#
+# What marshal's chart owns separately (NOT operator-reconciled):
+#   - The chart's own ServiceAccount (`marshal`) — used by both webhook and
+#     processor Deployments. Its `eks.amazonaws.com/role-arn` annotation
+#     comes from landing-zone's marshal-platform component (output:
+#     irsa_role_arn) via per-env Helm values (aws.platformRoleArn). The
+#     operator's `<env>-marshal-tenant` role trusts the `tenant-runtime`
+#     SA, not marshal's `marshal` SA — different SA, different trust, two
+#     roles serving two workload classes (AgentFleet pods vs marshal's
+#     app pods)
+#
+# Tenant-shared infra (DDB, SQS, EventBridge Scheduler, Bedrock invoke
+# policy, Secrets Manager seeding) — see landing-zone's
+# components/aws/marshal-platform/. Once that component's per-env entry
+# applies, the outputs are wired into the chart's per-env values
+# (`tenantInfra.*` + `aws.platformRoleArn`).
+
+---
+apiVersion: agents.stxkxs.io/v1alpha1
+kind: BudgetPolicy
+metadata:
+  name: marshal
+  namespace: tenants-protohype
+spec:
+  platformRef:
+    name: marshal
+  # Soft threshold; kill-switch fires at 120% (USD 3000) when KillSwitchEnabled
+  # is true. Adjust per-env if needed.
+  monthlyUsd: "2500"
+  alertThresholdsPercent: [50, 80, 100]
+  killSwitchEnabled: true
+---
+apiVersion: agents.stxkxs.io/v1alpha1
+kind: Platform
+metadata:
+  name: marshal
+  namespace: tenants-protohype
+spec:
+  displayName: marshal
+  persona: ops
+  tenant: protohype
+  budget:
+    name: marshal
+  identity:
+    # Bedrock model access for AgentFleet pods (tenant-runtime SA on the
+    # operator-reconciled IRSA role). marshal's own app pods don't use this
+    # role; they assume the landing-zone-owned `marshal-platform` IRSA role
+    # (via aws.platformRoleArn in the chart). The operator's role still
+    # exists for AgentFleet workloads in this namespace if/when they land.
+    allowedModelFamilies:
+      - anthropic
+    # ARN(s) of additional managed policies the operator attaches on top of
+    # the per-tenant baseline. Populate once landing-zone's marshal-platform
+    # component is refactored to emit `irsa_managed_policy_arn` as an
+    # output. Leave empty until then — the chart's app pods don't need this
+    # since they assume the landing-zone-owned role directly.
+    extraPolicyArns: []
+  compliance:
+    soc2: true
+  isolation: namespace

@@ -1,0 +1,165 @@
+# Base values for marshal (all environments). Per-env deltas in values-{staging,production}.yaml.
+#
+# Two workloads in one chart:
+#   - webhook   (Deployment, public ingress) — Grafana OnCall HMAC verifier + SQS enqueue
+#   - processor (Deployment, no ingress)     — Slack socket-mode + SQS consumer + state machine
+# Plus a PrometheusRule and a Grafana dashboard ConfigMap.
+
+image:
+  repository: ghcr.io/nanohype/incident-response
+  tag: ""
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  # Free-form additional annotations to merge into the ServiceAccount. The
+  # eks.amazonaws.com/role-arn annotation is generated separately from
+  # aws.platformRoleArn so per-env role swaps don't trample on this map.
+  annotations: {}
+
+aws:
+  # ARN of the IRSA role marshal's pods assume. Comes from landing-zone's
+  # marshal-platform component (output: irsa_role_arn). Empty at the chart
+  # level — per-env values plumb in the actual ARN. Empty value omits the
+  # eks.amazonaws.com/role-arn annotation entirely (useful for local
+  # helm-template / kind smoke runs where no real IAM role exists).
+  platformRoleArn: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+webhook:
+  enabled: true
+  replicaCount: 2          # public-facing — keep two for rolling restarts
+  port: 3001
+  command: ["node", "--enable-source-maps", "dist/bin/webhook-server.js"]
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+processor:
+  enabled: true
+  replicaCount: 1          # Slack socket-mode singleton (multiple sockets would dupe events)
+  port: 3001
+  command: ["node", "--enable-source-maps", "dist/index.js"]
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+probes:
+  webhook:
+    liveness:
+      httpGet:
+        path: /health
+        port: 3001
+      initialDelaySeconds: 10
+      periodSeconds: 30
+    readiness:
+      httpGet:
+        path: /health
+        port: 3001
+      initialDelaySeconds: 5
+      periodSeconds: 10
+  processor:
+    liveness:
+      httpGet:
+        path: /health
+        port: 3001
+      initialDelaySeconds: 30          # Bolt socket-mode connect takes a moment
+      periodSeconds: 30
+      failureThreshold: 5
+    readiness:
+      httpGet:
+        path: /health
+        port: 3001
+      initialDelaySeconds: 10
+      periodSeconds: 10
+
+ingress:
+  enabled: true
+  className: nginx
+  tls:
+    enabled: true
+    issuer: letsencrypt-prod
+  host: ""                  # set per-env
+  path: /webhook            # Grafana OnCall sends POST here
+
+externalSecret:
+  enabled: true
+  secretStore: aws-secrets-manager
+  refreshInterval: 1h
+  # Source secrets in AWS Secrets Manager. The HMAC secret has its own entry
+  # because the webhook handler caches it keyed on VersionId (per
+  # src/handlers/webhook-ingress.ts).
+  hmacSecret: ""            # marshal/<env>/grafana-oncall-hmac
+  appSecret: ""             # marshal/<env>/app-secrets (Slack, Linear, Grafana, Statuspage, WorkOS)
+  grafanaCloudSecret: ""    # marshal/<env>/grafana-cloud (OTLP basic auth)
+
+prometheusRule:
+  # Ships the rules to Mimir via the kube-prometheus-stack PrometheusRule CR.
+  # Set `enabled: false` if your cluster doesn't run kube-prometheus-stack
+  # (e.g. using direct Mimir ruler API instead — operator-side decision).
+  enabled: true
+  # Label that the Prometheus operator selector watches for. Match whatever
+  # eks-gitops's kube-prometheus-stack release uses (default in upstream is
+  # `release: <prometheus-release-name>`; matched on prometheus.spec.ruleSelector).
+  selector:
+    release: kube-prometheus-stack
+
+grafanaDashboard:
+  # Uses the grafana_dashboard sidecar pattern — Grafana auto-imports any
+  # ConfigMap with `grafana_dashboard: "1"` label.
+  enabled: true
+
+networkPolicy:
+  enabled: true
+
+env:
+  AWS_REGION: us-east-1
+  BEDROCK_MODEL_ID: anthropic.claude-sonnet-4-6
+  LOG_LEVEL: info
+  NODE_ENV: production
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability.svc.cluster.local:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_TRACES_SAMPLER: always_on
+  OTEL_METRICS_EXPORTER: otlp
+  OTEL_METRIC_EXPORT_INTERVAL: "60000"
+  OTEL_RESOURCE_ATTRIBUTES: "service.namespace=marshal,service.version=0.1.0,agents.tenant=protohype,agents.platform=marshal"
+
+# Per-tenant infra references — populated by per-env values from the
+# landing-zone marshal-platform component's outputs (terragrunt run-all
+# output -json — the chart values plumb these in at apply time).
+tenantInfra:
+  incidentsTableName: ""
+  auditTableName: ""
+  identityCacheTableName: ""    # output: identity_cache_table_name
+  incidentEventsQueueUrl: ""
+  nudgeEventsQueueUrl: ""
+  nudgeEventsQueueArn: ""
+  slaCheckQueueUrl: ""
+  schedulerRoleArn: ""
+  schedulerGroupName: ""
+  auditBucketName: ""           # output: audit_bucket_name
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

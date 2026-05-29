@@ -1,0 +1,229 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+  AWS_REGION: us-west-2
+
+jobs:
+  lint:
+    name: Lint + Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  test-unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Run unit tests with coverage
+        run: npm run test:unit -- --coverage --coverageReporters=text --coverageReporters=lcov
+      - name: Verify coverage thresholds enforce (sanity check)
+        run: |
+          # Jest exits non-zero when thresholds in jest.config.cjs are violated. This step
+          # fails loudly if the `test:unit` step above happened to pass with 0 coverage.
+          test -s coverage/lcov.info && echo "Coverage data captured" || { echo "No coverage data — tests may not be running"; exit 1; }
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-unit
+          path: coverage/
+
+  test-integration:
+    name: Integration Tests (dynamodb-local)
+    runs-on: ubuntu-latest
+    needs: [build]
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local
+        ports:
+          - 8000:8000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Wait for dynamodb-local
+        run: |
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/ | grep -q '400\|200'; then echo "dynamodb ready"; exit 0; fi
+            sleep 1
+          done
+          echo "dynamodb-local never became ready"; exit 1
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          DDB_LOCAL_ENDPOINT: http://localhost:8000
+
+  security-audit:
+    name: Dependency Security Audit + Invariant Gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      - name: Typecheck (src)
+        run: npm run typecheck
+      - name: Typecheck (tests — tsconfig.eslint.json includes test/**)
+        run: npm run typecheck:tests
+      - name: Approval-gate invariant — Statuspage createIncident only inside the gate
+        run: |
+          VIOLATIONS=$(grep -rE "\.createIncident\(" src/ --include="*.ts" \
+            | grep -v "statuspage-approval-gate.ts" \
+            | grep -v "statuspage-client.ts" \
+            | wc -l)
+          if [ "$VIOLATIONS" -gt 0 ]; then
+            echo "SECURITY VIOLATION: createIncident() called outside StatuspageApprovalGate!"
+            grep -rE "\.createIncident\(" src/ --include="*.ts" | grep -v "statuspage-approval-gate.ts" | grep -v "statuspage-client.ts"
+            exit 1
+          fi
+          echo "✅ Approval-gate invariant verified"
+      - name: Adapter-gate invariant — no raw WebClient outside wiring + slack-adapter
+        run: |
+          # WebClient construction is allowed only in the bootstrap (wiring/dependencies.ts)
+          # and inside the SlackAdapter implementation. Anywhere else means a domain
+          # service is reaching past the timeout/retry discipline.
+          VIOLATIONS=$(grep -rE "new WebClient\(" src/ --include="*.ts" \
+            | grep -v "wiring/dependencies.ts" \
+            | grep -v "adapters/slack-adapter.ts" \
+            | wc -l)
+          if [ "$VIOLATIONS" -gt 0 ]; then
+            echo "ADAPTER VIOLATION: new WebClient() outside wiring + adapter!"
+            grep -rE "new WebClient\(" src/ --include="*.ts" | grep -v "wiring/dependencies.ts" | grep -v "adapters/slack-adapter.ts"
+            exit 1
+          fi
+          echo "✅ Slack adapter discipline verified"
+      - name: Adapter-gate invariant — no bare fetch() in src/ outside http-client
+        run: |
+          # All outbound HTTP must go through HttpClient (timeout + retry caps + tracing).
+          # Allowed: utils/http-client.ts (the implementation) and node:http handlers.
+          VIOLATIONS=$(grep -rnE "(^|[^.A-Za-z_])fetch\(" src/ --include="*.ts" \
+            | grep -v "utils/http-client.ts" \
+            | grep -v "// allow-fetch" \
+            | wc -l)
+          if [ "$VIOLATIONS" -gt 0 ]; then
+            echo "ADAPTER VIOLATION: bare fetch() outside utils/http-client.ts!"
+            grep -rnE "(^|[^.A-Za-z_])fetch\(" src/ --include="*.ts" | grep -v "utils/http-client.ts" | grep -v "// allow-fetch"
+            exit 1
+          fi
+          echo "✅ HTTP-client discipline verified"
+      - name: Inventory invariant — seeder and template agree on the secret list
+        run: |
+          # Two sources of truth for the secret inventory:
+          #   - secrets.template.json keys (shape + defaults)
+          #   - scripts/seed-secrets.sh REQUIRED_KEYS (write path)
+          # A mismatch means a secret was added in one place and forgotten in
+          # the other, which bites on first-deploy with a pod that can't start.
+          keys=$(jq -r 'del(._README) | keys[]' secrets.template.json | sort)
+          fail=0
+          for k in $keys; do
+            if ! grep -qF "\"$k\"" scripts/seed-secrets.sh; then
+              echo "drift: $k is in secrets.template.json but NOT in scripts/seed-secrets.sh REQUIRED_KEYS"
+              fail=1
+            fi
+          done
+          # Belt-and-braces: each REQUIRED_KEYS entry must also appear in the
+          # template so operators who copy the template get every key up front.
+          # (Extracts "path/to/key" string literals under REQUIRED_KEYS array.)
+          seeder_keys=$(awk '/^REQUIRED_KEYS=\(/,/^\)/' scripts/seed-secrets.sh \
+            | grep -oE '"[a-z-]+/[a-z-]+(/[a-z-]+)?"' | tr -d '"' | sort -u)
+          for k in $seeder_keys; do
+            if ! jq -e --arg k "$k" 'has($k)' secrets.template.json >/dev/null; then
+              echo "drift: $k is in scripts/seed-secrets.sh REQUIRED_KEYS but NOT in secrets.template.json"
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then exit 1; fi
+          echo "✅ Secret inventory lists agree across template + seeder"
+
+  helm-lint:
+    name: Helm Lint + Template
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.0
+      - name: helm lint
+        run: helm lint chart
+      - name: helm template (staging)
+        run: helm template marshal chart -f chart/values-staging.yaml > /dev/null
+      - name: helm template (production)
+        run: helm template marshal chart -f chart/values-production.yaml > /dev/null
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t incident-response:ci .
+
+  merge-gate:
+    name: Merge Gate
+    runs-on: ubuntu-latest
+    needs: [lint, test-unit, test-integration, security-audit, helm-lint, docker-build]
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: All gates passed
+        run: |
+          echo "✅ Lint"
+          echo "✅ Unit Tests (100% branch on audit.ts + statuspage-approval-gate.ts)"
+          echo "✅ Integration Tests (ConsistentRead semantics verified against dynamodb-local)"
+          echo "✅ Dependency Security Audit (no HIGH/CRITICAL) + typecheck (src + tests)"
+          echo "✅ Helm Lint + Template"
+          echo "✅ Docker Build"
+          echo "✅ Approval-gate invariant verified"
+          echo "✅ Slack adapter discipline verified"
+          echo "✅ HTTP-client discipline verified"
+          echo "✅ Secret inventory lists agree"

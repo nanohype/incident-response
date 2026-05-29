@@ -1,0 +1,134 @@
+# incident-response
+
+Ceremonial incident commander assistant — P1 war-room assembly, approval-gated Statuspage publish, postmortem draft.
+
+> Internal service handle: `marshal`. The npm package, the OTel `service.namespace` / `agents.platform`, the `/marshal` slash commands + Slack app, and the `marshal/<env>/*` secret prefixes all stay `marshal` — they're coupled to the landing-zone `marshal-platform` substrate component.
+
+## What This Is
+
+A protohype subsystem composing nanohype templates (`ts-service` worker-service variant, `infra-aws`, `agentic-loop`, `prompt-library`, `module-llm`) into a long-running Slack-socket-mode daemon. A webhook Deployment behind ingress-nginx ingests Grafana OnCall alerts; a processor Deployment runs the Slack socket-mode singleton.
+
+Fork me for a different client by swapping secrets, DynamoDB table names, Slack workspace, Linear project, and Grafana tenant. Port-based DI is load-bearing — every external call goes through a constructor-injected client, not a module import. End-to-end walkthrough in `docs/forking-for-a-new-client.md`.
+
+## How It Works
+
+Grafana OnCall fires a webhook → the webhook Deployment (behind ingress-nginx) verifies HMAC-SHA256, validates Zod schema, idempotently writes to DynamoDB, enqueues to SQS FIFO → the processor Deployment picks up the event, dispatches via `EventRegistry` to `WarRoomAssembler` → Slack private channel created, responders invited via parallel WorkOS Directory Sync + Grafana OnCall queries, Grafana Cloud context snapshot attached, checklist pinned, 15-min nudge scheduled via EventBridge Scheduler.
+
+When the IC runs `/marshal resolve`, the `CommandRegistry` dispatches to the resolve handler: generates a postmortem draft via Bedrock (`claude-sonnet-4-6`), creates a Linear issue via `@linear/sdk`, deletes the nudge schedule, posts a 1–5 star pulse rating to the channel, flips the incident status to RESOLVED, and writes `INCIDENT_RESOLVED` + `POSTMORTEM_CREATED` audit events.
+
+Customer-facing Statuspage messages ALWAYS go through the `StatuspageApprovalGate`. The gate writes `STATUSPAGE_DRAFT_APPROVED` to the audit log, then queries the same log with `ConsistentRead: true`, and only then calls `StatuspageClient.createIncident()`. If the audit write or the verify fails, the Statuspage call never happens and the gate throws `AutoPublishNotPermittedError`. CI grep-gate prevents any new call site of `createIncident()` outside the gate file.
+
+## Architecture
+
+- **src/index.ts** — thin wiring layer (<80 LOC). Env validation, dependency construction via `src/wiring/`, command + event registries, Slack app startup, SQS consumer startup, health server, SIGTERM handler.
+- **src/wiring/** — `dependencies.ts` constructs all clients/services in one place; `commands.ts` / `events.ts` register handlers. Keeps `index.ts` from becoming a god module.
+- **src/handlers/webhook-ingress.ts** — handler for Grafana OnCall webhooks, served by the webhook Deployment. HMAC verification with `crypto.timingSafeEqual`. Secret cache keyed on SecretsManager `VersionId`, 5-min TTL, force-refresh on verification failure (rotation race recovery).
+- Bedrock invocation logging is set to NONE at the account level so IC↔AI conversations never reach CloudWatch. That's an account-level landing-zone control, not app code — there is no in-app handler for it.
+- **src/services/command-registry.ts** — typed slash-command dispatcher. Register handlers via `.register(name, handler)`. Case-insensitive. Unknown subcommand returns "Unknown command" reply.
+- **src/services/event-registry.ts** — typed SQS event dispatcher. Unknown event types log a warn and no-op.
+- **src/services/war-room-assembler.ts** — assembles the war room (channel → responders → context → checklist → nudge). Parallel responder resolution via `Promise.allSettled`. Non-critical Slack calls wrapped in `withTimeoutOrDefault`.
+- **src/services/statuspage-approval-gate.ts** — THE critical module. ONLY code path that calls `StatuspageClient.createIncident()`. Two-phase commit. 100% branch coverage enforced by CI.
+- **src/services/nudge-scheduler.ts** — EventBridge Scheduler wrapper. Per-incident schedules. IC silence disables (not deletes) the schedule so audit trail is preserved.
+- **src/services/sqs-consumer.ts** — Long-polling SQS consumer. DLQ-safe — no `DeleteMessage` on handler exception. Visibility timeout (300s) drives retry.
+- **src/commands/** — one file per `/marshal` subcommand. Each exports a `make<Name>Handler(deps)` factory. `resolve.ts` is the full 9-step resolution (load → commits → Bedrock postmortem → Linear issue → delete nudge → pulse blocks → status flip + audit → public announce → archive channel). Honest-failure paths: if Linear fails, the incident still flips to RESOLVED but the IC reply is explicit about what worked and what didn't.
+- **src/events/** — one file per SQS event type.
+- **src/actions/register-slack-actions.ts** — Slack Block Kit interactive action bindings (approve, edit, silence, pulse 1–5).
+- **src/clients/** — per-service adapters. All use `HttpClient` (5s timeout, 2-retry cap, jittered backoff) except `linear-client` (uses `@linear/sdk` directly, with every SDK call wrapped in `withTimeout(8000ms)` since the SDK has no native deadline).
+- **src/ai/marshal-ai.ts** — Bedrock wrapper. System prompts have `cache_control: { type: 'ephemeral' }`. `stripPII` runs BEFORE every Bedrock call. Safe fallback templates for both `generateStatusDraft` and `generatePostmortemSections` if Bedrock fails.
+- **src/utils/audit.ts** — All writes AWAITED. ConditionExpression for idempotency. `stringifyError` helper exported so the ternary branch coverage on error-path logging can hit both arms explicitly.
+- **src/utils/http-client.ts** — Base HTTP client. Hard-capped timeout (≤5000ms) and retries (≤2). AbortController. Structured log on every retry + timeout.
+- **src/utils/metrics.ts** — `MetricsEmitter` over `PutMetricData`. Fire-and-forget. Catches and warns on failure — never throws up to the caller.
+- **src/utils/with-timeout.ts** — `withTimeout` (throws on deadline) + `withTimeoutOrDefault` (swallows, returns fallback, warn-logs). Used around non-critical Slack calls.
+- **src/utils/env.ts** — `requireEnv(vars)` — fail-fast on missing required env vars.
+- **src/utils/logger.ts** — Structured JSON logger to stdout/stderr. `.child({ incident_id })` threads correlation IDs.
+- **src/types/** — bounded-context modules (`incident`, `grafana`, `audit`, `statuspage`, `postmortem`, `directory`, `errors`) re-exported through `types/index.ts` as a barrel. Custom error classes (`AutoPublishNotPermittedError`, `DirectoryLookupFailedError`, `ExternalClientTimeoutError`) live in `types/errors.ts`. Directory types (`DirectoryUser`) are IdP-neutral so swapping WorkOS for another provider is a client-file change, not a type surgery.
+- **src/utils/incident-lookup.ts** — resolves war-room `channel_id` → canonical `incident_id` via the `slack-channel-index` GSI. Called from `src/index.ts` for every channel-scoped `/marshal` subcommand before dispatch, so handlers receive the real incident ID and slash-command state queries go through a single index-backed lookup rather than a direct PK hit on a guessed ID.
+- **chart/** — Helm chart for the k8s deployment. `Chart.yaml`, `values.yaml`, per-env deltas (`values-{staging,production}.yaml`), and templates under `chart/templates/`: `webhook-deployment.yaml` + `webhook-service.yaml` + `webhook-ingress.yaml` (the webhook Deployment running `src/bin/webhook-server.ts`, served publicly via ingress-nginx for the Grafana OnCall HMAC POSTs), `processor-deployment.yaml` (Slack socket-mode singleton, `Recreate` strategy, 60s `terminationGracePeriodSeconds` for in-flight SQS drain), `serviceaccount.yaml` (shared SA; `eks.amazonaws.com/role-arn` annotation rendered from `aws.platformRoleArn` per-env, pointing at the landing-zone `marshal-platform` `irsa_role_arn` output), `networkpolicy.yaml` (ingress-nginx → webhook only; egress: DNS + HTTPS), `externalsecret.yaml` (pulls marshal/<env>/grafana-oncall-hmac + app-secrets + grafana-cloud into one Secret consumed via envFrom; HMAC secret is also passed as `GRAFANA_ONCALL_HMAC_SECRET_ID` env for the handler's VersionId-keyed cache refresh), `prometheusrule.yaml` (three SLO + reliability rules), `grafana-dashboard.yaml` (ConfigMap labeled `grafana_dashboard: "1"`, auto-imported by the kube-prometheus-stack Grafana sidecar from `chart/dashboards/marshal.json`). Observability is cluster-level via eks-gitops: Pino JSON → cluster log forwarder → Grafana Cloud Loki; OTLP → `otel-collector.observability.svc.cluster.local:4318` → Grafana Cloud Tempo + Mimir. See `chart/README.md` for the full template-by-template description.
+- **platform.yaml** — Platform CR (`agents.stxkxs.io/v1alpha1`) declaring marshal as a tenant of the `protohype` team on the `eks-agent-platform` operator. Operator reconciles Namespace `tenants-protohype`, ResourceQuota (4 CPU / 8Gi memory), LimitRange, default-deny NetworkPolicy, ArgoCD AppProject, IRSA role with placeholder ARNs for dynamodb-rw, sqs-consumer, bedrock-invoke, scheduler-rw, secrets-read, cloudwatch-putmetric, KMS grants on `cmk-data`, S3 bucket policy on `marshal-artifacts`.
+- **gitops/applicationset-entry.yaml** — ApplicationSet entry for `nanohype/eks-gitops` (`applicationsets/apps-tenants.yaml`). Matrix generator (clusters × `[marshal]`), Helm multi-source `$values` pattern, sync wave 100.
+- **src/bin/webhook-server.ts** — Thin `node:http` wrapper around `src/handlers/webhook-ingress.ts`'s `APIGatewayProxyHandlerV2`. Constructs an `APIGatewayProxyEventV2`-shaped object from the inbound request, calls the handler, marshals the response back. No new runtime dependencies (node:http is built-in; `@types/aws-lambda` is a devDependency that supplies the handler's event/response types). This is the entrypoint the webhook Deployment runs; it mounts the handler on POST plus `/health` for k8s probes.
+- **test/unit/** — isolated tests: adapters, circuit breaker, audit writer, approval gate, registries, HMAC cache. `audit.test.ts` and `statuspage-approval-gate.test.ts` at 100% branch.
+- **test/integration/** — against `amazon/dynamodb-local`. Exercise `ConsistentRead` semantics, idempotency, cross-incident isolation.
+
+## Commands
+
+```bash
+npm install                        # or npm ci against the committed lockfile
+npm run lint
+npm run format                     # Prettier — write
+npm run format:check               # Prettier — verify
+npm run typecheck                  # tsc --noEmit (runs as part of `check`)
+npm run build                      # tsc → dist/
+npm run test:unit                  # enforces 100% branch on audit + approval-gate
+npm run test:integration           # requires dynamodb-local on :8000 (or use :docker below)
+npm run test:integration:docker    # starts Docker container, runs tests, cleans up
+npm run check                      # typecheck + lint + format:check + test:unit — CI parity
+npm run dev                        # ts-node-dev against local Slack socket-mode
+npm run chart:lint                  # helm lint chart
+npm run chart:template:staging      # render chart with staging values
+npm run chart:template:production   # render chart with production values
+
+# Operator helpers (per-env flavours: :staging / :production)
+npm run seed:staging               # JSON-driven Secrets Manager seed
+npm run drill:staging              # fire a synthetic HMAC-signed P1
+npm run drill:join:staging -- --user U…    # invite yourself to the freshest war-room channel
+npm run observe:staging            # snapshot latest incident's state + audit trail
+```
+
+## Configuration
+
+See README's Configuration table and `docs/secrets.md`. Secrets live in AWS Secrets Manager with separate rotation cadences — the CI inventory-drift gate enforces agreement across `secrets.template.json`, `scripts/seed-secrets.sh`, and the chart's `externalsecret.yaml` remoteRefs. The External Secrets Operator projects them into one k8s Secret consumed via `envFrom`. The HMAC cache refreshes on `VersionId` change, so rotating the Grafana OnCall webhook HMAC secret does not require a pod restart. Other secrets (Slack, Linear, Grafana, Statuspage, WorkOS) are projected by the ExternalSecret; after rotation, `kubectl rollout restart` the relevant Deployment so the running pods pick up the new value.
+
+## Conventions
+
+Project conventions (Node 24, ESM `.js` suffixes, strict TS with `exactOptionalPropertyTypes`, Zod at boundaries, structured JSON logging) come from root `protohype/CLAUDE.md`.
+
+Marshal-specific:
+
+- **Audit writes are awaited.** `@typescript-eslint/no-floating-promises: error` enforces this. A fire-and-forget audit write is a security bug, not a style issue.
+- **Slack calls have explicit deadlines.** WebClient-level `timeout: 10000` plus per-call `withTimeout` / `withTimeoutOrDefault` for non-critical paths. Assembly must complete in ≤5 min SLO and cannot be hostage to a single wedged call.
+- **Silent stubs are bugs.** If a command doesn't drive its action through, it says so to the IC. Never reply "triggered" for work that didn't happen.
+- **Metrics are best-effort.** `MetricsEmitter` swallows errors. Operational visibility degrades; incident handling doesn't.
+- **Registry pattern for dispatch.** New slash command = one file in `src/commands/`, one `.register()` line in `src/wiring/commands.ts`. Never grow a `switch` in `index.ts`.
+- **Port-based DI for subsystem reuse.** Every external service accessed through a constructor-injected client. Forking marshal for a new client means swapping the client instance, not touching business logic.
+
+## Testing
+
+### Test matrix
+
+| Tier | Files | What they exercise |
+|------|-------|-------------------|
+| Static | `tsconfig.json` strict + `eslint.config.mjs` + `.prettierrc.json` | Types, lint rules (no floating promises, no-explicit-any, no-console), consistent format |
+| Unit | `test/unit/*.test.ts` | Pure functions, mocked SDKs, handler flows, adapter fail modes |
+| Integration | `test/integration/*.integration.test.ts` | Real dynamodb-local — `ConsistentRead`, idempotency, cross-incident isolation |
+| E2E (scripted) | `scripts/fire-drill.sh`, `scripts/ci-drill.sh` | Full webhook → SQS → processor → Slack → DDB path, in a live staging stack |
+| E2E (manual) | `artifacts/incident-drill-playbook.md` | Tabletop + live-fire drills against real Grafana OnCall routing |
+
+### Coverage
+
+- 100% branch on `src/utils/audit.ts` and `src/services/statuspage-approval-gate.ts`. CI fails on regression.
+- Global 55% branches / 75% statements / 75% lines / 75% functions. These are honest thresholds — if a future PR lowers coverage, CI goes red.
+- Regression experiment proves enforcement is live: flipping `ConsistentRead: true` → `false` in `audit.ts` makes `npm run test:unit` exit 1. See README for the procedure.
+
+### Adding tests
+
+- Security-critical changes go in the 100%-threshold files. Every new branch needs both sides covered.
+- Dispatch-layer changes (new command, new event) get a handler-level unit test plus an entry in the relevant registry test.
+- Anything that depends on DynamoDB semantics (consistency, conditions, GSI) → integration test, not unit.
+
+## Dependencies
+
+| Package | Why |
+|---------|-----|
+| `@slack/bolt`, `@slack/web-api` | Slack socket mode + channel/user operations |
+| `@aws-sdk/client-dynamodb`, `@aws-sdk/lib-dynamodb` | Incident + audit state |
+| `@aws-sdk/client-sqs` | Incident event queue (FIFO) |
+| `@aws-sdk/client-secrets-manager` | HMAC secret fetch for the webhook handler (VersionId-keyed cache refresh) |
+| `@aws-sdk/client-scheduler` | EventBridge Scheduler for 15-min nudges |
+| `@aws-sdk/client-bedrock-runtime` | `claude-sonnet-4-6` + `claude-haiku-4-5` inference via `InvokeModel` |
+| `@aws-sdk/client-cloudwatch` | Custom metrics (assembly latency, approval-gate latency, etc.) |
+| `@linear/sdk` | Postmortem issue creation in Linear |
+| `zod` | Webhook payload validation at the webhook ingress boundary |
+| `aws-sdk-client-mock`, `aws-sdk-client-mock-jest` | Mocking AWS calls in unit tests |
+
+No heavy AI frameworks (no LangChain) — direct Bedrock SDK calls via `MarshalAI`.

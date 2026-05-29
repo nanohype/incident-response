@@ -1,0 +1,18 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "marshal.fullname" . }}-webhook
+  labels:
+    {{- include "marshal.labels" . | nindent 4 }}
+    marshal.io/service: webhook
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.webhook.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "marshal.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "service" "webhook") | nindent 4 }}
+{{- end }}

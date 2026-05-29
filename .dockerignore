@@ -1,0 +1,9 @@
+node_modules
+infra/node_modules
+infra/cdk.out
+dist
+coverage
+.git
+test
+**/*.test.ts
+artifacts

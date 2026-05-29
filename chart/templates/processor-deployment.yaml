@@ -1,0 +1,61 @@
+{{- if .Values.processor.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "marshal.fullname" . }}-processor
+  labels:
+    {{- include "marshal.labels" . | nindent 4 }}
+    marshal.io/service: processor
+spec:
+  replicas: {{ .Values.processor.replicaCount }}
+  # Recreate (not RollingUpdate) — Slack socket-mode is a singleton; brief
+  # downtime during deploys is preferable to two sockets briefly running and
+  # dispatching the same event twice.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "marshal.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "service" "processor") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "marshal.labels" . | nindent 8 }}
+        marshal.io/service: processor
+      annotations:
+        checksum/external-secret: {{ printf "%s-%s-%s" .Values.externalSecret.hmacSecret .Values.externalSecret.appSecret .Values.externalSecret.refreshInterval | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "marshal.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 60   # drain in-flight SQS messages
+      containers:
+        - name: processor
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: {{ .Values.processor.command }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.processor.port }}
+              protocol: TCP
+          env:
+            {{- include "marshal.env" (dict "Values" .Values "service" "processor") | nindent 12 }}
+            - name: OTEL_SERVICE_NAME
+              value: marshal-processor
+          envFrom:
+            - secretRef:
+                name: {{ include "marshal.fullname" . }}-secrets
+          livenessProbe:
+            {{- toYaml .Values.probes.processor.liveness | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.probes.processor.readiness | nindent 12 }}
+          resources:
+            {{- toYaml .Values.processor.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}
