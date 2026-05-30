@@ -21,8 +21,8 @@ app.kubernetes.io/name: {{ include "marshal.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-agents.stxkxs.io/tenant: protohype
-agents.stxkxs.io/platform: marshal
+agents.nanohype.dev/tenant: protohype
+agents.nanohype.dev/platform: marshal
 {{- end -}}
 
 {{- define "marshal.selectorLabels" -}}
