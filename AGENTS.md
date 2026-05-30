@@ -35,10 +35,10 @@ Shipping this on a cluster means three artifacts travel together: the **Platform
 
 ### The Platform CR (`platform.yaml`)
 
-Two CRs under `agents.stxkxs.io/v1alpha1` — a `BudgetPolicy` and the `Platform` that references it:
+Two CRs in different groups — a `BudgetPolicy` (`governance.nanohype.dev/v1alpha1`) and the `Platform` (`platform.nanohype.dev/v1alpha1`) that references it:
 
 ```yaml
-apiVersion: agents.stxkxs.io/v1alpha1
+apiVersion: governance.nanohype.dev/v1alpha1
 kind: BudgetPolicy
 metadata:
   name: marshal
@@ -49,7 +49,7 @@ spec:
   alertThresholdsPercent: [50, 80, 100]
   killSwitchEnabled: true
 ---
-apiVersion: agents.stxkxs.io/v1alpha1
+apiVersion: platform.nanohype.dev/v1alpha1
 kind: Platform
 metadata:
   name: marshal
