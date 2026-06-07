@@ -1,5 +1,5 @@
 /**
- * /marshal silence — pause 15-minute status reminders for this incident.
+ * /incident-response silence — pause 15-minute status reminders for this incident.
  */
 
 import type { CommandContext, CommandHandler } from '../services/command-registry.js';

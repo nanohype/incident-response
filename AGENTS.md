@@ -1,16 +1,16 @@
 # incident-response — agent entry point
 
-You're an AI client (or the author of one) about to run this service locally, add a `/marshal` subcommand, wire a new SQS event type, or ship it as a Platform tenant. This file gets you running in five minutes. For the wider picture — how this repo fits into the nanohype stack — read the [Platform Reference](../nanohype/docs/platform-reference.md).
+You're an AI client (or the author of one) about to run this service locally, add a `/incident-response` subcommand, wire a new SQS event type, or ship it as a Platform tenant. This file gets you running in five minutes. For the wider picture — how this repo fits into the nanohype stack — read the [Platform Reference](../nanohype/docs/platform-reference.md).
 
-> Internal service handle: **marshal**. The GitHub repo and product name are `incident-response`, but the npm package, the OTel `service.namespace` / `agents.platform`, the `/marshal` slash commands + the Slack app, and the `marshal/<env>/*` secret prefixes all stay `marshal` — they're coupled to the landing-zone `marshal-platform` substrate component. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full split.
+> Internal service handle: **incident-response**. The GitHub repo and product name are `incident-response`, but the npm package, the OTel `service.namespace` / `agents.platform`, the `/incident-response` slash commands + the Slack app, and the `incident-response/<env>/*` secret prefixes all stay `incident-response` — they're coupled to the landing-zone `incident-response-platform` substrate component. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full split.
 
 ## What this repo gives you
 
-A ceremonial incident-commander assistant for P1s. A Grafana OnCall webhook fires, and within a five-minute SLO the bot stands up a Slack war room: a private channel, responders pulled in parallel from WorkOS Directory Sync + the Grafana OnCall escalation chain, a Grafana Cloud context snapshot attached, an incident checklist pinned, and a 15-minute status-update nudge scheduled. The IC drives it from Slack with `/marshal` subcommands — `status`, `resolve`, `silence`, `checklist`, `help`.
+A ceremonial incident-commander assistant for P1s. A Grafana OnCall webhook fires, and within a five-minute SLO the bot stands up a Slack war room: a private channel, responders pulled in parallel from WorkOS Directory Sync + the Grafana OnCall escalation chain, a Grafana Cloud context snapshot attached, an incident checklist pinned, and a 15-minute status-update nudge scheduled. The IC drives it from Slack with `/incident-response` subcommands — `status`, `resolve`, `silence`, `checklist`, `help`.
 
 The load-bearing property is that **every customer-facing Statuspage message goes through the `StatuspageApprovalGate`** — a two-phase commit that writes an approval record to the audit log, re-reads it with `ConsistentRead: true`, and only then calls `StatuspageClient.createIncident()`. There is no auto-publish path. A CI grep-gate fails the build on any new call site of `createIncident()` outside that one file, and its branch coverage is pinned at 100%.
 
-It's built as a reusable subsystem. Every external-IO service is a constructor-injected client (port-based DI) — `src/wiring/dependencies.ts` is the single place real SDK clients are constructed, and everything downstream runs against the injected handle. Forking marshal for a different client means swapping clients, table names, and the Slack workspace, not touching business logic.
+It's built as a reusable subsystem. Every external-IO service is a constructor-injected client (port-based DI) — `src/wiring/dependencies.ts` is the single place real SDK clients are constructed, and everything downstream runs against the injected handle. Forking incident-response for a different client means swapping clients, table names, and the Slack workspace, not touching business logic.
 
 ## Run it in five minutes
 
@@ -20,7 +20,7 @@ cp .env.example .env       # fill in the required keys (see CLAUDE.md > Configur
 npm run dev                # ts-node-dev against a local Slack socket-mode connection
 ```
 
-In Slack: `/marshal help` lists the subcommands; `/marshal status` posts the current incident state.
+In Slack: `/incident-response help` lists the subcommands; `/incident-response status` posts the current incident state.
 
 ```bash
 npm run check                      # typecheck + lint + format:check + test:unit (CI parity, one shot)
@@ -41,10 +41,10 @@ Two CRs in different groups — a `BudgetPolicy` (`governance.nanohype.dev/v1alp
 apiVersion: governance.nanohype.dev/v1alpha1
 kind: BudgetPolicy
 metadata:
-  name: marshal
+  name: incident-response
   namespace: tenants-protohype
 spec:
-  platformRef: { name: marshal }
+  platformRef: { name: incident-response }
   monthlyUsd: "2500" # kill-switch fires at 120% (USD 3000)
   alertThresholdsPercent: [50, 80, 100]
   killSwitchEnabled: true
@@ -52,13 +52,13 @@ spec:
 apiVersion: platform.nanohype.dev/v1alpha1
 kind: Platform
 metadata:
-  name: marshal
+  name: incident-response
   namespace: tenants-protohype
 spec:
-  displayName: marshal
+  displayName: incident-response
   persona: ops
   tenant: protohype
-  budget: { name: marshal }
+  budget: { name: incident-response }
   identity:
     allowedModelFamilies: [anthropic] # Claude via Bedrock
     extraPolicyArns: [] # app pods assume the landing-zone role directly
@@ -66,7 +66,7 @@ spec:
   isolation: namespace
 ```
 
-The operator reconciles the namespace `tenants-protohype`, ResourceQuota, LimitRange, default-deny NetworkPolicy, ArgoCD AppProject, and a per-Platform IRSA role trusting the `tenant-runtime` SA. **marshal's own app pods don't use that operator role** — both workloads assume the landing-zone `marshal-platform` IRSA role directly via the chart's `aws.platformRoleArn` Helm value. `extraPolicyArns` stays empty for that reason; the operator's per-tenant role is for AgentFleet pods, not marshal's app pods. The tenant identity (`tenant: protohype`, namespace `tenants-protohype`, AppProject `tenant-protohype`) is the protohype *team* boundary, not the repo, and stays stable.
+The operator reconciles the namespace `tenants-protohype`, ResourceQuota, LimitRange, default-deny NetworkPolicy, ArgoCD AppProject, and a per-Platform IRSA role trusting the `tenant-runtime` SA. **incident-response's own app pods don't use that operator role** — both workloads assume the landing-zone `incident-response-platform` IRSA role directly via the chart's `aws.platformRoleArn` Helm value. `extraPolicyArns` stays empty for that reason; the operator's per-tenant role is for AgentFleet pods, not incident-response's app pods. The tenant identity (`tenant: protohype`, namespace `tenants-protohype`, AppProject `tenant-protohype`) is the protohype *team* boundary, not the repo, and stays stable.
 
 ### The Helm chart (`chart/`)
 
@@ -78,12 +78,12 @@ Two workloads in one chart — the webhook ingress and the processor — plus ev
 | `webhook-ingress.yaml`                                  | ingress-nginx + cert-manager TLS, `POST /webhook` for Grafana OnCall                                                                                                  |
 | `processor-deployment.yaml`                             | The Slack socket-mode singleton (`dist/index.js`) — SQS consumer + state machine. `Recreate` strategy + 60s `terminationGracePeriodSeconds` for in-flight SQS drain   |
 | `serviceaccount.yaml`                                   | Shared SA across both workloads; `eks.amazonaws.com/role-arn` rendered from `aws.platformRoleArn`                                                                      |
-| `externalsecret.yaml`                                   | ESO syncs `marshal/<env>/grafana-oncall-hmac` + `app-secrets` + `grafana-cloud` into one Secret consumed via `envFrom`; HMAC secret id also passed as env for the VersionId-keyed cache refresh |
+| `externalsecret.yaml`                                   | ESO syncs `incident-response/<env>/grafana-oncall-hmac` + `app-secrets` + `grafana-cloud` into one Secret consumed via `envFrom`; HMAC secret id also passed as env for the VersionId-keyed cache refresh |
 | `networkpolicy.yaml`                                    | Default-deny + ingress (ingress-nginx → webhook only) + egress (DNS + HTTPS)                                                                                           |
 | `prometheusrule.yaml`                                   | SLO + reliability alerts                                                                                                                                               |
-| `grafana-dashboard.yaml`                                | ConfigMap labeled `grafana_dashboard: "1"` loading `chart/dashboards/marshal.json`                                                                                     |
+| `grafana-dashboard.yaml`                                | ConfigMap labeled `grafana_dashboard: "1"` loading `chart/dashboards/incident-response.json`                                                                                     |
 
-`values.yaml` is the base; `values-staging.yaml` / `values-production.yaml` carry the per-env deltas (image tag, `aws.platformRoleArn`, `tenantInfra.*` from the landing-zone outputs, ingress host). The image is `ghcr.io/nanohype/marshal`. OTel attrs `service.namespace=marshal`, `agents.tenant=protohype`, and `agents.platform=marshal` are set in every values file (required by the platform-tenant contract — see the identity split in [`ARCHITECTURE.md`](ARCHITECTURE.md)).
+`values.yaml` is the base; `values-staging.yaml` / `values-production.yaml` carry the per-env deltas (image tag, `aws.platformRoleArn`, `tenantInfra.*` from the landing-zone outputs, ingress host). The image is `ghcr.io/nanohype/incident-response`. OTel attrs `service.namespace=incident-response`, `agents.tenant=protohype`, and `agents.platform=incident-response` are set in every values file (required by the platform-tenant contract — see the identity split in [`ARCHITECTURE.md`](ARCHITECTURE.md)).
 
 ### Required tenant files
 
@@ -93,7 +93,7 @@ A valid tenant in this repo is exactly these three, plus the chart's per-env val
 - `chart/` — the chart above, with `values.yaml` + `values-staging.yaml` + `values-production.yaml`
 - `gitops/applicationset-entry.yaml` — the ApplicationSet entry registered into `nanohype/eks-gitops` (matrix generator over clusters × the app, Helm multi-source `$values` resolving `values.yaml` + `values-<env>.yaml`, sync wave 100)
 
-## Add a `/marshal` subcommand
+## Add a `/incident-response` subcommand
 
 Slash commands live in `src/commands/` (one file per subcommand) behind the `CommandRegistry` (`src/services/command-registry.ts`). The registry is case-insensitive and replies "Unknown command" for anything unregistered, so dispatch never grows a `switch` in `src/index.ts`. To add one:
 
@@ -132,4 +132,4 @@ The processor drains two FIFO queues; each message dispatches through an `EventR
 - [`docs/`](docs/) — deployment guide, secrets, troubleshooting, drills, fork-for-a-new-client
 - [Platform Reference](../nanohype/docs/platform-reference.md) — the stack-wide view
 - [`eks-agent-platform`](https://github.com/nanohype/eks-agent-platform) — the operator that reconciles the Platform CR
-- [`landing-zone`](https://github.com/nanohype/landing-zone) — the `marshal-platform` substrate the chart's IRSA role and data stores live in
+- [`landing-zone`](https://github.com/nanohype/landing-zone) — the `incident-response-platform` substrate the chart's IRSA role and data stores live in

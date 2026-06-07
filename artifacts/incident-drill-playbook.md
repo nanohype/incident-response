@@ -1,7 +1,7 @@
-# Marshal — Incident Drill Playbook
+# IncidentResponse — Incident Drill Playbook
 **Author:** ops-incident  
 **Version:** 1.0  
-**Purpose:** Tabletop drill and live fire test protocol for Marshal before v1 launch  
+**Purpose:** Tabletop drill and live fire test protocol for IncidentResponse before v1 launch  
 **Required:** One tabletop drill + one monitored live-fire drill before launch gate  
 
 ---
@@ -9,7 +9,7 @@
 ## Overview
 
 Incident drills validate that:
-1. Marshal assembles a war room in ≤5 minutes (success metric)
+1. IncidentResponse assembles a war room in ≤5 minutes (success metric)
 2. The 100% approval gate is airtight (no test-induced publish without explicit IC approval)
 3. The postmortem draft appears in Linear within 2 minutes of resolution
 4. IC pulse rating is collected
@@ -24,7 +24,7 @@ Before any drill:
 
 - [ ] Staging environment deployed and healthy (ECS task running, DLQ empty)
 - [ ] Test Grafana OnCall integration configured (staging-specific webhook URL)
-- [ ] Test Slack workspace (or dedicated `#marshal-drill-*` channels isolated from production)
+- [ ] Test Slack workspace (or dedicated `#incident-response-drill-*` channels isolated from production)
 - [ ] Test Statuspage.io page (staging page, not the production customer-facing page)
 - [ ] Test Linear project (separate from production Incidents project)
 - [ ] All 14 Secrets Manager entries populated with staging credentials
@@ -38,7 +38,7 @@ Before any drill:
 
 **Duration:** 60 minutes  
 **Participants:** IC, ops-sre lead, engineering lead  
-**Goal:** Walk through the Marshal ceremony step-by-step; identify gaps in the design before live fire  
+**Goal:** Walk through the IncidentResponse ceremony step-by-step; identify gaps in the design before live fire  
 
 ### Scenario: "Database Connection Pool Exhausted at 3 AM"
 
@@ -46,12 +46,12 @@ Before any drill:
 At 3:02 AM, the checkout service starts timing out. Grafana OnCall fires a P1 alert (`integration_id: checkout-prod, team: payments-engineering`). The on-call engineer is the IC for this incident.
 
 **Tabletop questions:**
-1. *At alert fire (T+0):* Marshal creates the war room. Who gets invited? Walk through the WorkOS Directory Sync group + Grafana OnCall escalation chain resolution. What happens if WorkOS Directory Sync is down?
+1. *At alert fire (T+0):* IncidentResponse creates the war room. Who gets invited? Walk through the WorkOS Directory Sync group + Grafana OnCall escalation chain resolution. What happens if WorkOS Directory Sync is down?
 2. *At T+5:* Context snapshot is posted. The Grafana Cloud metrics show 45% error rate on checkout, p99 latency spiked to 8000ms. Error budget burn rate: 14x. The IC wants a status page draft. How does the IC trigger it? What does the draft say?
-3. *At T+12:* The IC is deep in debugging. Marshal nudges at 15 minutes. Walk through the nudge UX. What does the ephemeral message say? Can the IC silence it?
+3. *At T+12:* The IC is deep in debugging. IncidentResponse nudges at 15 minutes. Walk through the nudge UX. What does the ephemeral message say? Can the IC silence it?
 4. *At T+15:* IC approves the status page draft. Walk through the Block Kit approve flow. What audit events are written? What happens if the IC clicks "Approve" but Statuspage.io is down?
 5. *At T+45:* Incident resolved. How does the IC trigger resolution? What postmortem draft appears in Linear? Walk through each section.
-6. *Post-incident:* IC rates Marshal 4/5. How is this recorded?
+6. *Post-incident:* IC rates IncidentResponse 4/5. How is this recorded?
 
 **Discussion focus:**
 - Does the war room assembly sequence feel right for 3 AM?
@@ -65,7 +65,7 @@ At 3:02 AM, the checkout service starts timing out. Grafana OnCall fires a P1 al
 
 **Duration:** 45 minutes  
 **Participants:** IC (designated), 2 responders (designated), ops-sre observer, timekeeper  
-**Goal:** Validate that Marshal meets the ≤5-min assembly target and all key flows work  
+**Goal:** Validate that IncidentResponse meets the ≤5-min assembly target and all key flows work  
 
 ### Setup
 
@@ -98,7 +98,7 @@ At 3:02 AM, the checkout service starts timing out. Grafana OnCall fires a P1 al
 
 **T+0:00** — ops-sre sends webhook:
 ```bash
-HMAC_SECRET=$(aws secretsmanager get-secret-value --secret-id marshal/grafana/oncall-webhook-hmac --query SecretString --output text --profile staging)
+HMAC_SECRET=$(aws secretsmanager get-secret-value --secret-id incident-response/grafana/oncall-webhook-hmac --query SecretString --output text --profile staging)
 BODY='{"alert_group_id":"drill-001-happy-path",...}'  # full payload
 SIGNATURE=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$HMAC_SECRET" | awk '{print $2}')
 curl -X POST \
@@ -119,7 +119,7 @@ curl -X POST \
 | Checklist pinned | T+0:00 to T+1:30 | | |
 | **War room assembled (all responders in)** | **T+0:00 to T+5:00** | | |
 
-**At T+5:00** — IC runs `/marshal status draft`
+**At T+5:00** — IC runs `/incident-response status draft`
 - Expected: Approval message appears with draft body
 - Verify: Draft body contains no customer names, email addresses, account IDs
 - IC clicks "✅ Approve & Publish"
@@ -131,7 +131,7 @@ curl -X POST \
 - Expected: IC receives ephemeral nudge (visible only to IC)
 - Verify: IC sees the nudge; it does not appear to other participants
 
-**At T+20:00** — IC runs `/marshal resolve`
+**At T+20:00** — IC runs `/incident-response resolve`
 - Expected: Pulse rating appears (ephemeral to IC)
 - IC rates 4/5
 - Expected: `IC_RATED` audit event in DynamoDB within 30 seconds
@@ -146,7 +146,7 @@ curl -X POST \
 ```bash
 # This query must return 0 rows — ALWAYS
 aws dynamodb query \
-  --table-name marshal-audit-staging \
+  --table-name incident-response-audit-staging \
   --index-name published-without-approval-index \
   --key-condition-expression "action_type = :at" \
   --expression-attribute-values '{":at":{"S":"STATUSPAGE_PUBLISHED"}}' \
@@ -159,7 +159,7 @@ aws dynamodb query \
 ## Drill 3: Live Fire — WorkOS Directory Sync Failure Path
 
 **Duration:** 20 minutes  
-**Goal:** Validate that Marshal gracefully handles WorkOS Directory Sync failure and surfaces clear error to IC  
+**Goal:** Validate that IncidentResponse gracefully handles WorkOS Directory Sync failure and surfaces clear error to IC  
 
 ### Setup
 
@@ -175,7 +175,7 @@ aws dynamodb query \
 | Audit event `DIRECTORY_LOOKUP_FAILED` in DynamoDB | Yes | |
 | Audit event `ASSEMBLY_FALLBACK_INITIATED` in DynamoDB | Yes | |
 | No responders auto-invited | Responder count = 0 | |
-| IC can manually invite via `/marshal invite @user` | Yes | |
+| IC can manually invite via `/incident-response invite @user` | Yes | |
 
 ### Cleanup
 Restore the staging WorkOS API key.
@@ -229,7 +229,7 @@ After each drill, complete:
 - T+0 to first responder invited: ___
 - T+0 to context snapshot posted: ___
 
-**IC feedback on Marshal helpfulness (1-5):**
+**IC feedback on IncidentResponse helpfulness (1-5):**
 
 **Action items before next drill:**
 

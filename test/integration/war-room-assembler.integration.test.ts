@@ -16,8 +16,8 @@ import { GrafanaOnCallAlertPayload, GrafanaContextSnapshot } from '../../src/typ
 import { createSlackAdapter } from '../../src/adapters/slack-adapter.js';
 import { ddbLocalDoc, createAuditTable, deleteAuditTable, createIncidentsTable, deleteIncidentsTable } from './setup.js';
 
-const AUDIT_TABLE = 'marshal-audit-war-room-int';
-const INCIDENTS_TABLE = 'marshal-incidents-war-room-int';
+const AUDIT_TABLE = 'incident-response-audit-war-room-int';
+const INCIDENTS_TABLE = 'incident-response-incidents-war-room-int';
 
 // Narrow stub surface — only the methods WarRoomAssembler.assemble actually calls.
 type SlackStub = {
@@ -39,7 +39,7 @@ function makeSlackStub(
   }> = {},
 ): SlackStub {
   const channelId = overrides.channelId ?? 'C-WAR-ROOM';
-  const channelName = overrides.channelName ?? 'marshal-p1-20260416-abc123';
+  const channelName = overrides.channelName ?? 'incident-response-p1-20260416-abc123';
   return {
     conversations: {
       create: jest

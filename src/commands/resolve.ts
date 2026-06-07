@@ -1,9 +1,9 @@
 /**
- * /marshal resolve — the full resolution flow.
+ * /incident-response resolve — the full resolution flow.
  *
  * Steps (all AWAITED; partial failure is logged + audited but does not silently proceed):
  *   1. Load incident record from DynamoDB
- *   2. Ask MarshalAI for postmortem sections (Bedrock; falls back to template on failure)
+ *   2. Ask IncidentResponseAI for postmortem sections (Bedrock; falls back to template on failure)
  *   3. Create Linear postmortem draft (@linear/sdk) with 48h SLA deadline
  *   4. Delete the nudge schedule (stop pinging the IC for status updates)
  *   5. Post pulse-rating blocks to the channel
@@ -15,8 +15,8 @@
 import { GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type { CommandContext, CommandHandler } from '../services/command-registry.js';
-import type { MarshalAI, PostmortemInput } from '../ai/marshal-ai.js';
-import type { LinearMarshalClient } from '../clients/linear-client.js';
+import type { IncidentResponseAI, PostmortemInput } from '../ai/incident-response-ai.js';
+import type { LinearIncidentResponseClient } from '../clients/linear-client.js';
 import type { GitHubClient } from '../clients/github-client.js';
 import type { NudgeScheduler } from '../services/nudge-scheduler.js';
 import type { AuditWriter } from '../utils/audit.js';
@@ -30,8 +30,8 @@ import { withTimeoutOrDefault } from '../utils/with-timeout.js';
 export interface ResolveDeps {
   docClient: DynamoDBDocumentClient;
   incidentsTableName: string;
-  marshalAI: MarshalAI;
-  linearClient: LinearMarshalClient;
+  incidentResponseAI: IncidentResponseAI;
+  linearClient: LinearIncidentResponseClient;
   githubClient: GitHubClient;
   nudgeScheduler: NudgeScheduler;
   auditWriter: AuditWriter;
@@ -86,7 +86,7 @@ export function makeResolveHandler(deps: ResolveDeps): CommandHandler {
       for (const c of commits) recentDeploys.push(`${c.timestamp} • ${c.sha} • ${c.author} • ${c.message} (${repo})`);
     }
 
-    // Step 3: generate postmortem sections via Bedrock (MarshalAI has its own fallback template)
+    // Step 3: generate postmortem sections via Bedrock (IncidentResponseAI has its own fallback template)
     const pmInput: PostmortemInput = {
       incident_id: incident.incident_id,
       title: incident.alert_payload?.alert_group?.title ?? 'P1 Incident',
@@ -100,10 +100,10 @@ export function makeResolveHandler(deps: ResolveDeps): CommandHandler {
       recent_deploys: recentDeploys,
       statuspage_updates: [],
     };
-    const postmortemBody = await deps.marshalAI.generatePostmortemSections(pmInput, ctx.incidentId);
+    const postmortemBody = await deps.incidentResponseAI.generatePostmortemSections(pmInput, ctx.incidentId);
 
     // Step 4: create Linear postmortem draft
-    let linearDraft: Awaited<ReturnType<LinearMarshalClient['createPostmortemDraft']>> | undefined;
+    let linearDraft: Awaited<ReturnType<LinearIncidentResponseClient['createPostmortemDraft']>> | undefined;
     try {
       linearDraft = await deps.linearClient.createPostmortemDraft(
         incident.incident_id,
@@ -131,7 +131,7 @@ export function makeResolveHandler(deps: ResolveDeps): CommandHandler {
       ctx.slack.chat.postMessage({
         channel: ctx.channelId,
         blocks: buildPulseRatingBlocks(incident.incident_id),
-        text: '🎉 Incident resolved — how did Marshal do?',
+        text: '🎉 Incident resolved — how did IncidentResponse do?',
       }),
       7500,
       'slack.chat.postMessage:pulse-rating',
@@ -199,7 +199,7 @@ export function makeResolveHandler(deps: ResolveDeps): CommandHandler {
     await ctx.respond({
       text: linearDraft
         ? `✅ Resolved. Postmortem draft: <${linearDraft.linear_issue_url}|${linearDraft.linear_issue_id}> — SLA deadline ${linearDraft.sla_deadline}.`
-        : `⚠️ Resolved, but Linear postmortem creation failed. Create one manually and link it with \`/marshal link-postmortem <url>\` (v0.2).`,
+        : `⚠️ Resolved, but Linear postmortem creation failed. Create one manually and link it with \`/incident-response link-postmortem <url>\` (v0.2).`,
     });
   };
 }

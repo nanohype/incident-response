@@ -1,7 +1,7 @@
 /**
  * Grafana OnCall REST API client.
  * Read-only escalation-chain + on-call rotation queries.
- * Ack and resolve are the only write operations Marshal performs on OnCall.
+ * Ack and resolve are the only write operations IncidentResponse performs on OnCall.
  *
  * Two non-obvious things about this API surface (hard-won — confirm with curl
  * before changing):

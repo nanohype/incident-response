@@ -8,9 +8,9 @@ name: nightly-drill
 #
 # Prerequisites on the AWS side:
 #   - GH OIDC trust set up on a scoped IAM role (see docs/forking-for-a-new-client.md)
-#   - Role has: secretsmanager:GetSecretValue on marshal/staging/slack/bot-token
-#     + marshal/staging/grafana/oncall-webhook-hmac, dynamodb:Get/Query/DeleteItem
-#     on marshal-staging-*
+#   - Role has: secretsmanager:GetSecretValue on incident-response/staging/slack/bot-token
+#     + incident-response/staging/grafana/oncall-webhook-hmac, dynamodb:Get/Query/DeleteItem
+#     on incident-response-staging-*
 #
 # To enable, set repository variable `INCIDENT_RESPONSE_DRILL_ENABLED` to 'true'
 # and repository secret `AWS_DRILL_ROLE_ARN` to the role ARN.

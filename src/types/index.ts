@@ -1,5 +1,5 @@
 /**
- * Marshal — core type definitions, re-exported from bounded-context modules.
+ * IncidentResponse — core type definitions, re-exported from bounded-context modules.
  *
  * Downstream code imports from `../types/index.js`; the module organisation
  * below is an internal concern. To add a new type:

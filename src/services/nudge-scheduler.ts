@@ -25,8 +25,8 @@ export class NudgeScheduler {
     awsRegion: string,
     /**
      * EventBridge Scheduler group name. Staging and production share the same
-     * codebase but land schedules in separate groups (`marshal-staging`,
-     * `marshal-production`) so their rules don't collide — and the task role
+     * codebase but land schedules in separate groups (`incident-response-staging`,
+     * `incident-response-production`) so their rules don't collide — and the task role
      * IAM is scoped to `schedule/${groupName}/*`.
      */
     private readonly groupName: string,
@@ -49,7 +49,7 @@ export class NudgeScheduler {
             RoleArn: this.schedulerRoleArn,
             Input: JSON.stringify({ type: 'STATUS_UPDATE_NUDGE', incident_id: incidentId, channel_id: channelId }),
           },
-          Description: `Marshal 15-min status nudge for incident ${incidentId}`,
+          Description: `IncidentResponse 15-min status nudge for incident ${incidentId}`,
         }),
       );
       logger.info({ incident_id: incidentId, group: this.groupName }, 'Nudge schedule created');
@@ -91,6 +91,6 @@ export class NudgeScheduler {
   }
 
   private name(incidentId: string): string {
-    return `marshal-nudge-${incidentId.replace(/[^a-zA-Z0-9-_]/g, '-').substring(0, 50)}`;
+    return `incident-response-nudge-${incidentId.replace(/[^a-zA-Z0-9-_]/g, '-').substring(0, 50)}`;
   }
 }

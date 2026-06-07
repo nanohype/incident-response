@@ -1,5 +1,5 @@
 /**
- * Unit tests for /marshal resolve handler.
+ * Unit tests for /incident-response resolve handler.
  * Exercises the 6-step flow: load → AI postmortem → Linear draft → nudge delete → pulse rating → status flip.
  */
 
@@ -10,8 +10,8 @@ import 'aws-sdk-client-mock-jest';
 
 import { makeResolveHandler, type ResolveDeps } from '../../src/commands/resolve.js';
 import type { CommandContext } from '../../src/services/command-registry.js';
-import type { MarshalAI } from '../../src/ai/marshal-ai.js';
-import type { LinearMarshalClient } from '../../src/clients/linear-client.js';
+import type { IncidentResponseAI } from '../../src/ai/incident-response-ai.js';
+import type { LinearIncidentResponseClient } from '../../src/clients/linear-client.js';
 import type { GitHubClient } from '../../src/clients/github-client.js';
 import type { NudgeScheduler } from '../../src/services/nudge-scheduler.js';
 import type { AuditWriter } from '../../src/utils/audit.js';
@@ -20,7 +20,9 @@ const ddbMock = mockClient(DynamoDBDocumentClient);
 
 function mkDeps(): ResolveDeps {
   const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region: 'us-west-2' }));
-  const marshalAI = { generatePostmortemSections: jest.fn().mockResolvedValue('postmortem body') } as unknown as MarshalAI;
+  const incidentResponseAI = {
+    generatePostmortemSections: jest.fn().mockResolvedValue('postmortem body'),
+  } as unknown as IncidentResponseAI;
   const linearClient = {
     createPostmortemDraft: jest.fn().mockResolvedValue({
       incident_id: 'inc-1',
@@ -30,11 +32,20 @@ function mkDeps(): ResolveDeps {
       created_at: new Date().toISOString(),
       sla_deadline: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
     }),
-  } as unknown as LinearMarshalClient;
+  } as unknown as LinearIncidentResponseClient;
   const githubClient = { getRecentCommits: jest.fn().mockResolvedValue([]) } as unknown as GitHubClient;
   const nudgeScheduler = { deleteNudge: jest.fn().mockResolvedValue(undefined) } as unknown as NudgeScheduler;
   const auditWriter = { write: jest.fn().mockResolvedValue(undefined) } as unknown as AuditWriter;
-  return { docClient, incidentsTableName: 'tbl', marshalAI, linearClient, githubClient, nudgeScheduler, auditWriter, githubRepoNames: [] };
+  return {
+    docClient,
+    incidentsTableName: 'tbl',
+    incidentResponseAI,
+    linearClient,
+    githubClient,
+    nudgeScheduler,
+    auditWriter,
+    githubRepoNames: [],
+  };
 }
 
 function mkCtx(overrides: Partial<CommandContext> = {}): CommandContext {
@@ -60,14 +71,14 @@ const ACTIVE_INCIDENT = {
   severity: 'P1',
   alert_payload: { alert_group: { title: 'Database latency' } },
   slack_channel_id: 'C1',
-  slack_channel_name: 'marshal-p1-...',
+  slack_channel_name: 'incident-response-p1-...',
   responders: ['U-resp-1'],
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
   correlation_id: 'inc-1',
 };
 
-describe('/marshal resolve', () => {
+describe('/incident-response resolve', () => {
   beforeEach(() => {
     ddbMock.reset();
   });
@@ -100,7 +111,7 @@ describe('/marshal resolve', () => {
 
     await makeResolveHandler(deps)(ctx);
 
-    expect(deps.marshalAI.generatePostmortemSections).toHaveBeenCalled();
+    expect(deps.incidentResponseAI.generatePostmortemSections).toHaveBeenCalled();
     expect(deps.linearClient.createPostmortemDraft).toHaveBeenCalled();
     expect(deps.nudgeScheduler.deleteNudge).toHaveBeenCalledWith('inc-1');
     expect(deps.auditWriter.write).toHaveBeenCalledWith(

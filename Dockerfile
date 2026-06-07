@@ -14,7 +14,7 @@ RUN npm run build
 FROM node:24-alpine AS production
 
 # Security: run as non-root user
-RUN addgroup -g 1001 -S marshal && adduser -u 1001 -S marshal -G marshal
+RUN addgroup -g 1001 -S incident-response && adduser -u 1001 -S incident-response -G incident-response
 
 WORKDIR /app
 
@@ -24,9 +24,9 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 
 # Security hardening
-RUN chown -R marshal:marshal /app
+RUN chown -R incident-response:incident-response /app
 
-USER marshal
+USER incident-response
 
 EXPOSE 3001
 

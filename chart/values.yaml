@@ -1,4 +1,4 @@
-# Base values for marshal (all environments). Per-env deltas in values-{staging,production}.yaml.
+# Base values for incident-response (all environments). Per-env deltas in values-{staging,production}.yaml.
 #
 # Two workloads in one chart:
 #   - webhook   (Deployment, public ingress) — Grafana OnCall HMAC verifier + SQS enqueue
@@ -18,12 +18,20 @@ serviceAccount:
   annotations: {}
 
 aws:
-  # ARN of the IRSA role marshal's pods assume. Comes from landing-zone's
-  # marshal-platform component (output: irsa_role_arn). Empty at the chart
+  # ARN of the IRSA role incident-response's pods assume. Comes from landing-zone's
+  # incident-response-platform component (output: irsa_role_arn). Empty at the chart
   # level — per-env values plumb in the actual ARN. Empty value omits the
   # eks.amazonaws.com/role-arn annotation entirely (useful for local
   # helm-template / kind smoke runs where no real IAM role exists).
   platformRoleArn: ""
+
+# Resource attributes the shared chart labels read (tenant-chart-base.labels →
+# agents.nanohype.dev/{tenant,platform}). The OTEL_RESOURCE_ATTRIBUTES env var
+# carries the same values into the app's OTel SDK at runtime.
+otel:
+  resourceAttributes:
+    agents.tenant: protohype
+    agents.platform: incident-response
 
 podSecurityContext:
   runAsNonRoot: true
@@ -110,9 +118,9 @@ externalSecret:
   # Source secrets in AWS Secrets Manager. The HMAC secret has its own entry
   # because the webhook handler caches it keyed on VersionId (per
   # src/handlers/webhook-ingress.ts).
-  hmacSecret: ""            # marshal/<env>/grafana-oncall-hmac
-  appSecret: ""             # marshal/<env>/app-secrets (Slack, Linear, Grafana, Statuspage, WorkOS)
-  grafanaCloudSecret: ""    # marshal/<env>/grafana-cloud (OTLP basic auth)
+  hmacSecret: ""            # incident-response/<env>/grafana-oncall-hmac
+  appSecret: ""             # incident-response/<env>/app-secrets (Slack, Linear, Grafana, Statuspage, WorkOS)
+  grafanaCloudSecret: ""    # incident-response/<env>/grafana-cloud (OTLP basic auth)
 
 prometheusRule:
   # Ships the rules to Mimir via the kube-prometheus-stack PrometheusRule CR.
@@ -143,10 +151,10 @@ env:
   OTEL_TRACES_SAMPLER: always_on
   OTEL_METRICS_EXPORTER: otlp
   OTEL_METRIC_EXPORT_INTERVAL: "60000"
-  OTEL_RESOURCE_ATTRIBUTES: "service.namespace=marshal,service.version=0.1.0,agents.tenant=protohype,agents.platform=marshal"
+  OTEL_RESOURCE_ATTRIBUTES: "service.namespace=incident-response,service.version=0.1.0,agents.tenant=protohype,agents.platform=incident-response"
 
 # Per-tenant infra references — populated by per-env values from the
-# landing-zone marshal-platform component's outputs (terragrunt run-all
+# landing-zone incident-response-platform component's outputs (terragrunt run-all
 # output -json — the chart values plumb these in at apply time).
 tenantInfra:
   incidentsTableName: ""

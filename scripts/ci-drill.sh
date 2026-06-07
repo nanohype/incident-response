@@ -26,8 +26,8 @@ ENVIRONMENT="${ENVIRONMENT:-staging}"
 REGION="${AWS_REGION:-us-west-2}"
 POLL_SEC="${POLL_SEC:-90}"
 
-INCIDENTS_TABLE="marshal-${ENVIRONMENT}-incidents"
-AUDIT_TABLE="marshal-${ENVIRONMENT}-audit"
+INCIDENTS_TABLE="incident-response-${ENVIRONMENT}-incidents"
+AUDIT_TABLE="incident-response-${ENVIRONMENT}-audit"
 
 log() { printf '[ci-drill] %s\n' "$*"; }
 die() { printf '[ci-drill] FAIL: %s\n' "$*" >&2; exit 1; }
@@ -78,7 +78,7 @@ log "audit trail verified (${#REQUIRED_EVENTS[@]} required events present)"
 # ── Cleanup (best-effort) ───────────────────────────────────────────────────
 # Archive the Slack channel so staging doesn't accumulate drill rooms.
 BOT_TOKEN=$(aws secretsmanager get-secret-value --region "$REGION" \
-  --secret-id "marshal/${ENVIRONMENT}/slack/bot-token" \
+  --secret-id "incident-response/${ENVIRONMENT}/slack/bot-token" \
   --query SecretString --output text 2>/dev/null || true)
 if [[ -n "$BOT_TOKEN" ]]; then
   ARCHIVE_RESP=$(curl -sS -X POST -H "Authorization: Bearer $BOT_TOKEN" \

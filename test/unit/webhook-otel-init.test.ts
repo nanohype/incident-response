@@ -42,7 +42,7 @@ describe('initOtelIfNeeded', () => {
 
   it('OTEL-INIT-002: returns false when OTLP endpoint is missing', async () => {
     process.env['GRAFANA_CLOUD_OTLP_SECRET_ARN'] =
-      'arn:aws:secretsmanager:us-west-2:111111111111:secret:marshal/staging/grafana-cloud/otlp-auth-abc';
+      'arn:aws:secretsmanager:us-west-2:111111111111:secret:incident-response/staging/grafana-cloud/otlp-auth-abc';
     const started = await initOtelIfNeeded();
     expect(started).toBe(false);
     expect(smMock.calls()).toHaveLength(0);
@@ -75,7 +75,7 @@ describe('initOtelIfNeeded', () => {
   it('OTEL-INIT-006: memoizes concurrent calls — secret is fetched once per cold start', async () => {
     process.env['GRAFANA_CLOUD_OTLP_SECRET_ARN'] = 'arn:test';
     process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] = 'https://otlp-gateway.example.com/otlp';
-    process.env['OTEL_RESOURCE_ATTRIBUTES'] = 'service.name=marshal-staging-webhook,service.version=0.1.0';
+    process.env['OTEL_RESOURCE_ATTRIBUTES'] = 'service.name=incident-response-staging-webhook,service.version=0.1.0';
     smMock.on(GetSecretValueCommand).resolves({
       SecretString: JSON.stringify({ basic_auth: 'dXNlcjpwYXNz' }),
     });

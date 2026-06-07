@@ -1,6 +1,6 @@
 /**
  * ALERT_RESOLVED — Grafana OnCall reports the alert cleared; record it.
- * The IC still owns running /marshal resolve to produce a postmortem.
+ * The IC still owns running /incident-response resolve to produce a postmortem.
  */
 
 import type { IncidentQueueMessage } from '../services/sqs-consumer.js';
@@ -12,7 +12,7 @@ export function makeAlertResolvedHandler(auditWriter: AuditWriter): EventHandler
   return async (message) => {
     const incidentId = message.payload.alert_group_id;
     try {
-      await auditWriter.write(incidentId, 'MARSHAL', 'INCIDENT_RESOLVED', {
+      await auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'INCIDENT_RESOLVED', {
         resolved_at: new Date().toISOString(),
         alert_payload: message.payload,
         source: 'grafana-oncall-webhook',

@@ -1,6 +1,6 @@
 /**
  * Base HTTP client — 5s timeout hard cap, retry-with-jitter max 2 attempts.
- * All external Marshal clients use this. Fast-fail preferred over silent retry loops.
+ * All external IncidentResponse clients use this. Fast-fail preferred over silent retry loops.
  */
 
 import { ExternalClientTimeoutError } from '../types/index.js';

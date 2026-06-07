@@ -29,7 +29,7 @@ describe('makeAlertResolvedHandler', () => {
     await makeAlertResolvedHandler(auditWriter)(mkMessage('inc-1'));
     expect(write).toHaveBeenCalledWith(
       'inc-1',
-      'MARSHAL',
+      'INCIDENT_RESPONSE',
       'INCIDENT_RESOLVED',
       expect.objectContaining({ source: 'grafana-oncall-webhook' }),
     );

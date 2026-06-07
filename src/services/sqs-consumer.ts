@@ -1,5 +1,5 @@
 /**
- * SQS consumer loop for the Marshal incident processor.
+ * SQS consumer loop for the IncidentResponse incident processor.
  * Long-polling; DLQ-safe (no delete on processing failure).
  */
 

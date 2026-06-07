@@ -2,7 +2,7 @@
 
 Every concrete error this app has surfaced during bring-up, with root cause and fix. Keyed on the exact error text where possible so you (or the next operator) can grep-find the answer instead of re-diagnosing.
 
-The app runs as a Platform tenant in namespace `tenants-protohype`: a `marshal-webhook` Deployment (behind ingress-nginx) and a `marshal-processor` Deployment (Slack socket-mode singleton). All `kubectl` examples assume `-n tenants-protohype`.
+The app runs as a Platform tenant in namespace `tenants-protohype`: a `incident-response-webhook` Deployment (behind ingress-nginx) and a `incident-response-processor` Deployment (Slack socket-mode singleton). All `kubectl` examples assume `-n tenants-protohype`.
 
 Sections:
 - [Rollout / sync errors](#rollout--sync-errors)
@@ -26,15 +26,15 @@ Sections:
 **Fix:** confirm the Platform reconciled, then re-render to find the gap:
 
 ```bash
-kubectl -n tenants-protohype get platform marshal -o jsonpath='{.status.phase}'   # expect Ready
+kubectl -n tenants-protohype get platform incident-response -o jsonpath='{.status.phase}'   # expect Ready
 helm template incident-response chart -f chart/values-staging.yaml | less          # eyeball the rendered Secret/env
 ```
 
-Empty `tenantInfra.*` env in the rendered output means the `marshal-platform` `tofu output` values weren't filled into `chart/values-<env>.yaml`. See [`docs/deployment-guide.md`](deployment-guide.md) § 3.
+Empty `tenantInfra.*` env in the rendered output means the `incident-response-platform` `tofu output` values weren't filled into `chart/values-<env>.yaml`. See [`docs/deployment-guide.md`](deployment-guide.md) § 3.
 
 ### Grafana dashboard ConfigMap renders empty
 
-**Cause:** `chart/dashboards/marshal.json` isn't tracked in git, so a clean checkout renders an empty ConfigMap.
+**Cause:** `chart/dashboards/incident-response.json` isn't tracked in git, so a clean checkout renders an empty ConfigMap.
 
 **Fix:** confirm the asset is tracked — `git ls-files chart/dashboards/` must be non-empty. The repo `.gitignore` is scoped so the dashboard filename does not collide with the secret-seed ignore patterns.
 
@@ -76,7 +76,7 @@ Commit the refreshed `package-lock.json`. CI uses `npm ci` which needs the lockf
 **Fix:** audit the gap between `src/index.ts:requireEnv([...])` and the chart's env sources — `tenantInfra.*` (landing-zone outputs), `env.*` (plain values), and the ExternalSecret keys. Every name in `requireEnv` must have a corresponding source. Past misses: `SLACK_APP_TOKEN`, `LINEAR_TEAM_ID`, `NUDGE_EVENTS_QUEUE_ARN`, `SCHEDULER_GROUP_NAME`.
 
 ```bash
-kubectl -n tenants-protohype logs deploy/marshal-processor --previous --since=10m
+kubectl -n tenants-protohype logs deploy/incident-response-processor --previous --since=10m
 ```
 
 ### Pod stuck `CreateContainerConfigError` referencing the projected Secret
@@ -86,11 +86,11 @@ kubectl -n tenants-protohype logs deploy/marshal-processor --previous --since=10
 **Fix:**
 
 ```bash
-kubectl -n tenants-protohype describe externalsecret marshal
-kubectl -n tenants-protohype get secret marshal -o jsonpath='{.data}' | jq 'keys'
+kubectl -n tenants-protohype describe externalsecret incident-response
+kubectl -n tenants-protohype get secret incident-response -o jsonpath='{.data}' | jq 'keys'
 ```
 
-If the ExternalSecret shows `SecretSyncError`, the IRSA role can't `GetSecretValue` on the `marshal/<env>/*` ARNs, or a referenced secret doesn't exist. Seed the secret (`npm run seed:{env}`) and confirm the role's secrets-read scope in `landing-zone marshal-platform`.
+If the ExternalSecret shows `SecretSyncError`, the IRSA role can't `GetSecretValue` on the `incident-response/<env>/*` ARNs, or a referenced secret doesn't exist. Seed the secret (`npm run seed:{env}`) and confirm the role's secrets-read scope in `landing-zone incident-response-platform`.
 
 ### `exec format error` in the container's logs / pod won't start
 
@@ -125,7 +125,7 @@ If the probe still fails, the app isn't reaching `listen` — check the startup 
 Quick diagnosis — check whether the approval row exists:
 
 ```bash
-aws dynamodb query --region us-west-2 --table-name marshal-{env}-audit \
+aws dynamodb query --region us-west-2 --table-name incident-response-{env}-audit \
   --key-condition-expression 'PK = :pk' \
   --expression-attribute-values '{":pk":{"S":"INCIDENT#<incident-id>"}}' \
   --query 'Items[*].[timestamp.S,action_type.S]' --output table
@@ -135,11 +135,11 @@ If `STATUSPAGE_DRAFT_APPROVED` is there, it's the Limit+Filter bug. If it isn't,
 
 ### `Pass options.removeUndefinedValues=true to remove undefined values from map/array/set`
 
-**Cause:** The DynamoDB DocumentClient's default marshaler rejects `undefined` field values. The `INCIDENT_RESOLVED` audit write passes `linear_issue_id: linearDraft?.linear_issue_id` — if Linear creation failed upstream, `linearDraft` is `undefined`, so the field resolves to `undefined`, and the marshaler throws.
+**Cause:** The DynamoDB DocumentClient's default incident-responseer rejects `undefined` field values. The `INCIDENT_RESOLVED` audit write passes `linear_issue_id: linearDraft?.linear_issue_id` — if Linear creation failed upstream, `linearDraft` is `undefined`, so the field resolves to `undefined`, and the incident-responseer throws.
 
 **Fix:** `src/wiring/dependencies.ts` constructs the doc client with `{ marshallOptions: { removeUndefinedValues: true } }`. If this error returns, the option got removed — restore it. Prefer the option over individual `if (x) { key: x }` guards at call sites because the fields leak in through `linearDraft?.field` patterns throughout the codebase.
 
-### `Schedule group marshal-{env} does not exist.`
+### `Schedule group incident-response-{env} does not exist.`
 
 See [EventBridge Scheduler errors](#eventbridge-scheduler-errors) below.
 
@@ -150,18 +150,18 @@ See [EventBridge Scheduler errors](#eventbridge-scheduler-errors) below.
 **Fix:** `src/services/war-room-assembler.ts:channelName` appends a cryptographic nonce (6 hex chars, ~16M entropy) to the channel name:
 
 ```
-marshal-p1-YYYYMMDD-<id-prefix>-<nonce>
+incident-response-p1-YYYYMMDD-<id-prefix>-<nonce>
 ```
 
 If you see `name_taken` with this fix in place, it means either (a) Slack workspace-wide uniqueness collided with a pre-existing archived channel (archived channels still reserve the name), or (b) the 16M entropy rolled an unlucky duplicate. Unarchive + rename the pre-existing channel, or retry the drill — the nonce will be different on the next run.
 
 ## Slack errors
 
-### `/marshal is not a valid command`
+### `/incident-response is not a valid command`
 
 **Cause:** The slash command isn't registered in the Slack app config.
 
-**Fix:** See [`docs/slack-app-setup.md`](slack-app-setup.md) § 5 — declare the command in the Slack app, reinstall, reseed the rotated bot token, `kubectl rollout restart deploy/marshal-processor`.
+**Fix:** See [`docs/slack-app-setup.md`](slack-app-setup.md) § 5 — declare the command in the Slack app, reinstall, reseed the rotated bot token, `kubectl rollout restart deploy/incident-response-processor`.
 
 ### Processor log shows `slack.<api-call>: An API error occurred: missing_scope`
 
@@ -182,10 +182,10 @@ Specific known cases:
 
 **Fix:**
 
-1. Verify the sender is using the same secret in `marshal/{env}/grafana/oncall-webhook-hmac`.
+1. Verify the sender is using the same secret in `incident-response/{env}/grafana/oncall-webhook-hmac`.
 2. If you rotated the secret recently, the handler's in-memory cache (5-min TTL, keyed on `VersionId`) refreshes on the first verification failure and retries once. If it's still wedged, restart the webhook pods to force a fresh read:
    ```bash
-   kubectl rollout restart deploy/marshal-webhook -n tenants-protohype
+   kubectl rollout restart deploy/incident-response-webhook -n tenants-protohype
    ```
 
 ### "No channel created" — but logs say `War room assembled`
@@ -200,12 +200,12 @@ Specific known cases:
 
 Three distinct causes — check in this order:
 
-1. **Secret doesn't exist.** `aws secretsmanager describe-secret --secret-id marshal/{env}/<name>` returns `ResourceNotFoundException`. Run the seeder: `npm run seed:{env}`.
+1. **Secret doesn't exist.** `aws secretsmanager describe-secret --secret-id incident-response/{env}/<name>` returns `ResourceNotFoundException`. Run the seeder: `npm run seed:{env}`.
 
 2. **Secret is scheduled for deletion.** `describe-secret` succeeds but shows `DeletedDate`. Restore:
    ```bash
    aws secretsmanager restore-secret --region us-west-2 \
-     --secret-id marshal/{env}/<name>
+     --secret-id incident-response/{env}/<name>
    ```
 
 3. **ExternalSecret references a name that doesn't match the seeded path.** Compare the chart's `externalsecret.yaml` remoteRefs against `secrets.template.json` — the CI inventory-drift gate normally catches this, but a local edit can drift.
@@ -223,7 +223,7 @@ aws sts get-caller-identity
 # Confirm the IRSA role's account matches (the role ARN is in chart/values-<env>.yaml aws.platformRoleArn)
 ```
 
-Both should reference the same AWS account ID — the one the cluster's `marshal_irsa` role lives in.
+Both should reference the same AWS account ID — the one the cluster's `incident_response_irsa` role lives in.
 
 ## Grafana errors
 
@@ -253,7 +253,7 @@ Both should reference the same AWS account ID — the one the cluster's `marshal
 
 **Cause:** AWS Bedrock requires Claude 4.x-family models to be invoked through a **cross-region inference profile** when using on-demand throughput. Direct foundation-model invocation only works with provisioned-throughput commitments (pre-purchased capacity, $$). The app uses on-demand throughput — the cheap path for bursty incident volume.
 
-**Fix:** in `src/ai/marshal-ai.ts`, switch the model IDs from foundation-model names to inference-profile IDs. For the US geo (us-west-2, us-east-1, us-east-2):
+**Fix:** in `src/ai/incident-response-ai.ts`, switch the model IDs from foundation-model names to inference-profile IDs. For the US geo (us-west-2, us-east-1, us-east-2):
 
 ```ts
 const SONNET_MODEL_ID = 'us.anthropic.claude-sonnet-4-6';
@@ -262,7 +262,7 @@ const HAIKU_MODEL_ID  = 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
 
 The `us.` prefix is the cross-region inference profile for the US — AWS routes each request across multiple regions for capacity availability. Equivalent profiles exist for EU (`eu.`) and APAC (`apac.`).
 
-**Also update the IRSA policy** in `landing-zone marshal-platform`. The role's `bedrock:InvokeModel` permission needs:
+**Also update the IRSA policy** in `landing-zone incident-response-platform`. The role's `bedrock:InvokeModel` permission needs:
 
 ```
 # The inference-profile ARNs
@@ -274,7 +274,7 @@ arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6
 arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0
 ```
 
-**Degraded fallback:** `MarshalAI.generatePostmortemSections()` has an inline fallback template that renders a skeleton postmortem when Bedrock fails. An incident resolve with Bedrock failing still produces a Linear issue, but the issue body is generic. Look for `"Bedrock postmortem failed — returning template"` in the processor logs.
+**Degraded fallback:** `IncidentResponseAI.generatePostmortemSections()` has an inline fallback template that renders a skeleton postmortem when Bedrock fails. An incident resolve with Bedrock failing still produces a Linear issue, but the issue body is generic. Look for `"Bedrock postmortem failed — returning template"` in the processor logs.
 
 ## Linear errors
 
@@ -286,7 +286,7 @@ arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0
 
 ```bash
 LINEAR_KEY=$(aws secretsmanager get-secret-value --region us-west-2 \
-  --secret-id marshal/{env}/linear/api-key --query SecretString --output text)
+  --secret-id incident-response/{env}/linear/api-key --query SecretString --output text)
 
 curl -sS -X POST https://api.linear.app/graphql \
   -H "Authorization: $LINEAR_KEY" -H "Content-Type: application/json" \
@@ -294,29 +294,29 @@ curl -sS -X POST https://api.linear.app/graphql \
 
 # Find the team you want, copy its `id` field, then:
 aws secretsmanager put-secret-value --region us-west-2 \
-  --secret-id marshal/{env}/linear/team-id \
+  --secret-id incident-response/{env}/linear/team-id \
   --secret-string '<the-UUID>'
 
 # Restart the processor so it picks up the rotated secret
-kubectl rollout restart deploy/marshal-processor -n tenants-protohype
+kubectl rollout restart deploy/incident-response-processor -n tenants-protohype
 ```
 
 Same pattern for `linear/project-id` (also a UUID, from `{ projects { nodes { id name } } }`).
 
 ## EventBridge Scheduler errors
 
-### `Schedule group marshal-{env} does not exist.` — nudge never fires
+### `Schedule group incident-response-{env} does not exist.` — nudge never fires
 
 **Cause:** The `NudgeScheduler.scheduleNudge` call targets a named schedule group, but the group doesn't exist. `CreateSchedule` errors; `scheduleNudge` has a try/catch that warn-logs and continues, so the rest of assembly succeeds but the 15-min nudge never arrives.
 
-**Fix:** the schedule group is owned by the `landing-zone marshal-platform` component (`scheduler.tf`). Confirm it's applied for this env:
+**Fix:** the schedule group is owned by the `landing-zone incident-response-platform` component (`scheduler.tf`). Confirm it's applied for this env:
 
 ```bash
 aws scheduler list-schedule-groups --region us-west-2 \
-  --query 'ScheduleGroups[?Name==`marshal-{env}`]'
+  --query 'ScheduleGroups[?Name==`incident-response-{env}`]'
 ```
 
-If empty, the `marshal-platform` component wasn't applied (or `scheduler_group_name` wasn't wired into `chart/values-<env>.yaml` under `tenantInfra.schedulerGroupName`). Apply the substrate and re-render.
+If empty, the `incident-response-platform` component wasn't applied (or `scheduler_group_name` wasn't wired into `chart/values-<env>.yaml` under `tenantInfra.schedulerGroupName`). Apply the substrate and re-render.
 
 **Recover an in-flight incident whose nudge was dropped:** create the schedule manually — `aws scheduler create-schedule` with the queue ARN as target. See `scripts/fire-drill.sh` output for the CLI pattern.
 
@@ -329,8 +329,8 @@ If empty, the `marshal-platform` component wasn't applied (or `scheduler_group_n
 **Fix:** restart the workload to roll the pods with fresh secrets:
 
 ```bash
-kubectl rollout restart deploy/marshal-processor deploy/marshal-webhook -n tenants-protohype
-kubectl rollout status  deploy/marshal-processor -n tenants-protohype
+kubectl rollout restart deploy/incident-response-processor deploy/incident-response-webhook -n tenants-protohype
+kubectl rollout status  deploy/incident-response-processor -n tenants-protohype
 ```
 
 For the webhook, the HMAC secret is additionally cached in-process with a 5-min TTL and `VersionId`-aware invalidation, so HMAC rotations usually propagate within 5 minutes even without a restart.
@@ -349,9 +349,9 @@ Same as the Slack section above — the channel is private. See [`docs/drills.md
 
 ```bash
 # Is the processor running at all?
-kubectl -n tenants-protohype get deploy marshal-processor \
+kubectl -n tenants-protohype get deploy incident-response-processor \
   -o jsonpath='{.status.readyReplicas}/{.status.replicas}'
-kubectl -n tenants-protohype logs deploy/marshal-processor --since=5m
+kubectl -n tenants-protohype logs deploy/incident-response-processor --since=5m
 
 # What's in the queue?
 aws sqs get-queue-attributes --region us-west-2 \
@@ -368,7 +368,7 @@ aws sqs get-queue-attributes --region us-west-2 \
 **Fix:** check the processor is running (see above), then the event registry:
 
 ```bash
-kubectl -n tenants-protohype logs deploy/marshal-processor --since=5m | grep 'Marshal processor started'
+kubectl -n tenants-protohype logs deploy/incident-response-processor --since=5m | grep 'IncidentResponse processor started'
 ```
 
 The startup log line includes `incident_events: [...]` — confirm `ALERT_RESOLVED` is in that list.

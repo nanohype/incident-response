@@ -2,10 +2,10 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "marshal.fullname" . }}-webhook
+  name: {{ include "tenant-chart-base.fullname" . }}-webhook
   labels:
-    {{- include "marshal.labels" . | nindent 4 }}
-    marshal.io/service: webhook
+    {{- include "tenant-chart-base.labels" . | nindent 4 }}
+    incident-response.io/service: webhook
   annotations:
     {{- if .Values.ingress.tls.enabled }}
     cert-manager.io/cluster-issuer: {{ .Values.ingress.tls.issuer | quote }}
@@ -16,7 +16,7 @@ spec:
   tls:
     - hosts:
         - {{ .Values.ingress.host | quote }}
-      secretName: {{ include "marshal.fullname" . }}-webhook-tls
+      secretName: {{ include "tenant-chart-base.fullname" . }}-webhook-tls
   {{- end }}
   rules:
     - host: {{ .Values.ingress.host | quote }}
@@ -26,7 +26,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "marshal.fullname" . }}-webhook
+                name: {{ include "tenant-chart-base.fullname" . }}-webhook
                 port:
                   number: {{ .Values.webhook.port }}
 {{- end }}

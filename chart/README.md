@@ -1,26 +1,26 @@
-# marshal chart
+# incident-response chart
 
-Helm chart for the marshal incident-commander assistant. Renders two workloads + supporting observability resources into a Platform tenant on the `eks-agent-platform` operator:
+Helm chart for the incident-response incident-commander assistant. Renders two workloads + supporting observability resources into a Platform tenant on the `eks-agent-platform` operator:
 
 - **webhook** — `Deployment` + `Service` + `Ingress` (public, cert-manager TLS). Receives Grafana OnCall HMAC-signed P1 events, verifies the signature, idempotently writes to DynamoDB, enqueues to SQS. Replaces the CDK Lambda + API Gateway pair.
 - **processor** — `Deployment` (`Recreate` strategy — Slack socket-mode is a singleton). Long-running daemon: Slack socket-mode client + SQS consumer + war-room assembler + Statuspage approval gate + Linear postmortem creator + EventBridge Scheduler nudge wrangler. Replaces the CDK ECS Fargate service.
 
 Plus:
 
-- **PrometheusRule** — ported verbatim from `infra/alerts/marshal-rules.yaml`. Three rules under `marshal.slo`: assembly P99 SLO breach, directory-lookup failure spike, Statuspage publish failures. Operator-side ruleSelector label is configurable in values (`prometheusRule.selector`).
-- **Grafana dashboard ConfigMap** — sourced from `chart/dashboards/marshal.json` (copy of `infra/dashboards/marshal.json`). Carries the `grafana_dashboard: "1"` label so the kube-prometheus-stack Grafana sidecar auto-imports it.
+- **PrometheusRule** — ported verbatim from `infra/alerts/incident-response-rules.yaml`. Three rules under `incident-response.slo`: assembly P99 SLO breach, directory-lookup failure spike, Statuspage publish failures. Operator-side ruleSelector label is configurable in values (`prometheusRule.selector`).
+- **Grafana dashboard ConfigMap** — sourced from `chart/dashboards/incident-response.json` (copy of `infra/dashboards/incident-response.json`). Carries the `grafana_dashboard: "1"` label so the kube-prometheus-stack Grafana sidecar auto-imports it.
 
 ## Files
 
 - `Chart.yaml`, `values.yaml`, `values-{staging,production}.yaml`
-- `dashboards/marshal.json` — Grafana dashboard JSON, materialized into the dashboard ConfigMap at render time
+- `dashboards/incident-response.json` — Grafana dashboard JSON, materialized into the dashboard ConfigMap at render time
 - `templates/`
-  - `_helpers.tpl` — name/label helpers + shared `marshal.env` partial
+  - `_helpers.tpl` — name/label helpers + shared `incident-response.env` partial
   - `webhook-deployment.yaml`, `webhook-service.yaml`, `webhook-ingress.yaml`
   - `processor-deployment.yaml`
   - `serviceaccount.yaml` — single SA shared across both workloads
   - `networkpolicy.yaml` — ingress: ingress-nginx → webhook only; egress: DNS + HTTPS
-  - `externalsecret.yaml` — pulls marshal/<env>/grafana-oncall-hmac + app-secrets + grafana-cloud, composes one Secret consumed by envFrom; the HMAC secret is also referenced by its ARN in env for the handler's VersionId-keyed cache
+  - `externalsecret.yaml` — pulls incident-response/<env>/grafana-oncall-hmac + app-secrets + grafana-cloud, composes one Secret consumed by envFrom; the HMAC secret is also referenced by its ARN in env for the handler's VersionId-keyed cache
   - `prometheusrule.yaml` — three alert rules (assembly SLO / directory failures / Statuspage publish failures)
   - `grafana-dashboard.yaml` — ConfigMap with the dashboard JSON
 
@@ -30,7 +30,7 @@ The CDK era had a Lambda for the webhook ingress (`src/handlers/webhook-ingress.
 
 ## Per-tenant infra (from landing-zone)
 
-Single-tenant component `components/aws/marshal-platform/` provisions everything marshal's pods need:
+Single-tenant component `components/aws/incident-response-platform/` provisions everything incident-response's pods need:
 
 - DynamoDB ×3 — incidents (slack-channel-index + by-timestamp GSIs), audit, identity-cache
 - SQS FIFO ×6 — incident-events / nudge-events / sla-check (+ DLQs)
@@ -40,36 +40,36 @@ Single-tenant component `components/aws/marshal-platform/` provisions everything
 
 The Bedrock invocation-logging-NONE setting is a Bedrock account+region scoped policy — the CDK era enforced it via a custom resource per stack. In the k8s world it belongs to landing-zone's `cluster-bootstrap` (or a new `bedrock-account-config`) component, NOT per-tenant; the operator-side decision is documented in `eks-agent-platform/ARCHITECTURE.md`.
 
-Secrets Manager entries (`marshal/<env>/grafana-oncall-hmac`, `app-secrets`, `grafana-cloud`) are still seeded via marshal's own `scripts/seed-secrets.sh` — operator tooling unchanged from the CDK era.
+Secrets Manager entries (`incident-response/<env>/grafana-oncall-hmac`, `app-secrets`, `grafana-cloud`) are still seeded via incident-response's own `scripts/seed-secrets.sh` — operator tooling unchanged from the CDK era.
 
 ## IRSA wiring
 
-Two IRSA roles exist for any marshal Platform tenant — different SAs, different policies, different owners:
+Two IRSA roles exist for any incident-response Platform tenant — different SAs, different policies, different owners:
 
 | Role | Owner | Trust | Used by |
 |---|---|---|---|
-| `<env>-marshal-platform` | landing-zone `marshal-platform` component | `system:serviceaccount:tenants-protohype:marshal` | This chart's webhook + processor pods |
-| `<env>-marshal-tenant` | eks-agent-platform operator | `system:serviceaccount:tenants-protohype:tenant-runtime` | AgentFleet pods (if/when any land in this Platform) |
+| `<env>-incident-response-platform` | landing-zone `incident-response-platform` component | `system:serviceaccount:tenants-protohype:incident-response` | This chart's webhook + processor pods |
+| `<env>-incident-response-tenant` | eks-agent-platform operator | `system:serviceaccount:tenants-protohype:tenant-runtime` | AgentFleet pods (if/when any land in this Platform) |
 
 The chart's `serviceaccount.yaml` annotates `eks.amazonaws.com/role-arn` with `.Values.aws.platformRoleArn`. Per-env values plumb in the landing-zone output:
 
 ```sh
 # Staging
-tofu -chdir=live/aws/workload-staging/us-west-2/staging/marshal-platform output -raw irsa_role_arn
+tofu -chdir=live/aws/workload-staging/us-west-2/staging/incident-response-platform output -raw irsa_role_arn
 
 # Production
-tofu -chdir=live/aws/workload-prod/us-west-2/production/marshal-platform output -raw irsa_role_arn
+tofu -chdir=live/aws/workload-prod/us-west-2/production/incident-response-platform output -raw irsa_role_arn
 ```
 
 Drop those into `chart/values-staging.yaml` / `chart/values-production.yaml` under `aws.platformRoleArn`. ArgoCD reads the per-env values at render time; pod restart picks up the SA annotation; pods AssumeRoleWithWebIdentity into the right role on next AWS call.
 
-The operator-managed role is unused by this chart today and is harmless. It only matters once an AgentFleet CR lands in the `marshal` Platform.
+The operator-managed role is unused by this chart today and is harmless. It only matters once an AgentFleet CR lands in the `incident-response` Platform.
 
 ## Render locally
 
 ```sh
 helm lint chart
-helm template marshal chart -f chart/values-staging.yaml
+helm template incident-response chart -f chart/values-staging.yaml
 ```
 
 ## What changed vs. the CDK stack

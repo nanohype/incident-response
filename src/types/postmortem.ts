@@ -1,6 +1,6 @@
 /**
- * Postmortem draft — created in Linear at `/marshal resolve` time. The draft
- * is the system-of-record link; Marshal only stores the issue ID/URL + SLA
+ * Postmortem draft — created in Linear at `/incident-response resolve` time. The draft
+ * is the system-of-record link; IncidentResponse only stores the issue ID/URL + SLA
  * deadline on the incident record.
  */
 

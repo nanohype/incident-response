@@ -27,7 +27,7 @@ export function makeStatusUpdateNudgeHandler(deps: { slack: WebClient; auditWrit
       undefined,
       message.incident_id,
     );
-    await deps.auditWriter.write(message.incident_id, 'MARSHAL', 'STATUS_REMINDER_SENT', {
+    await deps.auditWriter.write(message.incident_id, 'INCIDENT_RESPONSE', 'STATUS_REMINDER_SENT', {
       channel_id: message.channel_id,
       sent_at: new Date().toISOString(),
     });

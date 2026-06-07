@@ -1,4 +1,4 @@
-# Marshal — System Architecture
+# IncidentResponse — System Architecture
 **Author:** engineering  
 **Version:** 1.0  
 **Deploy target:** AWS  
@@ -8,23 +8,23 @@
 
 ## 1. Architecture Overview
 
-Marshal is a TypeScript/Node 24 backend service with no user-facing web interface. All user interaction flows through Slack. The system is event-driven: Grafana OnCall webhooks fire incidents, DynamoDB streams propagate state changes, and EventBridge schedules nudges and SLA checks.
+IncidentResponse is a TypeScript/Node 24 backend service with no user-facing web interface. All user interaction flows through Slack. The system is event-driven: Grafana OnCall webhooks fire incidents, DynamoDB streams propagate state changes, and EventBridge schedules nudges and SLA checks.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  External Systems                                                        │
 │                                                                          │
 │  Grafana OnCall ──webhook──►  API Gateway + Lambda (Ingress)            │
-│  Slack ◄────────────────────  Marshal Core Service (ECS Fargate)        │
-│  Slack ────────────event──►   Marshal Core Service                      │
-│  WorkOS Directory Sync ◄────────────────────   Marshal Core Service (WorkOS Directory Sync API)    │
-│  GitHub ◄──────────────────   Marshal Core Service (github MCP)         │
-│  Grafana Cloud ◄───────────   Marshal Core Service (REST direct)        │
-│  Statuspage.io ◄───────────   Marshal Core Service (REST direct)        │
-│  Linear ◄──────────────────   Marshal Core Service (linear MCP)         │
-│  Bedrock ◄─────────────────   Marshal Core Service (Bedrock runtime)    │
+│  Slack ◄────────────────────  IncidentResponse Core Service (ECS Fargate)        │
+│  Slack ────────────event──►   IncidentResponse Core Service                      │
+│  WorkOS Directory Sync ◄────────────────────   IncidentResponse Core Service (WorkOS Directory Sync API)    │
+│  GitHub ◄──────────────────   IncidentResponse Core Service (github MCP)         │
+│  Grafana Cloud ◄───────────   IncidentResponse Core Service (REST direct)        │
+│  Statuspage.io ◄───────────   IncidentResponse Core Service (REST direct)        │
+│  Linear ◄──────────────────   IncidentResponse Core Service (linear MCP)         │
+│  Bedrock ◄─────────────────   IncidentResponse Core Service (Bedrock runtime)    │
 │                                                                          │
-│  DynamoDB ◄────────────────►  Marshal Core Service (state + audit)      │
+│  DynamoDB ◄────────────────►  IncidentResponse Core Service (state + audit)      │
 │  Secrets Manager ◄─────────   All components                            │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -54,7 +54,7 @@ Responsibilities:
 **Runtime:** Node 24, ARM64  
 **Trigger:** SQS FIFO queue consumer; also Slack event listener (via Slack socket mode or Events API)
 
-This is the brain of Marshal. It:
+This is the brain of IncidentResponse. It:
 - Consumes SQS events (new incident alerts, Grafana OnCall resolve events)
 - Manages incident state machine (DynamoDB-backed)
 - Orchestrates the war-room assembly sequence
@@ -79,7 +79,7 @@ ALERT_RECEIVED → ROOM_ASSEMBLING → ROOM_ASSEMBLED → ACTIVE → MITIGATED �
                               IC_MANUAL_ASSEMBLY
 ```
 
-**DynamoDB Table: `marshal-incidents`**
+**DynamoDB Table: `incident-response-incidents`**
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
@@ -96,19 +96,19 @@ ALERT_RECEIVED → ROOM_ASSEMBLING → ROOM_ASSEMBLED → ACTIVE → MITIGATED �
 - SK: `created_at`  
 - Used for: audit queries (e.g., find all `STATUSPAGE_PUBLISHED` events without corresponding `STATUSPAGE_APPROVED` events)
 
-**DynamoDB Table: `marshal-audit`** (separate table for 1-year retention audit log)
+**DynamoDB Table: `incident-response-audit`** (separate table for 1-year retention audit log)
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | PK | String | `INCIDENT#{incident_id}` |
 | SK | String | `AUDIT#{timestamp_ms}#{action_type}` |
 | action_type | String | Enum: WAR_ROOM_CREATED, RESPONDER_INVITED, STATUS_UPDATE_SENT, STATUSPAGE_DRAFT_CREATED, STATUSPAGE_APPROVED, STATUSPAGE_PUBLISHED, POSTMORTEM_CREATED, IC_RATED, REMINDER_SILENCED, etc. |
-| actor_user_id | String | Slack user ID of the actor (or "MARSHAL" for automated actions) |
+| actor_user_id | String | Slack user ID of the actor (or "INCIDENT_RESPONSE" for automated actions) |
 | timestamp | String | ISO 8601 |
 | details | Map | Action-specific details (channel_id, draft_sha256, linear_issue_id, etc.) |
 | TTL | Number | Unix epoch + 366 days |
 
-**PITR:** Enabled on both tables. DynamoDB Streams enabled on `marshal-incidents` for downstream processing.
+**PITR:** Enabled on both tables. DynamoDB Streams enabled on `incident-response-incidents` for downstream processing.
 
 ### 2.4 AI Layer
 
@@ -160,7 +160,7 @@ Resources:
 - **Lambda** (Ingress) — webhook handler, SnapStart enabled (Node 24)
 - **SQS FIFO Queue** — incident event queue with message groups per incident_id
 - **ECS Fargate Cluster** — incident processor, Spot capacity for cost optimization; Fargate on-demand fallback
-- **DynamoDB** — `marshal-incidents` + `marshal-audit` (both on-demand billing, PITR on)
+- **DynamoDB** — `incident-response-incidents` + `incident-response-audit` (both on-demand billing, PITR on)
 - **Secrets Manager** — all external API tokens; rotation policy per token type
 - **EventBridge Scheduler** — per-incident nudge timers; SLA check rules
 - **CloudWatch** — structured JSON logs, custom metrics dashboard, alarms
@@ -212,7 +212,7 @@ The Statuspage.io publish function reads the DynamoDB audit table for `STATUSPAG
       │   └── GitHub: CODEOWNERS + recent commits
       │
       ▼ (all parallel requests resolve or time out)
-4. Create Slack private channel (marshal-p1-{date}-{id})
+4. Create Slack private channel (incident-response-p1-{date}-{id})
       │ Audit log: WAR_ROOM_CREATED
       ▼
 5. Invite responders (loop with jitter)
@@ -295,7 +295,7 @@ type AuditEventType =
   | 'CONTEXT_SNAPSHOT_ATTACHED'
   | 'CHECKLIST_PINNED'
   | 'STATUS_UPDATE_SENT'          // IC posted a status message
-  | 'STATUS_REMINDER_SENT'        // Marshal nudged IC
+  | 'STATUS_REMINDER_SENT'        // IncidentResponse nudged IC
   | 'STATUS_REMINDER_SILENCED'    // IC silenced reminders
   | 'STATUSPAGE_DRAFT_CREATED'
   | 'STATUSPAGE_DRAFT_APPROVED'   // ← contains SHA256 of draft body

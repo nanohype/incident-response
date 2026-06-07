@@ -20,7 +20,7 @@ export function buildCommandRegistry(deps: Dependencies): CommandRegistry {
       makeStatusHandler({
         docClient: deps.dynamoDb,
         incidentsTableName: deps.incidentsTableName,
-        marshalAI: deps.marshalAI,
+        incidentResponseAI: deps.incidentResponseAI,
         approvalGate: deps.approvalGate,
       }),
     )
@@ -29,7 +29,7 @@ export function buildCommandRegistry(deps: Dependencies): CommandRegistry {
       makeResolveHandler({
         docClient: deps.dynamoDb,
         incidentsTableName: deps.incidentsTableName,
-        marshalAI: deps.marshalAI,
+        incidentResponseAI: deps.incidentResponseAI,
         linearClient: deps.linearClient,
         githubClient: deps.githubClient,
         nudgeScheduler: deps.nudgeScheduler,

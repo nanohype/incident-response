@@ -1,4 +1,4 @@
-# Marshal — Test Plan
+# IncidentResponse — Test Plan
 **Author:** qa  
 **Version:** 1.0  
 **Last Updated:** 2025-01-15
@@ -8,7 +8,7 @@
 ## 1. Test Strategy
 
 ### Philosophy
-Marshal handles real P1 incidents. Bugs have real consequences: missing responders, failed status updates, and — worst of all — auto-published status messages without IC approval. The test strategy is defense-in-depth:
+IncidentResponse handles real P1 incidents. Bugs have real consequences: missing responders, failed status updates, and — worst of all — auto-published status messages without IC approval. The test strategy is defense-in-depth:
 
 1. **Unit tests** — every service class, every client, every state transition
 2. **Integration tests** — approval gate end-to-end; WorkOS Directory Sync fallback; DynamoDB event sourcing
@@ -65,10 +65,10 @@ Marshal handles real P1 incidents. Bugs have real consequences: missing responde
 | ASSEMBLE-006 | All Slack invite calls succeed; `RESPONDER_INVITED` audit events written for each | N audit events for N responders |
 | ASSEMBLE-007 | One Slack invite fails (user left workspace) → `RESPONDER_INVITE_FAILED` audit event | Remaining invites continue; failed one is logged |
 | ASSEMBLE-008 | Nudge scheduler failure does not block assembly | Assembly completes; warning logged for scheduler failure |
-| ASSEMBLE-009 | Channel name format: `marshal-p1-YYYYMMDD-{shortid}` | Channel name matches regex |
+| ASSEMBLE-009 | Channel name format: `incident-response-p1-YYYYMMDD-{shortid}` | Channel name matches regex |
 | ASSEMBLE-010 | Audit writes: `WAR_ROOM_CREATED` → `RESPONDER_INVITED` × N → `CONTEXT_SNAPSHOT_ATTACHED` → `CHECKLIST_PINNED` | All events in DynamoDB audit table |
 
-### 2.4 MarshalAI (src/ai/marshal-ai.ts)
+### 2.4 IncidentResponseAI (src/ai/incident-response-ai.ts)
 
 | Test ID | Description | Expected |
 |---------|-------------|----------|

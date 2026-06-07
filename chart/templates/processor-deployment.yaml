@@ -2,10 +2,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "marshal.fullname" . }}-processor
+  name: {{ include "tenant-chart-base.fullname" . }}-processor
   labels:
-    {{- include "marshal.labels" . | nindent 4 }}
-    marshal.io/service: processor
+    {{- include "tenant-chart-base.labels" . | nindent 4 }}
+    incident-response.io/service: processor
 spec:
   replicas: {{ .Values.processor.replicaCount }}
   # Recreate (not RollingUpdate) — Slack socket-mode is a singleton; brief
@@ -15,16 +15,16 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      {{- include "marshal.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "service" "processor") | nindent 6 }}
+      {{- include "incident-response.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "service" "processor") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "marshal.labels" . | nindent 8 }}
-        marshal.io/service: processor
+        {{- include "tenant-chart-base.labels" . | nindent 8 }}
+        incident-response.io/service: processor
       annotations:
         checksum/external-secret: {{ printf "%s-%s-%s" .Values.externalSecret.hmacSecret .Values.externalSecret.appSecret .Values.externalSecret.refreshInterval | sha256sum }}
     spec:
-      serviceAccountName: {{ include "marshal.serviceAccountName" . }}
+      serviceAccountName: {{ include "tenant-chart-base.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       terminationGracePeriodSeconds: 60   # drain in-flight SQS messages
@@ -40,12 +40,12 @@ spec:
               containerPort: {{ .Values.processor.port }}
               protocol: TCP
           env:
-            {{- include "marshal.env" (dict "Values" .Values "service" "processor") | nindent 12 }}
+            {{- include "incident-response.env" (dict "Values" .Values "service" "processor") | nindent 12 }}
             - name: OTEL_SERVICE_NAME
-              value: marshal-processor
+              value: incident-response-processor
           envFrom:
             - secretRef:
-                name: {{ include "marshal.fullname" . }}-secrets
+                name: {{ include "tenant-chart-base.fullname" . }}-secrets
           livenessProbe:
             {{- toYaml .Values.probes.processor.liveness | nindent 12 }}
           readinessProbe:

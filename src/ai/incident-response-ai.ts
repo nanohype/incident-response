@@ -1,5 +1,5 @@
 /**
- * Marshal AI Layer — Bedrock-backed generation and classification.
+ * IncidentResponse AI Layer — Bedrock-backed generation and classification.
  *
  * Models:
  *   - claude-sonnet-4-6: status page drafts, postmortem narrative
@@ -18,7 +18,7 @@ import { logger } from '../utils/logger.js';
 const SONNET_MODEL_ID = 'anthropic.claude-sonnet-4-6';
 const HAIKU_MODEL_ID = 'anthropic.claude-haiku-4-5-20251001-v1:0';
 
-const STATUS_DRAFT_SYSTEM_PROMPT = `You are Marshal, an incident assistant. Draft a customer-facing status page message about a service disruption.
+const STATUS_DRAFT_SYSTEM_PROMPT = `You are IncidentResponse, an incident assistant. Draft a customer-facing status page message about a service disruption.
 
 RULES (no exceptions):
 1. Generic language only: "some customers", "a subset of requests", "certain features"
@@ -29,7 +29,7 @@ RULES (no exceptions):
 
 FORMAT: Return only the draft body text. No preamble, no explanation.`;
 
-const POSTMORTEM_SYSTEM_PROMPT = `You are Marshal, an incident assistant. Populate a postmortem document template with factual incident data.
+const POSTMORTEM_SYSTEM_PROMPT = `You are IncidentResponse, an incident assistant. Populate a postmortem document template with factual incident data.
 
 RULES:
 1. Only facts from provided incident data — do not speculate or infer root causes
@@ -43,7 +43,7 @@ FORMAT: Return only the Markdown content. No preamble.`;
 const CLASSIFICATION_SYSTEM_PROMPT = `Classify whether a Slack message by an Incident Commander constitutes a status update.
 
 Status update = reports current status, describes findings/actions, updates next steps, communicates impact/timeline.
-NOT a status update = @mentions, short acks ("ok", "on it"), questions, bot commands (/marshal...), emoji reactions.
+NOT a status update = @mentions, short acks ("ok", "on it"), questions, bot commands (/incident-response...), emoji reactions.
 
 Respond ONLY with JSON: {"is_status_update": true|false, "confidence": 0.0-1.0}`;
 
@@ -75,7 +75,7 @@ export interface PostmortemInput {
   ic_rating?: number;
 }
 
-export class MarshalAI {
+export class IncidentResponseAI {
   private readonly bedrock: BedrockRuntimeClient;
 
   constructor(awsRegion: string) {

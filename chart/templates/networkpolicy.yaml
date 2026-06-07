@@ -2,14 +2,14 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "marshal.fullname" . }}
+  name: {{ include "tenant-chart-base.fullname" . }}
   labels:
-    {{- include "marshal.labels" . | nindent 4 }}
+    {{- include "tenant-chart-base.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/instance: {{ .Release.Name }}
-      app.kubernetes.io/name: {{ include "marshal.name" . }}
+      app.kubernetes.io/name: {{ include "tenant-chart-base.name" . }}
   policyTypes:
     - Ingress
     - Egress

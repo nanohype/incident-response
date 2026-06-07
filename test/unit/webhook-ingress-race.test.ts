@@ -68,8 +68,8 @@ describe('webhook-ingress atomic-create', () => {
     sqsMock.reset();
     __resetHmacCacheForTests();
     process.env['GRAFANA_ONCALL_HMAC_SECRET_ARN'] = 'arn:aws:secretsmanager:us-west-2:000000000000:secret:test';
-    process.env['INCIDENTS_TABLE_NAME'] = 'marshal-incidents-test';
-    process.env['INCIDENT_EVENTS_QUEUE_URL'] = 'https://sqs.us-west-2.amazonaws.com/000000000000/marshal-events.fifo';
+    process.env['INCIDENTS_TABLE_NAME'] = 'incident-response-incidents-test';
+    process.env['INCIDENT_EVENTS_QUEUE_URL'] = 'https://sqs.us-west-2.amazonaws.com/000000000000/incident-response-events.fifo';
     smMock.on(GetSecretValueCommand).resolves({ SecretString: HMAC_SECRET, VersionId: 'v1' });
   });
 
@@ -87,7 +87,7 @@ describe('webhook-ingress atomic-create', () => {
     expect(result.statusCode).toBe(200);
     expect(JSON.parse(result.body)).toMatchObject({ message: 'Alert accepted', incident_id: 'alert-group-001' });
     expect(ddbMock).toHaveReceivedCommandWith(PutCommand, {
-      TableName: 'marshal-incidents-test',
+      TableName: 'incident-response-incidents-test',
       ConditionExpression: 'attribute_not_exists(PK)',
     });
     expect(sqsMock).toHaveReceivedCommandTimes(SendMessageCommand, 1);

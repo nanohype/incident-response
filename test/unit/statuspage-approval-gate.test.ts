@@ -16,7 +16,7 @@ import { AutoPublishNotPermittedError } from '../../src/types/index.js';
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
 describe('StatuspageApprovalGate — SECURITY CRITICAL', () => {
-  const TABLE_NAME = 'marshal-incidents-test';
+  const TABLE_NAME = 'incident-response-incidents-test';
   const INCIDENT_ID = 'test-incident-001';
   const DRAFT_ID = 'draft-001';
   const USER_ID = 'U-ic-001';

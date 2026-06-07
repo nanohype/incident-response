@@ -1,4 +1,4 @@
-# Platform CR — declares marshal as a tenant of the protohype team on the
+# Platform CR — declares incident-response as a tenant of the protohype team on the
 # eks-agent-platform operator. Apply once per cluster before the
 # ApplicationSet entry starts reconciling the chart.
 #
@@ -15,19 +15,19 @@
 #     attached. Trust policy permits the `tenant-runtime` ServiceAccount in
 #     the tenant namespace
 #
-# What marshal's chart owns separately (NOT operator-reconciled):
-#   - The chart's own ServiceAccount (`marshal`) — used by both webhook and
+# What incident-response's chart owns separately (NOT operator-reconciled):
+#   - The chart's own ServiceAccount (`incident-response`) — used by both webhook and
 #     processor Deployments. Its `eks.amazonaws.com/role-arn` annotation
-#     comes from landing-zone's marshal-platform component (output:
+#     comes from landing-zone's incident-response-platform component (output:
 #     irsa_role_arn) via per-env Helm values (aws.platformRoleArn). The
-#     operator's `<env>-marshal-tenant` role trusts the `tenant-runtime`
-#     SA, not marshal's `marshal` SA — different SA, different trust, two
-#     roles serving two workload classes (AgentFleet pods vs marshal's
+#     operator's `<env>-incident-response-tenant` role trusts the `tenant-runtime`
+#     SA, not incident-response's `incident-response` SA — different SA, different trust, two
+#     roles serving two workload classes (AgentFleet pods vs incident-response's
 #     app pods)
 #
 # Tenant-shared infra (DDB, SQS, EventBridge Scheduler, Bedrock invoke
 # policy, Secrets Manager seeding) — see landing-zone's
-# components/aws/marshal-platform/. Once that component's per-env entry
+# components/aws/incident-response-platform/. Once that component's per-env entry
 # applies, the outputs are wired into the chart's per-env values
 # (`tenantInfra.*` + `aws.platformRoleArn`).
 
@@ -35,11 +35,11 @@
 apiVersion: governance.nanohype.dev/v1alpha1
 kind: BudgetPolicy
 metadata:
-  name: marshal
+  name: incident-response
   namespace: tenants-protohype
 spec:
   platformRef:
-    name: marshal
+    name: incident-response
   # Soft threshold; kill-switch fires at 120% (USD 3000) when KillSwitchEnabled
   # is true. Adjust per-env if needed.
   monthlyUsd: "2500"
@@ -49,24 +49,24 @@ spec:
 apiVersion: platform.nanohype.dev/v1alpha1
 kind: Platform
 metadata:
-  name: marshal
+  name: incident-response
   namespace: tenants-protohype
 spec:
-  displayName: marshal
+  displayName: incident-response
   persona: ops
   tenant: protohype
   budget:
-    name: marshal
+    name: incident-response
   identity:
     # Bedrock model access for AgentFleet pods (tenant-runtime SA on the
-    # operator-reconciled IRSA role). marshal's own app pods don't use this
-    # role; they assume the landing-zone-owned `marshal-platform` IRSA role
+    # operator-reconciled IRSA role). incident-response's own app pods don't use this
+    # role; they assume the landing-zone-owned `incident-response-platform` IRSA role
     # (via aws.platformRoleArn in the chart). The operator's role still
     # exists for AgentFleet workloads in this namespace if/when they land.
     allowedModelFamilies:
       - anthropic
     # ARN(s) of additional managed policies the operator attaches on top of
-    # the per-tenant baseline. Populate once landing-zone's marshal-platform
+    # the per-tenant baseline. Populate once landing-zone's incident-response-platform
     # component is refactored to emit `irsa_managed_policy_arn` as an
     # output. Leave empty until then — the chart's app pods don't need this
     # since they assume the landing-zone-owned role directly.

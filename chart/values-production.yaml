@@ -15,31 +15,31 @@ processor:
       memory: 2Gi
 
 ingress:
-  host: marshal-webhook.example.com
+  host: incident-response-webhook.example.com
 
 externalSecret:
-  hmacSecret: marshal/production/grafana-oncall-hmac
-  appSecret: marshal/production/app-secrets
-  grafanaCloudSecret: marshal/production/grafana-cloud
+  hmacSecret: incident-response/production/grafana-oncall-hmac
+  appSecret: incident-response/production/app-secrets
+  grafanaCloudSecret: incident-response/production/grafana-cloud
 
 env:
-  OTEL_RESOURCE_ATTRIBUTES: "service.namespace=marshal,service.version=0.1.0,deployment.environment=production,agents.tenant=protohype,agents.platform=marshal"
+  OTEL_RESOURCE_ATTRIBUTES: "service.namespace=incident-response,service.version=0.1.0,deployment.environment=production,agents.tenant=protohype,agents.platform=incident-response"
 
 aws:
-  # Fill from landing-zone `marshal-platform` (production) output: irsa_role_arn.
-  # `cd live/aws/workload-prod/us-west-2/production/marshal-platform && tofu output -raw irsa_role_arn`
+  # Fill from landing-zone `incident-response-platform` (production) output: irsa_role_arn.
+  # `cd live/aws/workload-prod/us-west-2/production/incident-response-platform && tofu output -raw irsa_role_arn`
   platformRoleArn: ""
 
 tenantInfra:
-  # Fill the empties below from the landing-zone marshal-platform production
+  # Fill the empties below from the landing-zone incident-response-platform production
   # outputs (terragrunt output -json). Slot names match output names 1:1.
-  incidentsTableName: marshal-incidents-production
-  auditTableName: marshal-audit-production
+  incidentsTableName: incident-response-production-incidents
+  auditTableName: incident-response-production-audit
   identityCacheTableName: ""    # output: identity_cache_table_name
   incidentEventsQueueUrl: ""
   nudgeEventsQueueUrl: ""
   nudgeEventsQueueArn: ""
   slaCheckQueueUrl: ""
   schedulerRoleArn: ""
-  schedulerGroupName: marshal-nudges-production
+  schedulerGroupName: incident-response-production-nudges
   auditBucketName: ""           # output: audit_bucket_name

@@ -1,18 +1,1 @@
-{{- if .Values.grafanaDashboard.enabled -}}
-# Grafana dashboard ConfigMap — picked up by the grafana_dashboard sidecar
-# (kube-prometheus-stack ships one by default) and auto-imported into Grafana
-# via the `grafana_dashboard: "1"` label selector. Source JSON ported from
-# infra/dashboards/marshal.json and stored under chart/dashboards/marshal.json
-# so it can be edited like any other chart file.
-
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "marshal.fullname" . }}-dashboard
-  labels:
-    {{- include "marshal.labels" . | nindent 4 }}
-    grafana_dashboard: "1"
-data:
-  marshal.json: |-
-    {{- .Files.Get "dashboards/marshal.json" | nindent 4 }}
-{{- end }}
+{{ include "tenant-chart-base.grafanaDashboard" . }}

@@ -2,10 +2,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "marshal.fullname" . }}-webhook
+  name: {{ include "tenant-chart-base.fullname" . }}-webhook
   labels:
-    {{- include "marshal.labels" . | nindent 4 }}
-    marshal.io/service: webhook
+    {{- include "tenant-chart-base.labels" . | nindent 4 }}
+    incident-response.io/service: webhook
 spec:
   type: ClusterIP
   ports:
@@ -14,5 +14,5 @@ spec:
       protocol: TCP
       name: http
   selector:
-    {{- include "marshal.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "service" "webhook") | nindent 4 }}
+    {{- include "incident-response.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "service" "webhook") | nindent 4 }}
 {{- end }}

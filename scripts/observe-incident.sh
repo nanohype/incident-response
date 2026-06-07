@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Snapshot the current state of a Marshal incident across DynamoDB + SQS.
+# Snapshot the current state of a IncidentResponse incident across DynamoDB + SQS.
 # Designed to be re-run by the operator after each meaningful step — the
 # shape of the output doesn't change, so you can compare runs visually.
 #
@@ -12,7 +12,7 @@
 #   scripts/observe-incident.sh --env staging --latest
 #
 # For a live tail of the processor's stderr, run in another pane:
-#   aws logs tail /marshal/staging/processor --region us-west-2 --follow
+#   aws logs tail /incident-response/staging/processor --region us-west-2 --follow
 #
 # Requires: aws CLI, jq.
 set -euo pipefail
@@ -33,10 +33,10 @@ while (( $# > 0 )); do
   esac
 done
 
-INCIDENTS_TABLE="marshal-${ENVIRONMENT}-incidents"
-AUDIT_TABLE="marshal-${ENVIRONMENT}-audit"
-INCIDENT_QUEUE_NAME="marshal-${ENVIRONMENT}-incident-events.fifo"
-DLQ_NAME="marshal-${ENVIRONMENT}-incident-events-dlq.fifo"
+INCIDENTS_TABLE="incident-response-${ENVIRONMENT}-incidents"
+AUDIT_TABLE="incident-response-${ENVIRONMENT}-audit"
+INCIDENT_QUEUE_NAME="incident-response-${ENVIRONMENT}-incident-events.fifo"
+DLQ_NAME="incident-response-${ENVIRONMENT}-incident-events-dlq.fifo"
 
 # ── Resolve --latest ────────────────────────────────────────────────────────
 if (( LATEST == 1 )); then
@@ -51,14 +51,14 @@ fi
 printf '\n=== incident %s (env=%s) ===\n' "$INCIDENT_ID" "$ENVIRONMENT"
 
 # ── Incident record ─────────────────────────────────────────────────────────
-printf '\n── state (marshal-%s-incidents) ────────────────────────\n' "$ENVIRONMENT"
+printf '\n── state (incident-response-%s-incidents) ────────────────────────\n' "$ENVIRONMENT"
 aws dynamodb get-item --region "$REGION" --table-name "$INCIDENTS_TABLE" \
   --key "{\"PK\":{\"S\":\"INCIDENT#${INCIDENT_ID}\"},\"SK\":{\"S\":\"METADATA\"}}" \
   --query 'Item.{status:status.S,severity:severity.S,channel:slack_channel_name.S,channel_id:slack_channel_id.S,responders:responders.L[].S,created:created_at.S,updated:updated_at.S}' \
   --output table 2>&1 | sed 's/^/  /' || printf '  (not found — processor may still be starting)\n'
 
 # ── Audit trail ─────────────────────────────────────────────────────────────
-printf '\n── audit trail (marshal-%s-audit) ──────────────────────\n' "$ENVIRONMENT"
+printf '\n── audit trail (incident-response-%s-audit) ──────────────────────\n' "$ENVIRONMENT"
 aws dynamodb query --region "$REGION" --table-name "$AUDIT_TABLE" \
   --key-condition-expression 'PK = :pk' \
   --expression-attribute-values "{\":pk\":{\"S\":\"INCIDENT#${INCIDENT_ID}\"}}" \
@@ -84,5 +84,5 @@ printf '  dead-letter:    %s  (must stay 0 in a healthy system)\n' "$(queue_dept
 
 # ── Log tail hint ───────────────────────────────────────────────────────────
 printf '\n── live logs (run in another pane) ─────────────────────\n'
-printf '  aws logs tail /marshal/%s/processor --region %s --follow --filter-pattern "%s"\n' "$ENVIRONMENT" "$REGION" "$INCIDENT_ID"
+printf '  aws logs tail /incident-response/%s/processor --region %s --follow --filter-pattern "%s"\n' "$ENVIRONMENT" "$REGION" "$INCIDENT_ID"
 printf '\n'

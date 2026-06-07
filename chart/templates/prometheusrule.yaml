@@ -1,5 +1,5 @@
 {{- if .Values.prometheusRule.enabled -}}
-# Ported from infra/alerts/marshal-rules.yaml. The CDK era uploaded these
+# Ported from infra/alerts/incident-response-rules.yaml. The CDK era uploaded these
 # directly to Mimir's ruler API via the grafana-provisioner custom resource;
 # under kube-prometheus-stack the operator sidecar watches PrometheusRule CRs
 # matching prometheus.spec.ruleSelector (release label by default) and pushes
@@ -11,51 +11,51 @@
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
-  name: {{ include "marshal.fullname" . }}
+  name: {{ include "tenant-chart-base.fullname" . }}
   labels:
-    {{- include "marshal.labels" . | nindent 4 }}
+    {{- include "tenant-chart-base.labels" . | nindent 4 }}
     {{- with .Values.prometheusRule.selector }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
   groups:
-    - name: marshal.slo
+    - name: incident-response.slo
       interval: 1m
       rules:
-        - alert: MarshalAssemblyDurationBreach
+        - alert: IncidentResponseAssemblyDurationBreach
           expr: histogram_quantile(0.99, sum by (le) (rate(assembly_duration_ms_bucket[5m]))) > 300000
           for: 10m
           labels:
             severity: page
-            service: marshal
+            service: incident-response
             slo: assembly-under-5min
           annotations:
-            summary: Marshal P99 war-room assembly exceeds 5-minute SLO
+            summary: IncidentResponse P99 war-room assembly exceeds 5-minute SLO
             description: |
               P99 assembly duration over the last 5 minutes is {{ "{{" }} $value | printf "%.0f" {{ "}}" }} ms (>300000 ms).
               Runbook: artifacts/runbook.md § "SLO breach — assembly latency"
 
-        - alert: MarshalDirectoryLookupFailureSpike
+        - alert: IncidentResponseDirectoryLookupFailureSpike
           expr: sum(rate(directory_lookup_failure_count_total[5m])) > 0.1
           for: 5m
           labels:
             severity: warn
-            service: marshal
+            service: incident-response
           annotations:
-            summary: Marshal directory lookup failures spiking
+            summary: IncidentResponse directory lookup failures spiking
             description: |
               Directory (WorkOS) lookup failures exceed 0.1/s over the last 5 minutes.
               Incidents will assemble with empty responder lists until resolved.
               Runbook: artifacts/runbook.md § "Directory lookup degraded"
 
-        - alert: MarshalStatuspagePublishFailures
+        - alert: IncidentResponseStatuspagePublishFailures
           expr: sum(rate(statuspage_publish_count_total{outcome="failed"}[5m])) > 0
           for: 2m
           labels:
             severity: page
-            service: marshal
+            service: incident-response
           annotations:
-            summary: Marshal failed to publish Statuspage.io updates
+            summary: IncidentResponse failed to publish Statuspage.io updates
             description: |
               Statuspage.io publish failures in the last 5 minutes.
               IC approvals are stuck; customer communications not going out.

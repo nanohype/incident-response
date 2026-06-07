@@ -2,10 +2,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "marshal.fullname" . }}-webhook
+  name: {{ include "tenant-chart-base.fullname" . }}-webhook
   labels:
-    {{- include "marshal.labels" . | nindent 4 }}
-    marshal.io/service: webhook
+    {{- include "tenant-chart-base.labels" . | nindent 4 }}
+    incident-response.io/service: webhook
 spec:
   replicas: {{ .Values.webhook.replicaCount }}
   strategy:
@@ -15,16 +15,16 @@ spec:
       maxUnavailable: 0
   selector:
     matchLabels:
-      {{- include "marshal.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "service" "webhook") | nindent 6 }}
+      {{- include "incident-response.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "service" "webhook") | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "marshal.labels" . | nindent 8 }}
-        marshal.io/service: webhook
+        {{- include "tenant-chart-base.labels" . | nindent 8 }}
+        incident-response.io/service: webhook
       annotations:
         checksum/external-secret: {{ printf "%s-%s-%s" .Values.externalSecret.hmacSecret .Values.externalSecret.appSecret .Values.externalSecret.refreshInterval | sha256sum }}
     spec:
-      serviceAccountName: {{ include "marshal.serviceAccountName" . }}
+      serviceAccountName: {{ include "tenant-chart-base.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -39,9 +39,9 @@ spec:
               containerPort: {{ .Values.webhook.port }}
               protocol: TCP
           env:
-            {{- include "marshal.env" (dict "Values" .Values "service" "webhook") | nindent 12 }}
+            {{- include "incident-response.env" (dict "Values" .Values "service" "webhook") | nindent 12 }}
             - name: OTEL_SERVICE_NAME
-              value: marshal-webhook
+              value: incident-response-webhook
             - name: PORT
               value: {{ .Values.webhook.port | quote }}
             # webhook handler only needs the HMAC secret name; it fetches +
@@ -50,7 +50,7 @@ spec:
               value: {{ .Values.externalSecret.hmacSecret | quote }}
           envFrom:
             - secretRef:
-                name: {{ include "marshal.fullname" . }}-secrets
+                name: {{ include "tenant-chart-base.fullname" . }}-secrets
           livenessProbe:
             {{- toYaml .Values.probes.webhook.liveness | nindent 12 }}
           readinessProbe:

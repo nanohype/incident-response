@@ -1,7 +1,7 @@
 {
-  "title": "Marshal — Operational Dashboard",
-  "uid": "marshal-ops",
-  "tags": ["marshal", "incident-response"],
+  "title": "IncidentResponse — Operational Dashboard",
+  "uid": "incident-response-ops",
+  "tags": ["incident-response", "incident-response"],
   "schemaVersion": 39,
   "timezone": "browser",
   "refresh": "30s",
@@ -107,7 +107,7 @@
           "refId": "A",
           "namespace": "AWS/SQS",
           "metricName": "ApproximateNumberOfMessagesVisible",
-          "dimensions": { "QueueName": "marshal-incident-events.fifo" },
+          "dimensions": { "QueueName": "incident-response-incident-events.fifo" },
           "statistic": "Average",
           "region": "us-west-2",
           "period": "60"
@@ -116,7 +116,7 @@
           "refId": "B",
           "namespace": "AWS/SQS",
           "metricName": "ApproximateNumberOfMessagesVisible",
-          "dimensions": { "QueueName": "marshal-incident-events-dlq.fifo" },
+          "dimensions": { "QueueName": "incident-response-incident-events-dlq.fifo" },
           "statistic": "Average",
           "region": "us-west-2",
           "period": "60"
@@ -134,7 +134,7 @@
           "refId": "A",
           "namespace": "ECS/ContainerInsights",
           "metricName": "RunningTaskCount",
-          "dimensions": { "ClusterName": "marshal", "ServiceName": "marshal-processor" },
+          "dimensions": { "ClusterName": "incident-response", "ServiceName": "incident-response-processor" },
           "statistic": "Minimum",
           "region": "us-west-2",
           "period": "60"
@@ -182,7 +182,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{service=\"marshal-processor\"} | json | level=~\"warn|error\""
+          "expr": "{service=\"incident-response-processor\"} | json | level=~\"warn|error\""
         }
       ],
       "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none" }
