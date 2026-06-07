@@ -9,7 +9,7 @@ Acknowledgement target: within 72 hours. Triage target: within 5 business days.
 ## Security posture
 
 incident-response is an incident-commander assistant: a Grafana OnCall webhook fans a P1 into a
-Slack war room, and the IC drives the response through `/marshal` slash commands. It handles
+Slack war room, and the IC drives the response through `/incident-response` slash commands. It handles
 incident metadata, responder identities, and the IC's conversation with the model, and it can
 publish customer-facing Statuspage updates — so its defining controls are that **the webhook
 ingress only trusts requests it can cryptographically verify**, **no customer-facing Statuspage
@@ -45,7 +45,7 @@ inference logs or third parties**.
 
 ### Data handling & inference
 
-- `stripPII` runs **before every Bedrock call** (`src/ai/marshal-ai.ts`), so responder names,
+- `stripPII` runs **before every Bedrock call** (`src/ai/incident-response-ai.ts`), so responder names,
   contact details, and other sensitive strings in incident context are scrubbed out of the prompt
   before drafts or postmortem sections are generated.
 - **Bedrock invocation logging is set to NONE** for the account, so the IC↔AI conversation (the
@@ -58,10 +58,10 @@ inference logs or third parties**.
 
 - No long-lived credentials in the app. Pods get AWS access via IRSA (Workload Identity); there
   are no static keys anywhere in the repo or image. DynamoDB, SQS, Bedrock, EventBridge Scheduler,
-  and Secrets Manager calls AssumeRoleWithWebIdentity into the landing-zone `marshal-platform`
+  and Secrets Manager calls AssumeRoleWithWebIdentity into the landing-zone `incident-response-platform`
   IRSA role.
 - App-level secrets are projected at deploy time by External Secrets Operator from AWS Secrets
-  Manager (`marshal/<env>/*` — the Grafana OnCall HMAC secret, app secrets, and Grafana Cloud
+  Manager (`incident-response/<env>/*` — the Grafana OnCall HMAC secret, app secrets, and Grafana Cloud
   credentials) into a Kubernetes Secret consumed `envFrom` — never committed.
 
 ### Network
@@ -75,7 +75,7 @@ inference logs or third parties**.
 ## Known limitations
 
 - Webhook authenticity is bounded by the secrecy of the HMAC signing secret. Anyone who can read
-  the `marshal/<env>` HMAC secret can forge a P1; protection of the secret rests on Secrets
+  the `incident-response/<env>` HMAC secret can forge a P1; protection of the secret rests on Secrets
   Manager access control and the IRSA-only posture.
 - The Bedrock-logging-NONE guarantee is a substrate control. If the `landing-zone` account
   configuration drifts (someone re-enables invocation logging out of band), IC↔AI conversations

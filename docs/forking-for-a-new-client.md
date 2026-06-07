@@ -1,6 +1,6 @@
 # Forking incident-response for a new client
 
-This app is a protohype subsystem skeleton. Forking for a different client means swapping **runtime configuration** (secrets, DDB table names, Slack workspace, Linear project, Grafana tenant) — not editing business logic. Every external integration goes through a constructor-injected client, and every AWS resource carries an env-scoped prefix owned by the `landing-zone marshal-platform` substrate.
+This app is a protohype subsystem skeleton. Forking for a different client means swapping **runtime configuration** (secrets, DDB table names, Slack workspace, Linear project, Grafana tenant) — not editing business logic. Every external integration goes through a constructor-injected client, and every AWS resource carries an env-scoped prefix owned by the `landing-zone incident-response-platform` substrate.
 
 Budget ~2 hours end-to-end: 30 min for third-party account setup, 30 min for local seed, 30 min for a clean deploy, 30 min for a drill.
 
@@ -19,17 +19,17 @@ Have ready:
 
 ## 1. Name the fork
 
-The app carries the internal handle `marshal` through:
+The app carries the internal handle `incident-response` through:
 
-- Secrets Manager path prefix (`marshal/{env}/...`)
-- DDB table names (`marshal-{env}-incidents`, `marshal-{env}-audit`)
-- SQS queue names (`marshal-{env}-incident-events.fifo`, etc.)
-- EventBridge Scheduler group (`marshal-{env}`)
-- Slack channel prefix (`marshal-p1-YYYYMMDD-*`)
-- OTel `service.namespace` / `agents.platform` = `marshal`
-- The `/marshal` slash command + Slack app name
+- Secrets Manager path prefix (`incident-response/{env}/...`)
+- DDB table names (`incident-response-{env}-incidents`, `incident-response-{env}-audit`)
+- SQS queue names (`incident-response-{env}-incident-events.fifo`, etc.)
+- EventBridge Scheduler group (`incident-response-{env}`)
+- Slack channel prefix (`incident-response-p1-YYYYMMDD-*`)
+- OTel `service.namespace` / `agents.platform` = `incident-response`
+- The `/incident-response` slash command + Slack app name
 
-The AWS resource names are owned by the `landing-zone marshal-platform` substrate (`dynamodb.tf`, `sqs.tf`, `scheduler.tf`); the chart consumes them via `tenantInfra.*`. If you want to rename — e.g. `sentinel` for your company — rename the substrate component + its outputs, then a find-and-replace on `marshal` (lowercase), `Marshal` (PascalCase), and `MARSHAL` (SCREAMING for env vars, audit `actor_user_id: 'MARSHAL'`) covers the app side. Leave `marshal-p1-` in Slack channel names if you want operators to recognize the convention.
+The AWS resource names are owned by the `landing-zone incident-response-platform` substrate (`dynamodb.tf`, `sqs.tf`, `scheduler.tf`); the chart consumes them via `tenantInfra.*`. If you want to rename — e.g. `sentinel` for your company — rename the substrate component + its outputs, then a find-and-replace on `incident-response` (lowercase), `IncidentResponse` (PascalCase), and `INCIDENT_RESPONSE` (SCREAMING for env vars, audit `actor_user_id: 'INCIDENT_RESPONSE'`) covers the app side. Leave `incident-response-p1-` in Slack channel names if you want operators to recognize the convention.
 
 ## 2. Third-party account setup
 
@@ -41,7 +41,7 @@ Follow [`docs/slack-app-setup.md`](slack-app-setup.md) verbatim. You'll end up w
 - Signing secret
 - App-level token (`xapp-…`) with `connections:write`
 
-Register `/marshal` as a slash command pointing at your workspace (no URL — socket mode handles it).
+Register `/incident-response` as a slash command pointing at your workspace (no URL — socket mode handles it).
 
 ### Grafana OnCall + Cloud
 
@@ -60,7 +60,7 @@ Create an OnCall outgoing-webhook integration later (after the first deploy — 
 Linear's API expects **UUIDs**, not team keys. Get them via:
 
 ```bash
-LINEAR_KEY=$(cat marshal-secrets.staging.json | jq -r '."linear/api-key"')
+LINEAR_KEY=$(cat incident-response-secrets.staging.json | jq -r '."linear/api-key"')
 curl -sS -X POST https://api.linear.app/graphql \
   -H "Authorization: $LINEAR_KEY" -H "Content-Type: application/json" \
   -d '{"query":"{ teams { nodes { id key name } } projects(first: 50) { nodes { id name } } }"}' | jq '.data'
@@ -96,24 +96,24 @@ You'll need to configure Directory Sync for whichever IdP feeds your on-call rot
 Copy the template, fill it in, seed.
 
 ```bash
-cp secrets.template.json marshal-secrets.staging.json
-# edit marshal-secrets.staging.json — replace every REPLACE_ME
+cp secrets.template.json incident-response-secrets.staging.json
+# edit incident-response-secrets.staging.json — replace every REPLACE_ME
 AWS_PROFILE=<yours> npm run seed:staging
 ```
 
-The seeder blocks if any `REPLACE_ME` slips through. `marshal-secrets.{env}.json` is in `.gitignore` — do not commit it.
+The seeder blocks if any `REPLACE_ME` slips through. `incident-response-secrets.{env}.json` is in `.gitignore` — do not commit it.
 
 ## 4. Deploy
 
-Apply the `landing-zone marshal-platform` substrate for the env, fill `chart/values-staging.yaml` from its `tofu output`, then bring the tenant up:
+Apply the `landing-zone incident-response-platform` substrate for the env, fill `chart/values-staging.yaml` from its `tofu output`, then bring the tenant up:
 
 ```bash
 npm install
 npm run check              # typecheck + lint + format:check + unit tests
 kubectl apply -f platform.yaml                       # tenant boundary
-kubectl -n tenants-protohype get platform marshal -w # wait Ready
+kubectl -n tenants-protohype get platform incident-response -w # wait Ready
 # register gitops/applicationset-entry.yaml in eks-gitops → ArgoCD rolls it out
-kubectl -n tenants-protohype rollout status deploy/marshal-processor
+kubectl -n tenants-protohype rollout status deploy/incident-response-processor
 ```
 
 Full step-by-step in [`docs/deployment-guide.md`](deployment-guide.md). Confirm the webhook HMAC gate is live (unsigned POST → `401`) and the DLQ depth is zero before wiring real alerts.
@@ -133,17 +133,17 @@ Use the cert-manager-issued webhook ingress hostname for the env. In your Grafan
 ```bash
 npm run drill:staging
 npm run drill:join:staging -- --user <your Slack member ID>
-# in the war room: /marshal status draft → approve → /marshal resolve
+# in the war room: /incident-response status draft → approve → /incident-response resolve
 npm run observe:staging   # inspect audit trail
 ```
 
-If the Slack channel lands, the audit trail shows `ROOM_ASSEMBLED`, and `/marshal resolve` produces a Linear issue + archives the channel, the fork is working.
+If the Slack channel lands, the audit trail shows `ROOM_ASSEMBLED`, and `/incident-response resolve` produces a Linear issue + archives the channel, the fork is working.
 
 ## 7. Production when you're ready
 
 ```bash
 npm run seed:production
-# fill chart/values-production.yaml from the production marshal-platform tofu output,
+# fill chart/values-production.yaml from the production incident-response-platform tofu output,
 # register the production ApplicationSet env, let ArgoCD roll it out
 npm run chart:template:production   # render + sanity-check before commit
 ```
@@ -158,11 +158,11 @@ The production tenant is identical in shape; only IRSA scoping and the substrate
 
 ## What you might want to change
 
-- **Channel name format** (`src/services/war-room-assembler.ts:channelName`) — currently `marshal-p1-YYYYMMDD-<id-prefix>-<nonce>`. Change the prefix, not the nonce (the nonce prevents collisions).
+- **Channel name format** (`src/services/war-room-assembler.ts:channelName`) — currently `incident-response-p1-YYYYMMDD-<id-prefix>-<nonce>`. Change the prefix, not the nonce (the nonce prevents collisions).
 - **Checklist items** (`src/services/war-room-assembler.ts:CHECKLIST_ITEMS`) — the 11 defaults cover a generic SaaS P1; your team may want org-specific items (SOC-2 incident reporting, legal notification, PR coordination).
 - **Nudge cadence** (`src/services/nudge-scheduler.ts:ScheduleExpression`) — defaults to `rate(15 minutes)`. Longer for low-velocity incidents, shorter for a demanding IC culture.
-- **Bedrock model IDs** (`src/ai/marshal-ai.ts:SONNET_MODEL_ID`, `HAIKU_MODEL_ID`) — use cross-region inference profile IDs like `us.anthropic.claude-sonnet-4-6` if on-demand throughput on the raw model ID isn't available in your account.
+- **Bedrock model IDs** (`src/ai/incident-response-ai.ts:SONNET_MODEL_ID`, `HAIKU_MODEL_ID`) — use cross-region inference profile IDs like `us.anthropic.claude-sonnet-4-6` if on-demand throughput on the raw model ID isn't available in your account.
 
 ## Support contract
 
-Marshal is a protohype skeleton. Treat the code as yours after forking — there's no upstream sync path. Pull design ideas, not code.
+IncidentResponse is a protohype skeleton. Treat the code as yours after forking — there's no upstream sync path. Pull design ideas, not code.

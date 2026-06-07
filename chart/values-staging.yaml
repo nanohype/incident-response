@@ -3,34 +3,34 @@ image:
   tag: staging
 
 ingress:
-  host: marshal-webhook-staging.example.com
+  host: incident-response-webhook-staging.example.com
 
 externalSecret:
-  hmacSecret: marshal/staging/grafana-oncall-hmac
-  appSecret: marshal/staging/app-secrets
-  grafanaCloudSecret: marshal/staging/grafana-cloud
+  hmacSecret: incident-response/staging/grafana-oncall-hmac
+  appSecret: incident-response/staging/app-secrets
+  grafanaCloudSecret: incident-response/staging/grafana-cloud
 
 env:
-  OTEL_RESOURCE_ATTRIBUTES: "service.namespace=marshal,service.version=0.1.0,deployment.environment=staging,agents.tenant=protohype,agents.platform=marshal"
+  OTEL_RESOURCE_ATTRIBUTES: "service.namespace=incident-response,service.version=0.1.0,deployment.environment=staging,agents.tenant=protohype,agents.platform=incident-response"
 
 aws:
-  # Fill from landing-zone `marshal-platform` (staging) output: irsa_role_arn.
-  # `cd live/aws/workload-staging/us-west-2/staging/marshal-platform && tofu output -raw irsa_role_arn`
+  # Fill from landing-zone `incident-response-platform` (staging) output: irsa_role_arn.
+  # `cd live/aws/workload-staging/us-west-2/staging/incident-response-platform && tofu output -raw irsa_role_arn`
   platformRoleArn: ""
 
 tenantInfra:
-  # Fill the empties below from the landing-zone marshal-platform staging
+  # Fill the empties below from the landing-zone incident-response-platform staging
   # outputs (terragrunt output -json) — the rest of the slot names match
   # output names 1:1 (identity_cache_table_name, incident_events_queue_url,
   # nudge_events_queue_url, nudge_events_queue_arn, sla_check_queue_url,
   # scheduler_role_arn, audit_bucket_name).
-  incidentsTableName: marshal-incidents-staging
-  auditTableName: marshal-audit-staging
+  incidentsTableName: incident-response-staging-incidents
+  auditTableName: incident-response-staging-audit
   identityCacheTableName: ""    # output: identity_cache_table_name
   incidentEventsQueueUrl: ""
   nudgeEventsQueueUrl: ""
   nudgeEventsQueueArn: ""
   slaCheckQueueUrl: ""
   schedulerRoleArn: ""
-  schedulerGroupName: marshal-nudges-staging
+  schedulerGroupName: incident-response-staging-nudges
   auditBucketName: ""           # output: audit_bucket_name

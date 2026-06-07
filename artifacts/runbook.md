@@ -1,22 +1,22 @@
-# Marshal — SRE Runbook
+# IncidentResponse — SRE Runbook
 **Author:** ops-sre  
 **Version:** 1.0  
 **Last Updated:** 2025-01-15  
-**On-call rotation:** Marshal is SRE-owned  
+**On-call rotation:** IncidentResponse is SRE-owned  
 
 ---
 
 ## 1. Service Overview
 
-Marshal is an ECS Fargate service (persistent) + Lambda (webhook ingress) + SQS FIFO queue + EventBridge Scheduler + DynamoDB.
+IncidentResponse is an ECS Fargate service (persistent) + Lambda (webhook ingress) + SQS FIFO queue + EventBridge Scheduler + DynamoDB.
 
-**Critical invariant:** Marshal processes P1 incidents. If Marshal is down, incident response falls back to manual.
+**Critical invariant:** IncidentResponse processes P1 incidents. If IncidentResponse is down, incident response falls back to manual.
 
 **Healthy state indicators:**
 - ECS task count = 1 (or ≥1 if scaled out)
 - SQS incident queue depth = 0 (no unprocessed messages)
 - DLQ depth = 0
-- CloudWatch alarm `marshal-processor-stopped` = OK
+- CloudWatch alarm `incident-response-processor-stopped` = OK
 
 ---
 
@@ -37,9 +37,9 @@ Grafana OnCall → API GW → Lambda (ingress) → SQS FIFO → ECS Fargate (pro
 | SLO | Target | Measurement |
 |-----|--------|-------------|
 | Webhook ingress availability | 99.9% | Lambda error rate < 0.1% over 30 days |
-| War room assembly time (p50) | ≤5 min | Custom metric: `MarshalWarRoomAssemblyMs` p50 |
-| War room assembly time (p95) | ≤8 min | Custom metric: `MarshalWarRoomAssemblyMs` p95 |
-| Responder invited within 3 min | ≥95% | Custom metric: `MarshalResponderInviteWithin3MinPct` |
+| War room assembly time (p50) | ≤5 min | Custom metric: `IncidentResponseWarRoomAssemblyMs` p50 |
+| War room assembly time (p95) | ≤8 min | Custom metric: `IncidentResponseWarRoomAssemblyMs` p95 |
+| Responder invited within 3 min | ≥95% | Custom metric: `IncidentResponseResponderInviteWithin3MinPct` |
 | Status page approval gate | 100% | Audit query: published without approval = 0 |
 | Postmortem created within 48h | ≥95% | Linear issue create timestamp vs. resolved timestamp |
 
@@ -47,14 +47,14 @@ Grafana OnCall → API GW → Lambda (ingress) → SQS FIFO → ECS Fargate (pro
 
 ## 4. SLIs and Metrics
 
-Marshal is split across two observability planes:
+IncidentResponse is split across two observability planes:
 
 - **AWS infra metrics (CloudWatch):** Lambda/SQS/ECS/DynamoDB — native AWS telemetry.
 - **App metrics + traces (Grafana Cloud):** emitted via OTel through the ADOT collector
   sidecar (ECS) or the in-handler NodeSDK started at cold start (webhook;
   see `src/handlers/webhook-otel-init.ts`). Traces land in Tempo; metrics in Mimir.
-  Dashboard JSON and alerting rules live in `infra/dashboards/marshal.json` and
-  `infra/alerts/marshal-rules.yaml`.
+  Dashboard JSON and alerting rules live in `infra/dashboards/incident-response.json` and
+  `infra/alerts/incident-response-rules.yaml`.
 
 ### Lambda Ingress (CloudWatch)
 - `AWS/Lambda/Duration` — p99 should be < 2s
@@ -72,10 +72,10 @@ Marshal is split across two observability planes:
 - `ECS/ContainerInsights/MemoryUtilization` — alert if > 80%
 
 ### Application metrics (Grafana Cloud Mimir — OTel)
-- `assembly_duration_ms` — histogram; SLO alert on p99 > 5 min (`MarshalAssemblyDurationBreach`)
+- `assembly_duration_ms` — histogram; SLO alert on p99 > 5 min (`IncidentResponseAssemblyDurationBreach`)
 - `approval_gate_latency_ms` — histogram; IC approval click → Statuspage publish
-- `directory_lookup_failure_count` — counter; spike alert (`MarshalDirectoryLookupFailureSpike`)
-- `statuspage_publish_count{outcome}` — counter; page alert on `outcome=failed` (`MarshalStatuspagePublishFailures`)
+- `directory_lookup_failure_count` — counter; spike alert (`IncidentResponseDirectoryLookupFailureSpike`)
+- `statuspage_publish_count{outcome}` — counter; page alert on `outcome=failed` (`IncidentResponseStatuspagePublishFailures`)
 - `incident_resolved_count` — counter
 - `postmortem_created_count` — counter
 
@@ -89,28 +89,28 @@ inside `WarRoomAssembler.assemble` give per-step timings (`assemble.create_chann
 
 ## 5. Runbook: Processor is Down
 
-**Alarm:** `marshal-processor-stopped` ALARM  
+**Alarm:** `incident-response-processor-stopped` ALARM  
 **Impact:** No new incidents will be processed; existing war rooms will not receive nudges  
 **Fallback:** Manual incident response (email/Slack direct notification to SRE on-call)  
 
 **Steps:**
 1. Check ECS service status:
    ```bash
-   aws ecs describe-services --cluster marshal --services marshal-processor --region us-west-2
+   aws ecs describe-services --cluster incident-response --services incident-response-processor --region us-west-2
    ```
 2. Check stopped task reason:
    ```bash
-   aws ecs list-tasks --cluster marshal --service-name marshal-processor --desired-status STOPPED
-   aws ecs describe-tasks --cluster marshal --tasks <task-arn>
+   aws ecs list-tasks --cluster incident-response --service-name incident-response-processor --desired-status STOPPED
+   aws ecs describe-tasks --cluster incident-response --tasks <task-arn>
    ```
 3. Check processor logs in Grafana Cloud Loki (app logs ship here via the Fluent Bit sidecar):
    ```logql
-   {service="marshal-processor"} | json | level=~"warn|error" | __time > now() - 30m
+   {service="incident-response-processor"} | json | level=~"warn|error" | __time > now() - 30m
    ```
    If nothing is returned AND the task is running, the forwarder itself is broken — check the
    CloudWatch meta-log group for Fluent Bit's own stderr:
    ```bash
-   aws logs tail /marshal/forwarder-diagnostics --since 30m --follow
+   aws logs tail /incident-response/forwarder-diagnostics --since 30m --follow
    ```
 4. Common causes:
    - **OOM**: Increase memory in task definition (`memoryLimitMiB`)
@@ -118,7 +118,7 @@ inside `WarRoomAssembler.assemble` give per-step timings (`assemble.create_chann
    - **Slack token invalid**: Rotate Slack bot token in Secrets Manager; force new ECS deployment
 5. Force new deployment:
    ```bash
-   aws ecs update-service --cluster marshal --service marshal-processor --force-new-deployment
+   aws ecs update-service --cluster incident-response --service incident-response-processor --force-new-deployment
    ```
 6. Verify recovery: task count returns to 1; test webhook endpoint.
 
@@ -126,7 +126,7 @@ inside `WarRoomAssembler.assemble` give per-step timings (`assemble.create_chann
 
 ## 6. Runbook: SQS DLQ Has Messages
 
-**Alarm:** `marshal-incident-events-dlq-depth` > 0  
+**Alarm:** `incident-response-incident-events-dlq-depth` > 0  
 **Impact:** One or more incidents failed to process; war rooms were not assembled  
 
 **Steps:**
@@ -139,13 +139,13 @@ inside `WarRoomAssembler.assemble` give per-step timings (`assemble.create_chann
    ```
 2. Check processor logs in Grafana Cloud Loki, filtered by incident_id:
    ```logql
-   {service="marshal-processor", incident_id="<incident_id>"} | json
+   {service="incident-response-processor", incident_id="<incident_id>"} | json
    ```
    To pivot from a trace in Tempo: clicking a log line in Loki exposes the `trace_id` field
    (stamped by the logger when a span is active) which jumps directly into the Tempo waterfall
    for that incident.
 3. If the incident is still active:
-   - Notify the IC via direct Slack message that Marshal failed to assemble the war room
+   - Notify the IC via direct Slack message that IncidentResponse failed to assemble the war room
    - Provide the IC with the incident ID and offer to manually assist with room creation
 4. Determine root cause from logs
 5. Fix root cause (code or config)
@@ -161,14 +161,14 @@ inside `WarRoomAssembler.assemble` give per-step timings (`assemble.create_chann
 
 ## 7. Runbook: WorkOS Directory Sync Lookup Failures
 
-**Signal:** Marshal metric `directory_lookup_failure_count` > 0 in the 1-min sum widget; audit log events `DIRECTORY_LOOKUP_FAILED`  
+**Signal:** IncidentResponse metric `directory_lookup_failure_count` > 0 in the 1-min sum widget; audit log events `DIRECTORY_LOOKUP_FAILED`  
 **Impact:** Responders are not auto-invited; IC receives fallback error message  
 
 **Steps:**
 1. Check if WorkOS is having a service incident: https://status.workos.com
-2. Verify Marshal's WorkOS API key is valid:
+2. Verify IncidentResponse's WorkOS API key is valid:
    ```bash
-   KEY=$(aws secretsmanager get-secret-value --secret-id marshal/workos/api-key --query SecretString --output text)
+   KEY=$(aws secretsmanager get-secret-value --secret-id incident-response/workos/api-key --query SecretString --output text)
    curl -H "Authorization: Bearer $KEY" https://api.workos.com/directories
    ```
 3. If key rotated/revoked: update Secrets Manager value and force a new ECS deployment (ECS pulls secrets on task start)
@@ -178,18 +178,18 @@ inside `WarRoomAssembler.assemble` give per-step timings (`assemble.create_chann
 
 ## 8. Runbook: Statuspage.io Publish Failure After Approval
 
-**Signal:** IC reports "Failed to publish status page" in Slack; Loki query `{service="marshal-processor"} |= "Statuspage.io createIncident failed"` shows the failure.  
+**Signal:** IC reports "Failed to publish status page" in Slack; Loki query `{service="incident-response-processor"} |= "Statuspage.io createIncident failed"` shows the failure.  
 **Impact:** IC has approved the draft but the page is not yet updated; customers awaiting update  
 
 **Steps:**
 1. Verify Statuspage.io API status: https://metastatuspage.com (or Statuspage's own status page)
 2. Check API key is valid:
    ```bash
-   KEY=$(aws secretsmanager get-secret-value --secret-id marshal/statuspage/api-key --query SecretString --output text)
-   PAGE_ID=$(aws secretsmanager get-secret-value --secret-id marshal/statuspage/page-id --query SecretString --output text)
+   KEY=$(aws secretsmanager get-secret-value --secret-id incident-response/statuspage/api-key --query SecretString --output text)
+   PAGE_ID=$(aws secretsmanager get-secret-value --secret-id incident-response/statuspage/page-id --query SecretString --output text)
    curl -H "Authorization: OAuth $KEY" https://api.statuspage.io/v1/pages/$PAGE_ID
    ```
-3. If Marshal is unavailable, IC can publish manually via Statuspage.io web UI
+3. If IncidentResponse is unavailable, IC can publish manually via Statuspage.io web UI
 4. Audit log will show `STATUSPAGE_DRAFT_APPROVED` but no `STATUSPAGE_PUBLISHED` — this is expected for a failed publish
 5. Once API is back, IC can retry "Approve & Publish" — the draft remains in `PENDING_APPROVAL`
 
@@ -197,10 +197,10 @@ inside `WarRoomAssembler.assemble` give per-step timings (`assemble.create_chann
 
 ## 9. Monitoring Dashboards
 
-**Grafana Cloud — `marshal-ops`** (dashboard JSON committed at `infra/dashboards/marshal.json`).
+**Grafana Cloud — `incident-response-ops`** (dashboard JSON committed at `infra/dashboards/incident-response.json`).
 Import via Grafana UI (Dashboards → New → Import → Upload JSON) or via the Grafana Cloud API.
-Alerting rules live at `infra/alerts/marshal-rules.yaml` and are uploaded to Mimir via the
-Ruler API (`mimirtool rules sync --address <mimir-url> --auth-token <token> infra/alerts/marshal-rules.yaml`
+Alerting rules live at `infra/alerts/incident-response-rules.yaml` and are uploaded to Mimir via the
+Ruler API (`mimirtool rules sync --address <mimir-url> --auth-token <token> infra/alerts/incident-response-rules.yaml`
 or via the Grafana Cloud alerting UI).
 
 Key panels:
@@ -212,8 +212,8 @@ Key panels:
 - ECS task health (CloudWatch datasource)
 - Lambda ingress duration + errors (CloudWatch datasource)
 
-**CloudWatch** — infrastructure alarms only (`marshal-incident-events-dlq-depth`,
-`marshal-processor-stopped`). No dashboard; query via CloudWatch metrics UI if needed.
+**CloudWatch** — infrastructure alarms only (`incident-response-incident-events-dlq-depth`,
+`incident-response-processor-stopped`). No dashboard; query via CloudWatch metrics UI if needed.
 
 ---
 
@@ -232,7 +232,7 @@ Key panels:
 | Grafana Cloud (logs + metrics + traces — see Grafana Cloud pricing) | varies by plan |
 | **Total (AWS side)** | **~$50-75/month** |
 
-Alert: ops-finops if monthly AWS bill for Marshal exceeds $150 (2x estimate).
+Alert: ops-finops if monthly AWS bill for IncidentResponse exceeds $150 (2x estimate).
 
 ---
 
@@ -246,7 +246,7 @@ export CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --query Account --outpu
 export CDK_DEFAULT_REGION=us-west-2
 
 # Deploy
-npx cdk deploy MarshalStack
+npx cdk deploy IncidentResponseStack
 
 # Output: WebhookApiUrl — configure in Grafana OnCall integration
 
@@ -266,35 +266,35 @@ All secrets are created by CDK with placeholder values. After deploy, populate:
 
 ```bash
 # Slack
-aws secretsmanager put-secret-value --secret-id marshal/slack/bot-token --secret-string "xoxb-..."
-aws secretsmanager put-secret-value --secret-id marshal/slack/signing-secret --secret-string "..."
+aws secretsmanager put-secret-value --secret-id incident-response/slack/bot-token --secret-string "xoxb-..."
+aws secretsmanager put-secret-value --secret-id incident-response/slack/signing-secret --secret-string "..."
 
 # Grafana OnCall
-aws secretsmanager put-secret-value --secret-id marshal/grafana/oncall-token --secret-string "..."
+aws secretsmanager put-secret-value --secret-id incident-response/grafana/oncall-token --secret-string "..."
 
 # Grafana Cloud (SEPARATE token from OnCall)
-aws secretsmanager put-secret-value --secret-id marshal/grafana/cloud-token --secret-string "..."
-aws secretsmanager put-secret-value --secret-id marshal/grafana/cloud-org-id --secret-string "..."
+aws secretsmanager put-secret-value --secret-id incident-response/grafana/cloud-token --secret-string "..."
+aws secretsmanager put-secret-value --secret-id incident-response/grafana/cloud-org-id --secret-string "..."
 
 # Statuspage.io
-aws secretsmanager put-secret-value --secret-id marshal/statuspage/api-key --secret-string "..."
-aws secretsmanager put-secret-value --secret-id marshal/statuspage/page-id --secret-string "..."
+aws secretsmanager put-secret-value --secret-id incident-response/statuspage/api-key --secret-string "..."
+aws secretsmanager put-secret-value --secret-id incident-response/statuspage/page-id --secret-string "..."
 
 # GitHub
-aws secretsmanager put-secret-value --secret-id marshal/github/token --secret-string "..."
+aws secretsmanager put-secret-value --secret-id incident-response/github/token --secret-string "..."
 
 # Linear
-aws secretsmanager put-secret-value --secret-id marshal/linear/api-key --secret-string "..."
-aws secretsmanager put-secret-value --secret-id marshal/linear/project-id --secret-string "..."
+aws secretsmanager put-secret-value --secret-id incident-response/linear/api-key --secret-string "..."
+aws secretsmanager put-secret-value --secret-id incident-response/linear/project-id --secret-string "..."
 
 # WorkOS Directory Sync
-aws secretsmanager put-secret-value --secret-id marshal/workos/api-key --secret-string "sk_live_..."
+aws secretsmanager put-secret-value --secret-id incident-response/workos/api-key --secret-string "sk_live_..."
 
 # Grafana OnCall HMAC
-aws secretsmanager put-secret-value --secret-id marshal/grafana/oncall-webhook-hmac --secret-string "$(openssl rand -hex 32)"
+aws secretsmanager put-secret-value --secret-id incident-response/grafana/oncall-webhook-hmac --secret-string "$(openssl rand -hex 32)"
 ```
 
 Then force new ECS deployment to pick up the secrets:
 ```bash
-aws ecs update-service --cluster marshal --service marshal-processor --force-new-deployment
+aws ecs update-service --cluster incident-response --service incident-response-processor --force-new-deployment
 ```

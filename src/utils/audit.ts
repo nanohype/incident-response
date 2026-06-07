@@ -1,5 +1,5 @@
 /**
- * Audit log writer for Marshal.
+ * Audit log writer for IncidentResponse.
  *
  * CRITICAL INVARIANT: All audit writes are AWAITED — never fire-and-forget.
  * The audit log IS the incident record of ground truth.

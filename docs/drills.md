@@ -1,6 +1,6 @@
-# Seeing Marshal work: drills + observability
+# Seeing IncidentResponse work: drills + observability
 
-Marshal is a P1 incident orchestrator. You can't just wait for a real P1 to know it's working — you have to exercise it deliberately. This doc covers five strategies, from cheapest to most realistic, and the scripted drill harness that covers the first of them.
+IncidentResponse is a P1 incident orchestrator. You can't just wait for a real P1 to know it's working — you have to exercise it deliberately. This doc covers five strategies, from cheapest to most realistic, and the scripted drill harness that covers the first of them.
 
 The **drill harness** (`scripts/fire-drill.sh` + `scripts/observe-incident.sh`) is the fastest way to see the whole system move. After staging is deployed and every secret is seeded:
 
@@ -17,11 +17,11 @@ Five surfaces, each with something different:
 
 | Surface | What you see | How to reach it |
 |---|---|---|
-| **Slack** | War room channel (`marshal-p1-YYYYMMDD-<6char>`), pinned checklist, context snapshot, responder invites, `/marshal` slash commands | Your workspace — check the channel list for recent private channels |
-| **Pod logs** | Processor stderr (app-level events, trace-correlated) | `kubectl -n tenants-protohype logs deploy/marshal-processor -f` |
-| **DynamoDB** | Incident state (`ALERT_RECEIVED → ROOM_ASSEMBLING → ROOM_ASSEMBLED → RESOLVED`), full audit trail | `marshal-staging-incidents` + `marshal-staging-audit` tables, or via `scripts/observe-incident.sh` |
-| **SQS** | In-flight events + DLQ depth (must stay 0) | `marshal-staging-incident-events.fifo`, `marshal-staging-nudge-events`, `marshal-staging-sla-check-events`, plus the DLQ |
-| **Grafana / Mimir** | Pod health, CPU/memory, restarts, the three SLO panels | Grafana Cloud → the auto-imported `marshal` dashboard; or `kubectl -n tenants-protohype get pods` for liveness |
+| **Slack** | War room channel (`incident-response-p1-YYYYMMDD-<6char>`), pinned checklist, context snapshot, responder invites, `/incident-response` slash commands | Your workspace — check the channel list for recent private channels |
+| **Pod logs** | Processor stderr (app-level events, trace-correlated) | `kubectl -n tenants-protohype logs deploy/incident-response-processor -f` |
+| **DynamoDB** | Incident state (`ALERT_RECEIVED → ROOM_ASSEMBLING → ROOM_ASSEMBLED → RESOLVED`), full audit trail | `incident-response-staging-incidents` + `incident-response-staging-audit` tables, or via `scripts/observe-incident.sh` |
+| **SQS** | In-flight events + DLQ depth (must stay 0) | `incident-response-staging-incident-events.fifo`, `incident-response-staging-nudge-events`, `incident-response-staging-sla-check-events`, plus the DLQ |
+| **Grafana / Mimir** | Pod health, CPU/memory, restarts, the three SLO panels | Grafana Cloud → the auto-imported `incident-response` dashboard; or `kubectl -n tenants-protohype get pods` for liveness |
 
 The drill harness synthesises the first three into a single command flow. Pod metrics + traces land in Grafana Cloud via the cluster OTel Collector; pod logs land in Loki via the cluster log forwarder.
 
@@ -32,7 +32,7 @@ The drill harness synthesises the first three into a single command flow. Pod me
 The cheapest way to exercise the full P1 path. `scripts/fire-drill.sh`:
 
 1. Resolves the webhook ingress hostname for the env (the cert-manager-issued ingress host).
-2. Reads the HMAC secret from `marshal/{env}/grafana/oncall-webhook-hmac`.
+2. Reads the HMAC secret from `incident-response/{env}/grafana/oncall-webhook-hmac`.
 3. Builds a payload that passes the webhook handler's Zod schema.
 4. Signs with HMAC-SHA256 (hex) under header `x-grafana-oncall-signature`.
 5. POSTs to `https://<ingress-host>/webhook/grafana-oncall`.
@@ -70,10 +70,10 @@ What this tests, in order:
 What it doesn't test:
 
 - Statuspage approval gate (no draft is created until an IC clicks "Draft status" via a slash command — strategy 3)
-- Postmortem draft + Linear issue creation (triggered by `/marshal resolve`)
+- Postmortem draft + Linear issue creation (triggered by `/incident-response resolve`)
 - Real Grafana OnCall routing (we're hitting the webhook ingress directly, not going through OnCall)
 
-**Safe to re-run**: the incident_id is unique per run. Channel names include a 6-char cryptographic nonce so two drills on the same day can never collide on `name_taken`. Channels accumulate until you archive them — `/marshal resolve` auto-archives, or use `scripts/join-drill-channel.sh` then `conversations.archive` to clean up manually.
+**Safe to re-run**: the incident_id is unique per run. Channel names include a 6-char cryptographic nonce so two drills on the same day can never collide on `name_taken`. Channels accumulate until you archive them — `/incident-response resolve` auto-archives, or use `scripts/join-drill-channel.sh` then `conversations.archive` to clean up manually.
 
 ### 2. Real Grafana OnCall test alert
 
@@ -81,25 +81,25 @@ Once you trust strategy 1, set up a real OnCall outgoing-webhook integration for
 
 1. In staging Grafana → OnCall → Outgoing webhooks → Create.
 2. URL: `https://<ingress-host>/webhook/grafana-oncall` (the staging webhook ingress hostname).
-3. HTTP method: `POST`. Trigger: `Alert group firing`. Signing secret: paste the same value you seeded into `marshal/staging/grafana/oncall-webhook-hmac`.
+3. HTTP method: `POST`. Trigger: `Alert group firing`. Signing secret: paste the same value you seeded into `incident-response/staging/grafana/oncall-webhook-hmac`.
 4. In OnCall → Integrations → add a new "Alertmanager" or "Grafana Alerting" integration.
 5. From that integration's Settings page, click "Send demo alert".
 
-The demo alert fires through OnCall's real routing, signs with the same HMAC, and hits Marshal. The difference from strategy 1: you're exercising OnCall's own webhook-emit pipeline (retries, signature format, header name) which catches drift if Grafana changes its OnCall API.
+The demo alert fires through OnCall's real routing, signs with the same HMAC, and hits IncidentResponse. The difference from strategy 1: you're exercising OnCall's own webhook-emit pipeline (retries, signature format, header name) which catches drift if Grafana changes its OnCall API.
 
-Fidelity benefit: if you wire OnCall's demo alert to a real escalation chain, you'll get real responder emails in the `notify_to_users_queue` and Marshal will actually invite them to the war room. Set this up with a test-only escalation chain that pages a single on-call dummy user (not a real engineer).
+Fidelity benefit: if you wire OnCall's demo alert to a real escalation chain, you'll get real responder emails in the `notify_to_users_queue` and IncidentResponse will actually invite them to the war room. Set this up with a test-only escalation chain that pages a single on-call dummy user (not a real engineer).
 
 ### 3. Slack slash-command exercise
 
 Once a war room exists (from strategy 1 or 2), exercise the IC-facing commands inside that channel. These paths aren't covered by the webhook drill.
 
 ```
-/marshal help                 — confirms bot is responsive + shows registered commands
-/marshal checklist            — re-posts the pinned checklist
-/marshal status draft         — generates a Statuspage draft via Bedrock (tests AI layer)
-/marshal status send          — exercises the approval gate (button click required)
-/marshal silence              — disables the 15-min nudge for this incident
-/marshal resolve              — full 9-step resolution:
+/incident-response help                 — confirms bot is responsive + shows registered commands
+/incident-response checklist            — re-posts the pinned checklist
+/incident-response status draft         — generates a Statuspage draft via Bedrock (tests AI layer)
+/incident-response status send          — exercises the approval gate (button click required)
+/incident-response silence              — disables the 15-min nudge for this incident
+/incident-response resolve              — full 9-step resolution:
                                   1. Load incident (via slack-channel-index GSI)
                                   2. Fetch recent commits for deploy timeline
                                   3. Generate postmortem via Bedrock
@@ -113,18 +113,18 @@ Once a war room exists (from strategy 1 or 2), exercise the IC-facing commands i
 
 Each of these paths writes its own audit events — re-run `npm run observe:staging` after each to see the trail grow.
 
-**Statuspage approval-gate test:** `/marshal status draft` then `/marshal status send` → click the "Approve & Publish" button in the Block Kit message. The audit table should show `STATUSPAGE_DRAFT_APPROVED` *before* `STATUSPAGE_PUBLISHED`. The `statuspage-approval-gate.ts` unit tests assert this ordering, but running it live is the only way to catch Slack-side Block-Kit regressions.
+**Statuspage approval-gate test:** `/incident-response status draft` then `/incident-response status send` → click the "Approve & Publish" button in the Block Kit message. The audit table should show `STATUSPAGE_DRAFT_APPROVED` *before* `STATUSPAGE_PUBLISHED`. The `statuspage-approval-gate.ts` unit tests assert this ordering, but running it live is the only way to catch Slack-side Block-Kit regressions.
 
-**Linear postmortem test:** after `/marshal resolve`, check the audit table for `POSTMORTEM_CREATED` with a `linear_issue_url` — clicking that URL opens the Linear issue. If resolve logs `"Failed to create postmortem draft in Linear"` with `teamId must be a UUID`, your `linear/team-id` secret holds a team key instead of a UUID; fix via [`docs/troubleshooting.md`](troubleshooting.md) § "Linear errors".
+**Linear postmortem test:** after `/incident-response resolve`, check the audit table for `POSTMORTEM_CREATED` with a `linear_issue_url` — clicking that URL opens the Linear issue. If resolve logs `"Failed to create postmortem draft in Linear"` with `teamId must be a UUID`, your `linear/team-id` secret holds a team key instead of a UUID; fix via [`docs/troubleshooting.md`](troubleshooting.md) § "Linear errors".
 
-**Bedrock test:** `/marshal status draft` or `/marshal resolve` should produce a coherent Bedrock-generated body. If the audit trail shows a template fallback (`"Bedrock postmortem failed — returning template"`), Claude 4.x is likely refusing on-demand invocation — switch to `us.anthropic.*` inference profile IDs per [`docs/troubleshooting.md`](troubleshooting.md) § "Bedrock errors".
+**Bedrock test:** `/incident-response status draft` or `/incident-response resolve` should produce a coherent Bedrock-generated body. If the audit trail shows a template fallback (`"Bedrock postmortem failed — returning template"`), Claude 4.x is likely refusing on-demand invocation — switch to `us.anthropic.*` inference profile IDs per [`docs/troubleshooting.md`](troubleshooting.md) § "Bedrock errors".
 
 ### 4. Direct SQS enqueue
 
 For testing the processor in isolation (bypassing the webhook ingress):
 
 ```bash
-QUEUE_URL=$(tofu -chdir=../landing-zone/live/staging/aws/marshal-platform output -raw incident_events_queue_url)
+QUEUE_URL=$(tofu -chdir=../landing-zone/live/staging/aws/incident-response-platform output -raw incident_events_queue_url)
 aws sqs send-message \
   --region us-west-2 \
   --queue-url "$QUEUE_URL" \
@@ -143,17 +143,17 @@ The highest-fidelity exercise, scripted as a team activity in [`artifacts/incide
 
 | Symptom | Likely cause |
 |---|---|
-| `scripts/fire-drill.sh` returns `401 Invalid signature` | HMAC secret in Secrets Manager differs from what the webhook handler has cached. It refreshes on first failure + retries once; if that still fails, restart the pods: `kubectl rollout restart deploy/marshal-webhook -n tenants-protohype`. |
-| Drill returned `200` but no Slack channel appears | Check the processor pod logs (`kubectl -n tenants-protohype logs deploy/marshal-processor`) for Bolt connection errors. SLACK_APP_TOKEN must be a valid `xapp-…` with `connections:write` scope. |
+| `scripts/fire-drill.sh` returns `401 Invalid signature` | HMAC secret in Secrets Manager differs from what the webhook handler has cached. It refreshes on first failure + retries once; if that still fails, restart the pods: `kubectl rollout restart deploy/incident-response-webhook -n tenants-protohype`. |
+| Drill returned `200` but no Slack channel appears | Check the processor pod logs (`kubectl -n tenants-protohype logs deploy/incident-response-processor`) for Bolt connection errors. SLACK_APP_TOKEN must be a valid `xapp-…` with `connections:write` scope. |
 | `observe-incident.sh` shows DDB row but no audit events | Processor crashed before reaching the audit write. Tail the processor logs and look for a stack trace. |
-| DLQ depth > 0 | An incident event failed 3 times and landed in the DLQ. The PrometheusRule on the `marshal-{env}-incident-events` DLQ fires at ≥1. Inspect + drain via `aws sqs receive-message`. |
-| Slack channel assembles but has no responders | Expected for drills — `integration_id` and `team_id` are synthetic, so both OnCall escalation-chain lookup and WorkOS directory lookup return empty. The IC sees a "responder auto-invite failed" message. Run `npm run drill:join:staging -- --user U…` to land yourself in the room (see "Invite yourself" below); use `/marshal invite @user` to add others. |
+| DLQ depth > 0 | An incident event failed 3 times and landed in the DLQ. The PrometheusRule on the `incident-response-{env}-incident-events` DLQ fires at ≥1. Inspect + drain via `aws sqs receive-message`. |
+| Slack channel assembles but has no responders | Expected for drills — `integration_id` and `team_id` are synthetic, so both OnCall escalation-chain lookup and WorkOS directory lookup return empty. The IC sees a "responder auto-invite failed" message. Run `npm run drill:join:staging -- --user U…` to land yourself in the room (see "Invite yourself" below); use `/incident-response invite @user` to add others. |
 
 ## Slack prerequisites that catch new operators
 
 Two things that block drills for people doing first-time setup:
 
-1. **`/marshal` must be registered as a slash command in your Slack app.** If `/marshal help` returns `"/marshal is not a valid command"`, the command isn't declared in the app's config. Fix → [`docs/slack-app-setup.md`](slack-app-setup.md) § 5.
+1. **`/incident-response` must be registered as a slash command in your Slack app.** If `/incident-response help` returns `"/incident-response is not a valid command"`, the command isn't declared in the app's config. Fix → [`docs/slack-app-setup.md`](slack-app-setup.md) § 5.
 
 2. **War rooms are private channels.** The bot creates the channel and is the only member. Non-members can't see private channels in Slack's channel browser. The `scripts/fire-drill.sh` output prints a reminder + the `channel_id` the bot created — invite yourself via the API.
 
@@ -161,7 +161,7 @@ Two things that block drills for people doing first-time setup:
 
 ### The script (recommended)
 
-`scripts/join-drill-channel.sh` pulls the bot token from Secrets Manager, finds the freshest `marshal-p1-*` channel (within the last 120s), and invites you via `conversations.invite`. Typical flow:
+`scripts/join-drill-channel.sh` pulls the bot token from Secrets Manager, finds the freshest `incident-response-p1-*` channel (within the last 120s), and invites you via `conversations.invite`. Typical flow:
 
 ```bash
 npm run drill:staging
@@ -178,12 +178,12 @@ Two Slack API calls: fetch the channel, invite yourself.
 ```bash
 # 1. Pull the bot token (one-time per shell)
 BOT_TOKEN=$(aws secretsmanager get-secret-value --region us-west-2 \
-  --secret-id marshal/staging/slack/bot-token --query SecretString --output text)
+  --secret-id incident-response/staging/slack/bot-token --query SecretString --output text)
 
 # 2. List the private channels the bot created; copy the id you want
 curl -sS -H "Authorization: Bearer $BOT_TOKEN" \
   'https://slack.com/api/conversations.list?types=private_channel&limit=50' \
-  | jq '.channels[] | select(.name | startswith("marshal-p1-")) | {id, name, created}'
+  | jq '.channels[] | select(.name | startswith("incident-response-p1-")) | {id, name, created}'
 
 # 3. Invite yourself (replace both IDs)
 curl -sS -X POST -H "Authorization: Bearer $BOT_TOKEN" \
@@ -223,10 +223,10 @@ SLACK_USER_ID=U0123ABCD npm run drill:join:staging
 npm run observe:staging
 
 # 4. In the war room channel, exercise slash commands:
-/marshal help
-/marshal status draft               # Bedrock-generated Statuspage draft
+/incident-response help
+/incident-response status draft               # Bedrock-generated Statuspage draft
 # (Click "Approve & Publish" in the Block Kit message — exercises the approval gate)
-/marshal resolve                    # Bedrock postmortem → Linear issue → channel archive
+/incident-response resolve                    # Bedrock postmortem → Linear issue → channel archive
 
 # 5. Final observation — status=RESOLVED, audit should show
 #    INCIDENT_RESOLVED + POSTMORTEM_CREATED + STATUSPAGE_PUBLISHED + WAR_ROOM_ARCHIVED
@@ -253,17 +253,17 @@ Staging accumulates synthetic incidents over time. To wipe clean:
 ```bash
 # Scan for drill-* incident IDs and batch delete. Not destructive — staging
 # never has real data. Run occasionally; not required between individual drills.
-aws dynamodb scan --region us-west-2 --table-name marshal-staging-incidents \
+aws dynamodb scan --region us-west-2 --table-name incident-response-staging-incidents \
   --projection-expression 'PK,SK' \
   --filter-expression 'begins_with(PK, :prefix)' \
   --expression-attribute-values '{":prefix":{"S":"INCIDENT#drill-"}}' \
   --query 'Items[*].{PK:PK,SK:SK}' --output json \
   | jq -r '.[] | "\(.PK.S)\t\(.SK.S)"' \
   | while IFS=$'\t' read -r pk sk; do
-      aws dynamodb delete-item --region us-west-2 --table-name marshal-staging-incidents \
+      aws dynamodb delete-item --region us-west-2 --table-name incident-response-staging-incidents \
         --key "{\"PK\":{\"S\":\"$pk\"},\"SK\":{\"S\":\"$sk\"}}"
     done
 
 # Slack channels accumulate too — `/archive` them in bulk or use the Slack
-# admin API to clean up by name prefix `marshal-p1-`.
+# admin API to clean up by name prefix `incident-response-p1-`.
 ```

@@ -13,7 +13,7 @@
 import { context, propagation, Span, SpanStatusCode, trace } from '@opentelemetry/api';
 import type { MessageAttributeValue as SqsMessageAttributeValue } from '@aws-sdk/client-sqs';
 
-const TRACER_NAME = 'marshal';
+const TRACER_NAME = 'incident-response';
 
 export const tracer = trace.getTracer(TRACER_NAME);
 

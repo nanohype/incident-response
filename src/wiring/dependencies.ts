@@ -10,7 +10,7 @@ import { GrafanaOnCallClient } from '../clients/grafana-oncall-client.js';
 import { GrafanaCloudClient } from '../clients/grafana-cloud-client.js';
 import { WorkOSClient } from '../clients/workos-client.js';
 import { StatuspageClient } from '../clients/statuspage-client.js';
-import { LinearMarshalClient } from '../clients/linear-client.js';
+import { LinearIncidentResponseClient } from '../clients/linear-client.js';
 import { GitHubClient } from '../clients/github-client.js';
 import { AuditWriter } from '../utils/audit.js';
 import { MetricsEmitter } from '../utils/metrics.js';
@@ -18,7 +18,7 @@ import { setHttpClientMetrics } from '../utils/http-client.js';
 import { WarRoomAssembler } from '../services/war-room-assembler.js';
 import { StatuspageApprovalGate } from '../services/statuspage-approval-gate.js';
 import { NudgeScheduler } from '../services/nudge-scheduler.js';
-import { MarshalAI } from '../ai/marshal-ai.js';
+import { IncidentResponseAI } from '../ai/incident-response-ai.js';
 import { createSlackAdapter, type SlackAdapter } from '../adapters/slack-adapter.js';
 import { createCircuitBreaker } from '../utils/circuit-breaker.js';
 
@@ -37,8 +37,8 @@ export interface Dependencies {
   readonly slackAdapter: SlackAdapter;
   readonly auditWriter: AuditWriter;
   readonly metrics: MetricsEmitter;
-  readonly marshalAI: MarshalAI;
-  readonly linearClient: LinearMarshalClient;
+  readonly incidentResponseAI: IncidentResponseAI;
+  readonly linearClient: LinearIncidentResponseClient;
   readonly githubClient: GitHubClient;
   readonly nudgeScheduler: NudgeScheduler;
   readonly approvalGate: StatuspageApprovalGate;
@@ -90,7 +90,7 @@ export function buildDependencies(): Dependencies {
   });
   const directoryClient = new WorkOSClient(process.env['WORKOS_API_KEY']!, directoryBreaker);
   const statuspageClient = new StatuspageClient(process.env['STATUSPAGE_API_KEY']!, process.env['STATUSPAGE_PAGE_ID']!);
-  const linearClient = new LinearMarshalClient(
+  const linearClient = new LinearIncidentResponseClient(
     process.env['LINEAR_API_KEY']!,
     process.env['LINEAR_PROJECT_ID']!,
     process.env['LINEAR_TEAM_ID']!,
@@ -108,7 +108,7 @@ export function buildDependencies(): Dependencies {
     awsRegion,
     process.env['SCHEDULER_GROUP_NAME']!,
   );
-  const marshalAI = new MarshalAI(awsRegion);
+  const incidentResponseAI = new IncidentResponseAI(awsRegion);
   const slackWebClient = new WebClient(process.env['SLACK_BOT_TOKEN'], { timeout: 10000 });
   const slackAdapter = createSlackAdapter(slackWebClient);
   const approvalGate = new StatuspageApprovalGate(dynamoDb, incidentsTableName, auditWriter, statuspageClient, metrics);
@@ -134,7 +134,7 @@ export function buildDependencies(): Dependencies {
     slackAdapter,
     auditWriter,
     metrics,
-    marshalAI,
+    incidentResponseAI,
     linearClient,
     githubClient,
     nudgeScheduler,

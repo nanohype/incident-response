@@ -109,7 +109,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event): Promise<APIGatew
   try {
     await docClient.send(
       new PutCommand({
-        TableName: process.env['INCIDENTS_TABLE_NAME'] ?? 'marshal-incidents',
+        TableName: process.env['INCIDENTS_TABLE_NAME'] ?? 'incident-response-incidents',
         Item: {
           PK: `INCIDENT#${alertGroupId}`,
           SK: 'METADATA',

@@ -68,12 +68,12 @@ When adding tests: accept the SDK client as a typed dep on the source-side facto
 fake. AWS SDK clients use `aws-sdk-client-mock` (client-level injection), never module-level
 mocking. New boundary code needs a port-injected test; new pure logic needs a direct test.
 
-## Adding a `/marshal` subcommand
+## Adding a `/incident-response` subcommand
 
 The dispatch layer is a registry — a new subcommand is a new file plus one registration line,
-never a `switch` in `src/index.ts`. (Internal naming stays `marshal`: the GitHub repo is
+never a `switch` in `src/index.ts`. (Internal naming stays `incident-response`: the GitHub repo is
 `incident-response`, but the Slack product surface, the OTel identity, and the secret prefixes
-all stay `marshal` — see [ARCHITECTURE.md](./ARCHITECTURE.md).)
+all stay `incident-response` — see [ARCHITECTURE.md](./ARCHITECTURE.md).)
 
 1. Add `src/commands/<name>.ts` exporting a `make<Name>Handler(deps)` factory (match the shape of
    `status.ts` / `resolve.ts` / `silence.ts` / `checklist.ts` / `help.ts`). Take every external
@@ -100,7 +100,7 @@ file plus a registration, never a branch in the consumer.
 
 This app ships as a Platform tenant: a Helm `chart/`, a `platform.yaml` (Platform CR), and a
 `gitops/applicationset-entry.yaml`. Per-tenant AWS substrate (DynamoDB, SQS, EventBridge
-Scheduler, S3, IRSA) lives in `landing-zone` (the `marshal-platform` component); cluster addons
+Scheduler, S3, IRSA) lives in `landing-zone` (the `incident-response-platform` component); cluster addons
 live in `eks-gitops`. Do not add IAM, cloud resources, or cluster addons to the chart — see
 [ARCHITECTURE.md](./ARCHITECTURE.md#boundaries).
 

@@ -1,4 +1,4 @@
-# Marshal — Security Threat Model & Audit
+# IncidentResponse — Security Threat Model & Audit
 **Author:** qa-security  
 **Date:** 2025-01-15  
 **Scope:** v1 — Grafana OnCall + Slack + Statuspage.io + Bedrock + DynamoDB  
@@ -7,7 +7,7 @@
 
 ## 1. Threat Model Summary
 
-Marshal is a high-trust incident-response bot with access to: Slack workspace (private channel creation + invite), Statuspage.io (incident creation = customer impact), Linear (issue creation), DynamoDB (audit log), Bedrock (LLM inference), and read access to Grafana Cloud, GitHub, and WorkOS Directory Sync.
+IncidentResponse is a high-trust incident-response bot with access to: Slack workspace (private channel creation + invite), Statuspage.io (incident creation = customer impact), Linear (issue creation), DynamoDB (audit log), Bedrock (LLM inference), and read access to Grafana Cloud, GitHub, and WorkOS Directory Sync.
 
 The most catastrophic threat is unauthorized status page publication. The second most critical is war-room data exfiltration (P1 war rooms contain live debug data, error logs, trace IDs). Third is audit log tampering (the audit log is the ground-truth record of all incident actions).
 
@@ -20,7 +20,7 @@ The most catastrophic threat is unauthorized status page publication. The second
 | Threat | Impact | Control | Status |
 |--------|--------|---------|--------|
 | Attacker replays Grafana OnCall webhook | Creates duplicate war rooms | HMAC-SHA256 signature + idempotency check (alert_group_id) | ✅ Mitigated |
-| Attacker spoofs IC Slack identity | Could approve status page as wrong user | Slack's own auth; Marshal reads user_id from Slack API response, never from message text | ✅ Mitigated |
+| Attacker spoofs IC Slack identity | Could approve status page as wrong user | Slack's own auth; IncidentResponse reads user_id from Slack API response, never from message text | ✅ Mitigated |
 | Attacker forges Slack interactive message payload | Could trigger fake approval | Slack signing secret verified on every interactive message callback | ✅ Mitigated |
 | Bedrock prompt injection via alert payload | Attacker crafts alert title to manipulate LLM output | Alert payload passed as structured data in user-turn; output always shown to IC before action; guardrail strips identifying patterns | ✅ Mitigated |
 
@@ -28,9 +28,9 @@ The most catastrophic threat is unauthorized status page publication. The second
 
 | Threat | Impact | Control | Status |
 |--------|--------|---------|--------|
-| Attacker modifies DynamoDB audit record | Destroys ground-truth incident record | IAM: only Marshal's ECS task role can write to audit table; DynamoDB PITR + no-overwrite ConditionExpression | ✅ Mitigated |
+| Attacker modifies DynamoDB audit record | Destroys ground-truth incident record | IAM: only IncidentResponse's ECS task role can write to audit table; DynamoDB PITR + no-overwrite ConditionExpression | ✅ Mitigated |
 | Race condition allows publish before audit write | 100% approval gate violated | `verifyApprovalBeforePublish()` reads from DynamoDB after audit write; both ops must complete atomically | ⚠️ Review (see RISK-AUDIT-1) |
-| Attacker modifies Grafana Cloud queries | Returns false context data | Read-only token; Marshal cannot modify Grafana; context shown to IC before action | ✅ Mitigated |
+| Attacker modifies Grafana Cloud queries | Returns false context data | Read-only token; IncidentResponse cannot modify Grafana; context shown to IC before action | ✅ Mitigated |
 
 ### Repudiation
 
@@ -45,7 +45,7 @@ The most catastrophic threat is unauthorized status page publication. The second
 | Threat | Impact | Control | Status |
 |--------|--------|---------|--------|
 | Status page draft leaks customer names | Privacy violation | Guardrail: regex patterns strip email, account IDs, internal hostnames from draft before IC sees it | ✅ Mitigated |
-| War room channel visible to unauthorized users | P1 debug data exposed | Channel private-by-default; only invited responders + Marshal bot; no workspace-admin scope | ✅ Mitigated |
+| War room channel visible to unauthorized users | P1 debug data exposed | Channel private-by-default; only invited responders + IncidentResponse bot; no workspace-admin scope | ✅ Mitigated |
 | Bedrock prompt/response logged | LLM data in AWS logs | `PutModelInvocationLoggingConfiguration` set to NONE in CDK stack | ✅ Mitigated |
 | Grafana Cloud API token exposed in logs | Attacker gains read access to metrics/logs/traces | Tokens in Secrets Manager; never logged; structured logger excludes sensitive env vars | ✅ Mitigated |
 | Audit log leaks PII | Privacy violation | Audit log contains Slack user IDs (internal), not customer PII; DynamoDB access restricted to task role | ✅ Mitigated |
@@ -63,8 +63,8 @@ The most catastrophic threat is unauthorized status page publication. The second
 
 | Threat | Impact | Control | Status |
 |--------|--------|---------|--------|
-| Marshal bot gains workspace-admin scope | Full workspace access | Slack manifest declares only: chat:write, channels:manage, channels:read, groups:read, groups:write, users:read — no admin scopes | ✅ Mitigated |
-| ECS task role gains production-system write access | Marshal could modify production | Explicit DENY policy on EC2/RDS/S3-write/EKS/Lambda mutations | ✅ Mitigated |
+| IncidentResponse bot gains workspace-admin scope | Full workspace access | Slack manifest declares only: chat:write, channels:manage, channels:read, groups:read, groups:write, users:read — no admin scopes | ✅ Mitigated |
+| ECS task role gains production-system write access | IncidentResponse could modify production | Explicit DENY policy on EC2/RDS/S3-write/EKS/Lambda mutations | ✅ Mitigated |
 | Statuspage.io API key used for unauthorized publish | Customer-facing message without approval | API key only accessible to ECS task role; all publish calls go through approval gate; auto-publish code path does not exist | ✅ Mitigated |
 | WorkOS API key used for group modification | Unauthorized group membership changes | WorkOS Directory Sync token has read-only scope (Groups.Read); no write operations in WorkOSClient | ✅ Mitigated |
 
@@ -124,7 +124,7 @@ it('should surface DirectoryLookupFailedError and NOT generate invite list on Wo
   // Audit log should have DIRECTORY_LOOKUP_FAILED and ASSEMBLY_FALLBACK_INITIATED events
   expect(mockAuditWriter.write).toHaveBeenCalledWith(
     expect.anything(),
-    'MARSHAL',
+    'INCIDENT_RESPONSE',
     'DIRECTORY_LOOKUP_FAILED',
     expect.any(Object)
   );
@@ -156,7 +156,7 @@ Slack app manifest lock checked in scaffold-validator. No workspace-admin scope 
 
 ## 4. OWASP Top 10 Coverage
 
-| OWASP | Risk | Marshal Implementation |
+| OWASP | Risk | IncidentResponse Implementation |
 |-------|------|------------------------|
 | A01 Broken Access Control | War room private channels | Private-by-default; WorkOS-based invite; unlock only post-resolution |
 | A02 Cryptographic Failures | Webhook HMAC, token storage | HMAC-SHA256 for webhooks; tokens in Secrets Manager, never in code/logs |

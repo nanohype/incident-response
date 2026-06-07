@@ -197,9 +197,9 @@ jobs:
       - name: helm lint
         run: helm lint chart
       - name: helm template (staging)
-        run: helm template marshal chart -f chart/values-staging.yaml > /dev/null
+        run: helm template incident-response chart -f chart/values-staging.yaml > /dev/null
       - name: helm template (production)
-        run: helm template marshal chart -f chart/values-production.yaml > /dev/null
+        run: helm template incident-response chart -f chart/values-production.yaml > /dev/null
 
   docker-build:
     name: Docker Build

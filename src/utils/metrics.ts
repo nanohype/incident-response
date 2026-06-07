@@ -1,5 +1,5 @@
 /**
- * MetricsEmitter — Marshal metrics via the OTel Metrics API.
+ * MetricsEmitter — IncidentResponse metrics via the OTel Metrics API.
  *
  * Exports via OTLP to the ADOT collector sidecar (ECS) or the in-handler
  * NodeSDK started by `src/handlers/webhook-otel-init.ts` (Lambda), both of
@@ -20,7 +20,7 @@
 
 import { Counter, Histogram, metrics as otelMetrics } from '@opentelemetry/api';
 
-const METER_NAME = 'marshal';
+const METER_NAME = 'incident-response';
 
 export type MetricDimension = { name: string; value: string };
 

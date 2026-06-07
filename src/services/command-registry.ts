@@ -1,5 +1,5 @@
 /**
- * CommandRegistry — typed dispatcher for Marshal slash commands.
+ * CommandRegistry — typed dispatcher for IncidentResponse slash commands.
  *
  * Adding a new slash command = create a CommandHandler, register it here.
  * No edits to src/index.ts required.
@@ -12,7 +12,7 @@ import type { WebClient } from '@slack/web-api';
 /**
  * Slash command text bounds. Protects the downstream audit write from a
  * 400 KB DynamoDB-item DOS (authenticated workspace member pasting a giant
- * blob into `/marshal ...`). Args are kept short by shape: name + up to
+ * blob into `/incident-response ...`). Args are kept short by shape: name + up to
  * a handful of tokens.
  */
 export const SlashCommandTextSchema = z.string().max(500);
@@ -46,7 +46,7 @@ export class CommandRegistry {
   async dispatch(ctx: CommandContext): Promise<void> {
     const handler = this.handlers.get(ctx.subCommand.toLowerCase());
     if (!handler) {
-      await ctx.respond({ text: `Unknown command: \`${ctx.subCommand}\`. Try \`/marshal help\`.` });
+      await ctx.respond({ text: `Unknown command: \`${ctx.subCommand}\`. Try \`/incident-response help\`.` });
       return;
     }
     await handler(ctx);

@@ -6,12 +6,12 @@
 #   scripts/join-drill-channel.sh --user U0123ABCD [--env staging|production]
 #                                  [--max-age 120]
 #
-# Why this exists: the bot creates `marshal-p1-*` as PRIVATE channels and is
+# Why this exists: the bot creates `incident-response-p1-*` as PRIVATE channels and is
 # the only member. Slack has no UI path for a regular user to self-invite to a
 # private channel they aren't in. Rather than bake the drill runner's user ID
 # into the ECS task env at deploy time (requires redeploy to change operators),
 # this script runs client-side: pulls the bot token from Secrets Manager,
-# finds the freshest `marshal-p1-*` channel, calls conversations.invite.
+# finds the freshest `incident-response-p1-*` channel, calls conversations.invite.
 #
 # Typical flow:
 #   npm run drill:staging
@@ -29,7 +29,7 @@ usage() {
   cat <<EOF
 Usage: $0 --user U0123ABCD [--env staging|production] [--max-age 120]
 
-Finds the freshest marshal-p1-* private channel the bot created (within
+Finds the freshest incident-response-p1-* private channel the bot created (within
 --max-age seconds, default 120) and invites the given Slack user ID.
 
 You can also export SLACK_USER_ID in your shell and omit --user.
@@ -60,11 +60,11 @@ log() { printf '[join] %s\n' "$*"; }
 die() { printf '[join] FAIL: %s\n' "$*" >&2; exit 1; }
 
 BOT_TOKEN=$(aws secretsmanager get-secret-value --region "$REGION" \
-  --secret-id "marshal/${ENVIRONMENT}/slack/bot-token" \
+  --secret-id "incident-response/${ENVIRONMENT}/slack/bot-token" \
   --query SecretString --output text 2>/dev/null) \
-  || die "could not read marshal/${ENVIRONMENT}/slack/bot-token — is it seeded?"
+  || die "could not read incident-response/${ENVIRONMENT}/slack/bot-token — is it seeded?"
 
-log "polling for a fresh marshal-p1-* channel (<= ${MAX_AGE_SEC}s old)"
+log "polling for a fresh incident-response-p1-* channel (<= ${MAX_AGE_SEC}s old)"
 
 NOW_EPOCH=$(date +%s)
 CHANNEL_ID=""
@@ -75,7 +75,7 @@ for attempt in 1 2 3 4 5 6 7 8; do
   read -r CHANNEL_ID CHANNEL_NAME < <(printf '%s' "$RESP" | jq -r \
     --argjson now "$NOW_EPOCH" --argjson maxage "$MAX_AGE_SEC" '
       .channels // []
-      | map(select(.name | startswith("marshal-p1-")))
+      | map(select(.name | startswith("incident-response-p1-")))
       | map(select(($now - .created) <= $maxage))
       | sort_by(-.created)
       | .[0] // empty
@@ -86,7 +86,7 @@ for attempt in 1 2 3 4 5 6 7 8; do
   sleep 3
 done
 
-[[ -n "${CHANNEL_ID:-}" ]] || die "no marshal-p1-* channel created in the last ${MAX_AGE_SEC}s. Did fire-drill.sh return HTTP 200? Processor log: aws logs tail /marshal/${ENVIRONMENT}/processor --region $REGION --since 5m"
+[[ -n "${CHANNEL_ID:-}" ]] || die "no incident-response-p1-* channel created in the last ${MAX_AGE_SEC}s. Did fire-drill.sh return HTTP 200? Processor log: aws logs tail /incident-response/${ENVIRONMENT}/processor --region $REGION --since 5m"
 
 log "channel=$CHANNEL_NAME id=$CHANNEL_ID"
 

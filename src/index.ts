@@ -1,5 +1,5 @@
 /**
- * Marshal incident processor — long-running ECS Fargate entrypoint.
+ * IncidentResponse incident processor — long-running ECS Fargate entrypoint.
  * Wires dependencies, registers command + event handlers, starts Slack socket-mode + SQS consumer.
  */
 
@@ -58,7 +58,7 @@ const app = new App({
   port: 3001,
 });
 
-app.command('/marshal', async ({ command, ack, respond, client }) => {
+app.command('/incident-response', async ({ command, ack, respond, client }) => {
   await ack();
   const textParse = SlashCommandTextSchema.safeParse(command.text);
   if (!textParse.success) {
@@ -127,7 +127,7 @@ const sqsConsumer = new SqsConsumer(
 const healthServer = http.createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', service: 'marshal-processor' }));
+    res.end(JSON.stringify({ status: 'ok', service: 'incident-response-processor' }));
   } else {
     res.writeHead(404);
     res.end();
@@ -147,7 +147,7 @@ async function main(): Promise<void> {
       incident_events: incidentEvents.registeredTypes(),
       nudge_events: nudgeEvents.registeredTypes(),
     },
-    'Marshal processor started',
+    'IncidentResponse processor started',
   );
 }
 
@@ -157,7 +157,7 @@ main().catch((err) => {
 });
 
 // Graceful shutdown with a bounded drain. ECS waits `stopTimeout` (default
-// 30s, see infra/lib/marshal-stack.ts) after SIGTERM before SIGKILL. We give
+// 30s, see infra/lib/incident-response-stack.ts) after SIGTERM before SIGKILL. We give
 // ourselves 25s inside that window to stop the SQS poll loop, finish the
 // in-flight handler, and tell Bolt goodbye. A single wedged handler must not
 // block a rolling deploy — the hard timeout ensures process.exit(0) fires no

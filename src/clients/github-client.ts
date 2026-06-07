@@ -37,7 +37,7 @@ export class GitHubClient {
       defaultHeaders: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'marshal-incident-bot/0.1.0',
+        'User-Agent': 'incident-response-incident-bot/0.1.0',
       },
       timeoutMs: 5000,
       maxRetries: 2,

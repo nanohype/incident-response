@@ -13,7 +13,7 @@ import { AuditWriter } from '../../src/utils/audit.js';
 import { AutoPublishNotPermittedError } from '../../src/types/index.js';
 import { ddbLocalDoc, createAuditTable, deleteAuditTable } from './setup.js';
 
-const TABLE_NAME = 'marshal-audit-integration';
+const TABLE_NAME = 'incident-response-audit-integration';
 
 describe('Approval gate — integration vs dynamodb-local', () => {
   let auditWriter: AuditWriter;

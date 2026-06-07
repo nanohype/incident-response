@@ -1,5 +1,5 @@
 /**
- * Jest configuration for Marshal.
+ * Jest configuration for IncidentResponse.
  * Two test suites: unit (fast, no external deps) and integration (DynamoDB local).
  */
 module.exports = {

@@ -9,12 +9,12 @@ import { logger } from '../utils/logger.js';
 import { withTimeout } from '../utils/with-timeout.js';
 
 // `@linear/sdk` does not expose a request-level timeout. Without an external
-// deadline a hung Linear endpoint would wedge `/marshal resolve` past the SQS
+// deadline a hung Linear endpoint would wedge `/incident-response resolve` past the SQS
 // visibility timeout (300s) and burn a retry cycle. 8s covers Linear's
 // typical worst-case latency (median ~400ms, p99 ~3s) with headroom.
 const LINEAR_CALL_TIMEOUT_MS = 8000;
 
-export class LinearMarshalClient {
+export class LinearIncidentResponseClient {
   private readonly client: LinearClient;
   private readonly projectId: string;
 

@@ -1,45 +1,18 @@
-{{- define "marshal.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
-{{- end -}}
+{{/*
+App-specific helpers. Name/fullname/labels/serviceAccountName come from the
+shared tenant-chart-base library (charts/tenant-chart-base); only the
+multi-service selector and the shared env block live here.
+*/}}
 
-{{- define "marshal.fullname" -}}
-{{- if .Values.fullnameOverride -}}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
-{{- else -}}
-{{- $name := default .Chart.Name .Values.nameOverride -}}
-{{- if contains $name .Release.Name -}}
-{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
-{{- else -}}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
-
-{{- define "marshal.labels" -}}
-helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-app.kubernetes.io/name: {{ include "marshal.name" . }}
+{{/* Per-service selector — adds incident-response.io/service: <name> to
+     distinguish webhook / processor workloads under the same chart release */}}
+{{- define "incident-response.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "tenant-chart-base.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-agents.nanohype.dev/tenant: protohype
-agents.nanohype.dev/platform: marshal
+incident-response.io/service: {{ .service }}
 {{- end -}}
 
-{{- define "marshal.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "marshal.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-marshal.io/service: {{ .service }}
-{{- end -}}
-
-{{- define "marshal.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create -}}
-{{- default (include "marshal.fullname" .) .Values.serviceAccount.name -}}
-{{- else -}}
-{{- default "default" .Values.serviceAccount.name -}}
-{{- end -}}
-{{- end -}}
-
-{{- define "marshal.env" -}}
+{{- define "incident-response.env" -}}
 {{- range $k, $v := .Values.env }}
 - name: {{ $k }}
   value: {{ $v | quote }}

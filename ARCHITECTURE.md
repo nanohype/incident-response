@@ -1,20 +1,20 @@
 # Architecture
 
-`incident-response` (internal service handle: **marshal**) is a ceremonial incident-commander assistant: a Grafana OnCall webhook fires, and within a five-minute SLO it stands up a Slack war room, drives the incident from `/marshal` subcommands, gates every customer-facing Statuspage publish behind an explicit approval, and drafts a postmortem on resolve. This document covers the bounded contexts, the load-bearing decisions, the data flow from alert to assembled war room, the identity-rename split, and where the boundaries sit relative to the rest of the stack.
+`incident-response` (internal service handle: **incident-response**) is a ceremonial incident-commander assistant: a Grafana OnCall webhook fires, and within a five-minute SLO it stands up a Slack war room, drives the incident from `/incident-response` subcommands, gates every customer-facing Statuspage publish behind an explicit approval, and drafts a postmortem on resolve. This document covers the bounded contexts, the load-bearing decisions, the data flow from alert to assembled war room, the identity-rename split, and where the boundaries sit relative to the rest of the stack.
 
 ## The identity split (read this first)
 
-The repo and its GitHub-coupled handles are `incident-response`. Everything the running system *emits or invokes* stays `marshal`. This is intentional, not drift:
+The repo and its GitHub-coupled handles are `incident-response`. Everything the running system *emits or invokes* stays `incident-response`. This is intentional, not drift:
 
 | Surface | Value | Why |
 | --- | --- | --- |
 | GitHub repo, product name, npm package, image repo, gitops `repoURL`/`path` | `incident-response` | GitHub-coupled identity — flips with the repo |
-| OTel `service.namespace` + `agents.platform` | `marshal` | Telemetry identity. Grafana dashboards, PrometheusRule PromQL, and historical metrics/traces key on it — renaming orphans them |
+| OTel `service.namespace` + `agents.platform` | `incident-response` | Telemetry identity. Grafana dashboards, PrometheusRule PromQL, and historical metrics/traces key on it — renaming orphans them |
 | `agents.tenant` + namespace + AppProject | `protohype` / `tenants-protohype` / `tenant-protohype` | The protohype *team* boundary, not the repo. The landing-zone IRSA trust assumes it |
-| `/marshal` slash commands + the Slack app | `marshal` | The user-facing product surface in Slack — renaming changes how operators invoke the bot |
-| Secret prefixes (`marshal/<env>/*`), DDB/SQS/Scheduler resource names, `marshal.json` dashboard | `marshal` | Owned by the landing-zone `marshal-platform` substrate outputs — renaming them is a substrate change, out of scope here |
+| `/incident-response` slash commands + the Slack app | `incident-response` | The user-facing product surface in Slack — renaming changes how operators invoke the bot |
+| Secret prefixes (`incident-response/<env>/*`), DDB/SQS/Scheduler resource names, `incident-response.json` dashboard | `incident-response` | Owned by the landing-zone `incident-response-platform` substrate outputs — renaming them is a substrate change, out of scope here |
 
-Net: the repo is `incident-response`; the running telemetry identity, the Slack product surface, and all substrate-owned names stay `marshal`. A grep that finds `marshal` emitted at runtime is finding documented intent, not leftover rename residue.
+Net: the repo is `incident-response`; the running telemetry identity, the Slack product surface, and all substrate-owned names stay `incident-response`. A grep that finds `incident-response` emitted at runtime is finding documented intent, not leftover rename residue.
 
 ## Bounded contexts
 
@@ -30,13 +30,13 @@ The domain types organize around seven bounded-context modules under `src/types/
 | **directory**  | `src/types/directory.ts`  | `DirectoryUser` — the IdP-neutral responder identity, so swapping WorkOS for another directory is a client-file change, not type surgery                          |
 | **errors**     | `src/types/errors.ts`     | The domain error classes — `AutoPublishNotPermittedError`, `DirectoryLookupFailedError`, `ExternalClientTimeoutError`                                              |
 
-The runtime is organized as a thin wiring layer over a set of services and per-service clients. `src/index.ts` (< 80 LOC) validates env, builds the dependency bag via `src/wiring/dependencies.ts`, registers the command + event registries (`src/wiring/commands.ts` / `events.ts`), starts the Slack app + SQS consumer + health server, and installs the SIGTERM handler. The services live in `src/services/` (the war-room assembler, the approval gate, the nudge scheduler, the SQS consumer, the two registries); the per-service adapters in `src/clients/` (Statuspage, Linear, GitHub, WorkOS, Grafana OnCall, Grafana Cloud); the Bedrock wrapper in `src/ai/marshal-ai.ts`; cross-cutting utilities (`audit.ts`, `http-client.ts`, `metrics.ts`, `with-timeout.ts`, `logger.ts`, `incident-lookup.ts`) in `src/utils/`.
+The runtime is organized as a thin wiring layer over a set of services and per-service clients. `src/index.ts` (< 80 LOC) validates env, builds the dependency bag via `src/wiring/dependencies.ts`, registers the command + event registries (`src/wiring/commands.ts` / `events.ts`), starts the Slack app + SQS consumer + health server, and installs the SIGTERM handler. The services live in `src/services/` (the war-room assembler, the approval gate, the nudge scheduler, the SQS consumer, the two registries); the per-service adapters in `src/clients/` (Statuspage, Linear, GitHub, WorkOS, Grafana OnCall, Grafana Cloud); the Bedrock wrapper in `src/ai/incident-response-ai.ts`; cross-cutting utilities (`audit.ts`, `http-client.ts`, `metrics.ts`, `with-timeout.ts`, `logger.ts`, `incident-lookup.ts`) in `src/utils/`.
 
 ## Key decisions
 
 ### Port-based DI
 
-Every module that touches an external boundary takes its clients as constructor-injected ports — not module imports. `src/wiring/dependencies.ts` is the one place the concrete SDK clients (DynamoDB, SQS, Scheduler, Bedrock, CloudWatch, Slack `WebClient`, and the per-service adapters) are built; the registries and services receive them in their factory deps. Tests inject fakes implementing the port and use `aws-sdk-client-mock` at the client level for AWS calls — no module-level SDK mocks. The payoff is that forking marshal for a different client (different Slack workspace, Linear project, DynamoDB tables, Grafana tenant) is a swap of client instances and config, not a refactor that ripples through business logic.
+Every module that touches an external boundary takes its clients as constructor-injected ports — not module imports. `src/wiring/dependencies.ts` is the one place the concrete SDK clients (DynamoDB, SQS, Scheduler, Bedrock, CloudWatch, Slack `WebClient`, and the per-service adapters) are built; the registries and services receive them in their factory deps. Tests inject fakes implementing the port and use `aws-sdk-client-mock` at the client level for AWS calls — no module-level SDK mocks. The payoff is that forking incident-response for a different client (different Slack workspace, Linear project, DynamoDB tables, Grafana tenant) is a swap of client instances and config, not a refactor that ripples through business logic.
 
 ### The `StatuspageApprovalGate` two-phase commit
 
@@ -58,7 +58,7 @@ This app is CommonJS by design: `package.json` carries no `"type": "module"` and
 
 ### Bedrock prompt caching via Anthropic `cache_control`
 
-`src/ai/marshal-ai.ts` calls Bedrock with `InvokeModelCommand` (the raw Anthropic Messages body) and marks the stable system prompt with `cache_control: { type: 'ephemeral' }`. On `InvokeModel` that *is* the correct caching mechanism — `cachePoint` is a Converse-API marker and does not apply here. `stripPII` runs before every Bedrock call, and both `generateStatusDraft` and `generatePostmortemSections` fall back to safe templates if Bedrock fails.
+`src/ai/incident-response-ai.ts` calls Bedrock with `InvokeModelCommand` (the raw Anthropic Messages body) and marks the stable system prompt with `cache_control: { type: 'ephemeral' }`. On `InvokeModel` that *is* the correct caching mechanism — `cachePoint` is a Converse-API marker and does not apply here. `stripPII` runs before every Bedrock call, and both `generateStatusDraft` and `generatePostmortemSections` fall back to safe templates if Bedrock fails.
 
 ## Data flow: alert to assembled war room
 
@@ -75,17 +75,17 @@ This app is CommonJS by design: `package.json` carries no `"type": "module"` and
       • attach Grafana Cloud context snapshot (non-critical, withTimeoutOrDefault)
       • pin the incident checklist
       • schedule a 15-min status-update nudge via EventBridge Scheduler
-7.  IC drives from Slack: /marshal status | resolve | silence | checklist | help (CommandRegistry dispatch)
+7.  IC drives from Slack: /incident-response status | resolve | silence | checklist | help (CommandRegistry dispatch)
 8.  customer-facing Statuspage publish → StatuspageApprovalGate (write → ConsistentRead verify → createIncident)
-9.  /marshal resolve → Bedrock postmortem draft → Linear issue → delete nudge → pulse rating → status RESOLVED + audit
+9.  /incident-response resolve → Bedrock postmortem draft → Linear issue → delete nudge → pulse rating → status RESOLVED + audit
 ```
 
-Directory resolution failing is an explicit IC error plus a `DIRECTORY_LOOKUP_FAILED` audit event and zero fabricated invites — never a half-assembled room presented as complete. Honest-failure paths run throughout: on `/marshal resolve`, if Linear is down the incident still flips to RESOLVED but the IC reply states exactly what worked and what didn't. Slack I/O is funnelled through `SlackAdapter` so the timeout/fail-mode discipline can't be bypassed — domain code never holds a raw `WebClient`. The nudge scheduler *disables* (not deletes) a schedule when the IC silences it, preserving the audit trail.
+Directory resolution failing is an explicit IC error plus a `DIRECTORY_LOOKUP_FAILED` audit event and zero fabricated invites — never a half-assembled room presented as complete. Honest-failure paths run throughout: on `/incident-response resolve`, if Linear is down the incident still flips to RESOLVED but the IC reply states exactly what worked and what didn't. Slack I/O is funnelled through `SlackAdapter` so the timeout/fail-mode discipline can't be bypassed — domain code never holds a raw `WebClient`. The nudge scheduler *disables* (not deletes) a schedule when the IC silences it, preserving the audit trail.
 
 ## What this repo deliberately does NOT do
 
 - **Not its own cloud substrate.** It does not provision DynamoDB, SQS, EventBridge Scheduler, S3, KMS, or the IRSA role. Those are landing-zone (see Boundaries). The chart consumes their outputs.
-- **Not a model host.** Bedrock runs Claude inference outside the cluster on-account. No self-hosted models, no AI framework (no LangChain) — direct Bedrock SDK via `MarshalAI`.
+- **Not a model host.** Bedrock runs Claude inference outside the cluster on-account. No self-hosted models, no AI framework (no LangChain) — direct Bedrock SDK via `IncidentResponseAI`.
 - **Not a cluster bootstrap.** The EKS cluster, ArgoCD, and the cluster addons it depends on (ESO, ingress-nginx, cert-manager, the observability stack) must already exist (eks-gitops).
 - **Not the tenant operator.** It declares a `Platform` CR; the `eks-agent-platform` operator reconciles the namespace, IRSA, and AppProject.
 - **Not the owner of Bedrock invocation logging.** Bedrock invocation logging is set to NONE so IC↔AI conversations never reach CloudWatch — but that is an **account-level control owned by landing-zone**, not enforced by app code. The app relies on it being in place.
@@ -96,22 +96,22 @@ This repo owns the application — source, chart, Platform CR, gitops entry. Eve
 
 ### Substrate → `landing-zone`
 
-`landing-zone/components/aws/marshal-platform/` provisions the per-tenant AWS data plane and does not move here:
+`landing-zone/components/aws/incident-response-platform/` provisions the per-tenant AWS data plane and does not move here:
 
 - DynamoDB tables — incidents, audit log, identity cache (`dynamodb.tf`)
 - SQS FIFO queues + DLQs — incident events, nudge events, SLA-check (`sqs.tf`)
 - EventBridge Scheduler group for the per-incident status-update nudges (`scheduler.tf`)
 - S3 audit/artifacts bucket (`s3.tf`)
-- The `marshal_irsa` role (`irsa.tf`)
-- Secrets Manager seeding (`marshal/<env>/grafana-oncall-hmac`, `app-secrets`, `grafana-cloud`)
+- The `incident_response_irsa` role (`irsa.tf`)
+- Secrets Manager seeding (`incident-response/<env>/grafana-oncall-hmac`, `app-secrets`, `grafana-cloud`)
 - Account-level Bedrock invocation logging = NONE
 
-Its `irsa_role_arn` output is the role marshal's app pods assume — plumbed into the chart through the per-env `aws.platformRoleArn` Helm value. The table names, queue URLs/ARNs, scheduler role/group, and the secret ids land in the chart's `tenantInfra.*` (filled from `tofu output` at deploy time; the committed defaults stay empty so no account id / region / ARN is hardcoded). The chart contains **no inline IAM**; the trust relationship is owned in landing-zone and consumed by reference. Both workloads share one SA, both assume the `marshal-platform` role. The substrate directory name and the `marshal/<env>/*` secret prefixes stay `marshal` — they're the substrate's own identity.
+Its `irsa_role_arn` output is the role incident-response's app pods assume — plumbed into the chart through the per-env `aws.platformRoleArn` Helm value. The table names, queue URLs/ARNs, scheduler role/group, and the secret ids land in the chart's `tenantInfra.*` (filled from `tofu output` at deploy time; the committed defaults stay empty so no account id / region / ARN is hardcoded). The chart contains **no inline IAM**; the trust relationship is owned in landing-zone and consumed by reference. Both workloads share one SA, both assume the `incident-response-platform` role. The substrate directory name and the `incident-response/<env>/*` secret prefixes stay `incident-response` — they're the substrate's own identity.
 
 ### Cluster addons → `eks-gitops`
 
 The chart assumes these cluster-level capabilities are already installed and reconciled by `eks-gitops`:
 
-- **External Secrets Operator** — backs `externalsecret.yaml` (syncs the three `marshal/<env>/*` Secrets Manager entries into one Secret; the HMAC secret id is also passed as env for the webhook handler's VersionId-keyed cache refresh)
+- **External Secrets Operator** — backs `externalsecret.yaml` (syncs the three `incident-response/<env>/*` Secrets Manager entries into one Secret; the HMAC secret id is also passed as env for the webhook handler's VersionId-keyed cache refresh)
 - **ingress-nginx** + **cert-manager** — back `webhook-ingress.yaml` (TLS for `POST /webhook`)
-- **observability stack** — the cluster OTel Collector (`otel-collector.observability.svc.cluster.local:4318`) and log forwarder that carry traces/metrics/logs to Grafana Cloud. The app emits OTLP and structured Pino JSON to stderr; there are no per-pod sidecars. The `prometheusrule.yaml` alerts and the `grafana-dashboard.yaml` dashboard (`chart/dashboards/marshal.json`) load into that stack, querying the `marshal`-namespaced telemetry.
+- **observability stack** — the cluster OTel Collector (`otel-collector.observability.svc.cluster.local:4318`) and log forwarder that carry traces/metrics/logs to Grafana Cloud. The app emits OTLP and structured Pino JSON to stderr; there are no per-pod sidecars. The `prometheusrule.yaml` alerts and the `grafana-dashboard.yaml` dashboard (`chart/dashboards/incident-response.json`) load into that stack, querying the `incident-response`-namespaced telemetry.

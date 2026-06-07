@@ -4,7 +4,7 @@ All notable changes to incident-response are documented here. Dates use ISO 8601
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) — until v1.0.0 any minor version can include breaking changes with a migration path documented in the release entry.
 
-The internal service handle stays `marshal`: the npm package, the OTel `service.namespace` / `agents.platform`, the `/marshal` slash commands + Slack app, and the `marshal/<env>/*` secret prefixes are all coupled to the landing-zone `marshal-platform` substrate.
+The internal service handle stays `incident-response`: the npm package, the OTel `service.namespace` / `agents.platform`, the `/incident-response` slash commands + Slack app, and the `incident-response/<env>/*` secret prefixes are all coupled to the landing-zone `incident-response-platform` substrate.
 
 ## [Unreleased]
 
@@ -19,9 +19,9 @@ incident-response is a ceremonial incident commander assistant. It assembles P1 
 - Webhook Deployment behind ingress-nginx ingests Grafana OnCall alerts: HMAC-SHA256 signature verification (timing-safe), Zod payload validation, idempotent DynamoDB write, and enqueue to SQS FIFO. HMAC secret cached by `VersionId` with a 5-min TTL and force-refresh on verification failure so a rotation race recovers without a pod restart.
 - Processor Deployment runs Slack Bolt in socket mode as a single replica (`Recreate` strategy, 60s `terminationGracePeriodSeconds` for in-flight SQS drain), with a typed `CommandRegistry` and `EventRegistry`.
 - `WarRoomAssembler` assembles a Slack private channel in ≤5 min: creates channel, resolves responders via parallel WorkOS directory + Grafana OnCall escalation lookup, attaches a Grafana Cloud context snapshot, pins a checklist, schedules a 15-min status nudge via EventBridge Scheduler.
-- `/marshal` slash commands: `help`, `status`, `silence`, `resolve`, `checklist`.
+- `/incident-response` slash commands: `help`, `status`, `silence`, `resolve`, `checklist`.
 - `StatuspageApprovalGate.approveAndPublish()` — the only code path that calls `StatuspageClient.createIncident()`. Two-phase commit: write `STATUSPAGE_DRAFT_APPROVED` audit → strongly-consistent verify → publish. CI grep-gate prevents any other call site.
-- `/marshal resolve` — 9-step resolution flow: load incident, fetch recent commits (GitHub), generate postmortem via Bedrock (Claude Sonnet 4.6), create Linear issue, delete nudge schedule, post pulse-rating blocks, flip incident to RESOLVED, post resolution announcement, archive channel.
+- `/incident-response resolve` — 9-step resolution flow: load incident, fetch recent commits (GitHub), generate postmortem via Bedrock (Claude Sonnet 4.6), create Linear issue, delete nudge schedule, post pulse-rating blocks, flip incident to RESOLVED, post resolution announcement, archive channel.
 - Bedrock invocation logging is set to NONE at the account level (a landing-zone control) so IC↔AI conversations never reach CloudWatch.
 
 #### Observability
@@ -37,20 +37,20 @@ incident-response is a ceremonial incident commander assistant. It assembles P1 
 - `platform.yaml` — `Platform` CR + `BudgetPolicy` declaring incident-response as a tenant of the `protohype` team. The operator reconciles Namespace `tenants-protohype`, ResourceQuota, default-deny NetworkPolicy, ArgoCD AppProject, and the IRSA role.
 - `gitops/applicationset-entry.yaml` — ApplicationSet entry registered into `nanohype/eks-gitops` for ArgoCD reconciliation.
 
-#### Substrate (landing-zone `marshal-platform`)
+#### Substrate (landing-zone `incident-response-platform`)
 
-- DynamoDB `marshal-{env}-incidents` with three GSIs (`event-type-index`, `incident-id-index`, `slack-channel-index` — resolves war-room channel → canonical incident_id for slash-command dispatch).
-- DynamoDB `marshal-{env}-audit` with a `published-without-approval-index` GSI for invariant auditing.
-- SQS FIFO `marshal-{env}-incident-events.fifo` + DLQ with `maxReceiveCount: 3`. Non-FIFO queues for nudges + SLA checks.
-- EventBridge Scheduler group `marshal-{env}` for per-incident nudges.
-- S3 audit/artifacts bucket and the `marshal_irsa` role. Outputs (`irsa_role_arn`, table names, queue URLs/ARN, scheduler role/group, bucket names) feed the chart via `tenantInfra.*` + `aws.platformRoleArn`.
+- DynamoDB `incident-response-{env}-incidents` with three GSIs (`event-type-index`, `incident-id-index`, `slack-channel-index` — resolves war-room channel → canonical incident_id for slash-command dispatch).
+- DynamoDB `incident-response-{env}-audit` with a `published-without-approval-index` GSI for invariant auditing.
+- SQS FIFO `incident-response-{env}-incident-events.fifo` + DLQ with `maxReceiveCount: 3`. Non-FIFO queues for nudges + SLA checks.
+- EventBridge Scheduler group `incident-response-{env}` for per-incident nudges.
+- S3 audit/artifacts bucket and the `incident_response_irsa` role. Outputs (`irsa_role_arn`, table names, queue URLs/ARN, scheduler role/group, bucket names) feed the chart via `tenantInfra.*` + `aws.platformRoleArn`.
 
 #### Operator surface
 
 - `scripts/seed-secrets.sh` — JSON-driven secret seeder with a `REQUIRED_KEYS` inventory. Blocks on any `REPLACE_ME` value.
 - `scripts/fire-drill.sh` — HMAC-signed synthetic P1 webhook; exercises the full path without a real OnCall integration.
 - `scripts/observe-incident.sh` — snapshot an incident's DDB row + audit trail + queue depths.
-- `scripts/join-drill-channel.sh` — invite the drill runner to the freshest `marshal-p1-*` channel via bot token.
+- `scripts/join-drill-channel.sh` — invite the drill runner to the freshest `incident-response-p1-*` channel via bot token.
 - `scripts/ci-drill.sh` — CI-mode drill that fires, asserts audit events, archives the channel, cleans up.
 
 #### Testing + CI
@@ -72,7 +72,7 @@ incident-response is a ceremonial incident commander assistant. It assembles P1 
 
 - HMAC-SHA256 verification with `crypto.timingSafeEqual` and version-aware cache invalidation on rotation race (`src/handlers/webhook-ingress.ts`).
 - Zod validation at every system boundary (webhook payload + slash-command text + args).
-- No secrets baked into images or manifests — the External Secrets Operator projects `marshal/<env>/*` from AWS Secrets Manager into a k8s Secret consumed via `envFrom`.
+- No secrets baked into images or manifests — the External Secrets Operator projects `incident-response/<env>/*` from AWS Secrets Manager into a k8s Secret consumed via `envFrom`.
 - Audit scrubber (`src/utils/audit.ts:scrubDetails`) redacts secret-shaped field names with two-tier matching (substring for compounds, exact for bare `key`/`auth`/`cookie`).
 - IAM least privilege — the IRSA role is scoped to specific resource ARNs + GSI paths; the staging role cannot read production secrets and vice versa.
 

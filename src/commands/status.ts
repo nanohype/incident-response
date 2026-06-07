@@ -1,12 +1,12 @@
 /**
- * /marshal status — report current incident status.
- * /marshal status draft — generate a Bedrock-backed status-page draft for IC approval.
+ * /incident-response status — report current incident status.
+ * /incident-response status draft — generate a Bedrock-backed status-page draft for IC approval.
  */
 
 import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type { CommandContext, CommandHandler } from '../services/command-registry.js';
-import type { MarshalAI } from '../ai/marshal-ai.js';
+import type { IncidentResponseAI } from '../ai/incident-response-ai.js';
 import type { StatuspageApprovalGate } from '../services/statuspage-approval-gate.js';
 import { buildStatusPageApprovalBlocks } from '../services/slack-blocks.js';
 import type { IncidentRecord, GrafanaOnCallAlertPayload } from '../types/index.js';
@@ -15,7 +15,7 @@ import { logger } from '../utils/logger.js';
 export interface StatusDeps {
   docClient: DynamoDBDocumentClient;
   incidentsTableName: string;
-  marshalAI: MarshalAI;
+  incidentResponseAI: IncidentResponseAI;
   approvalGate: StatuspageApprovalGate;
 }
 
@@ -43,7 +43,7 @@ export function makeStatusHandler(deps: StatusDeps): CommandHandler {
           team_name: 'Engineering',
           alerts: [{ id: '', title: 'Service Disruption', message: '', received_at: new Date().toISOString() }],
         };
-        const draftBody = await deps.marshalAI.generateStatusDraft(alert, incident?.context_snapshot, undefined, ctx.incidentId);
+        const draftBody = await deps.incidentResponseAI.generateStatusDraft(alert, incident?.context_snapshot, undefined, ctx.incidentId);
         const storedDraft = await deps.approvalGate.createDraft(ctx.incidentId, draftBody, [], ctx.userId);
         await ctx.slack.chat.postMessage({
           channel: ctx.channelId,
@@ -55,7 +55,7 @@ export function makeStatusHandler(deps: StatusDeps): CommandHandler {
           { incident_id: ctx.incidentId, error: err instanceof Error ? err.message : String(err) },
           'Failed to generate status draft',
         );
-        await ctx.respond({ text: '❌ Failed to generate status draft. Check logs; retry with `/marshal status draft`.' });
+        await ctx.respond({ text: '❌ Failed to generate status draft. Check logs; retry with `/incident-response status draft`.' });
       }
       return;
     }

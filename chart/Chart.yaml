@@ -1,8 +1,15 @@
 apiVersion: v2
-name: marshal
+name: incident-response
 description: Incident commander assistant — webhook ingress + Slack-socket-mode processor.
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
 maintainers:
   - name: protohype
+dependencies:
+  # Shared named templates (serviceaccount, grafana dashboard, name/label
+  # helpers). Vendored under charts/tenant-chart-base from
+  # nanohype/templates/tenant-chart-base — helm works offline, no fetch.
+  - name: tenant-chart-base
+    version: 0.1.0
+    repository: file://charts/tenant-chart-base

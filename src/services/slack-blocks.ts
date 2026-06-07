@@ -1,5 +1,5 @@
 /**
- * Slack Block Kit message builders for Marshal.
+ * Slack Block Kit message builders for IncidentResponse.
  * Typed, composable blocks for war-room messages.
  */
 
@@ -11,7 +11,10 @@ export function buildChecklistBlocks(incidentId: string, items: string[], comple
   return [
     { type: 'header', text: { type: 'plain_text', text: '📋 Incident Checklist', emoji: true } },
     { type: 'section', text: { type: 'mrkdwn', text: checklistText } },
-    { type: 'context', elements: [{ type: 'mrkdwn', text: `Incident ID: \`${incidentId}\` | Use \`/marshal checklist\` to refresh` }] },
+    {
+      type: 'context',
+      elements: [{ type: 'mrkdwn', text: `Incident ID: \`${incidentId}\` | Use \`/incident-response checklist\` to refresh` }],
+    },
   ];
 }
 
@@ -88,7 +91,7 @@ export function buildContextSnapshotBlocks(alert: GrafanaOnCallAlertPayload, sna
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: '*Available commands:* `/marshal status` `/marshal status draft` `/marshal resolve` `/marshal checklist` `/marshal silence` `/marshal help`',
+        text: '*Available commands:* `/incident-response status` `/incident-response status draft` `/incident-response resolve` `/incident-response checklist` `/incident-response silence` `/incident-response help`',
       },
     },
   );
@@ -160,7 +163,7 @@ export function buildNudgeBlocks(lastUpdateTime?: string): (KnownBlock | Block)[
 
 export function buildPulseRatingBlocks(incidentId: string): (KnownBlock | Block)[] {
   return [
-    { type: 'section', text: { type: 'mrkdwn', text: '🎉 *Incident resolved.* How well did Marshal help you think clearly?' } },
+    { type: 'section', text: { type: 'mrkdwn', text: '🎉 *Incident resolved.* How well did IncidentResponse help you think clearly?' } },
     {
       type: 'actions',
       block_id: `pulse_rating:${incidentId}`,

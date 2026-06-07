@@ -15,9 +15,9 @@ const ddbMock = mockClient(DynamoDBDocumentClient);
 
 describe('AuditWriter', () => {
   let auditWriter: AuditWriter;
-  const TABLE_NAME = 'marshal-audit-test';
+  const TABLE_NAME = 'incident-response-audit-test';
   const INCIDENT_ID = 'test-incident-001';
-  const ACTOR = 'MARSHAL';
+  const ACTOR = 'INCIDENT_RESPONSE';
 
   beforeEach(() => {
     ddbMock.reset();

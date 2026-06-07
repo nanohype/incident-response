@@ -47,7 +47,7 @@ const CHECKLIST_ITEMS = [
  * drill ID starts with `drill-` so `substring(0,6)` would collide for every
  * pair on the same day, producing `name_taken` from conversations.create).
  *
- * Format: `marshal-p1-YYYYMMDD-<id-prefix>-<nonce>` where:
+ * Format: `incident-response-p1-YYYYMMDD-<id-prefix>-<nonce>` where:
  *   - id-prefix is 12 chars of the sanitized incident_id (human-readable)
  *   - nonce is 6 hex chars of cryptographic randomness (~16M entropy)
  * The incident_id is the source of truth; the channel is looked up via the
@@ -61,7 +61,7 @@ function channelName(id: string): string {
     .toLowerCase()
     .slice(0, 12);
   const nonce = crypto.randomBytes(3).toString('hex');
-  return `marshal-p1-${date}-${safeId}-${nonce}`;
+  return `incident-response-p1-${date}-${safeId}-${nonce}`;
 }
 
 export class WarRoomAssembler {
@@ -98,7 +98,7 @@ export class WarRoomAssembler {
       );
       rootSpan.setAttribute('slack.channel.id', channel.id);
 
-      await this.auditWriter.write(incidentId, 'MARSHAL', 'WAR_ROOM_CREATED', {
+      await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'WAR_ROOM_CREATED', {
         channel_id: channel.id,
         channel_name: channel.name,
         alert_payload: alert,
@@ -132,10 +132,12 @@ export class WarRoomAssembler {
       } else {
         directoryFallback = true;
         this.metrics?.increment(MetricNames.DirectoryLookupFailureCount);
-        await this.auditWriter.write(incidentId, 'MARSHAL', 'DIRECTORY_LOOKUP_FAILED', {
+        await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'DIRECTORY_LOOKUP_FAILED', {
           error: responderResult.reason instanceof Error ? responderResult.reason.message : String(responderResult.reason),
         });
-        await this.auditWriter.write(incidentId, 'MARSHAL', 'ASSEMBLY_FALLBACK_INITIATED', { reason: 'Directory group lookup failed' });
+        await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'ASSEMBLY_FALLBACK_INITIATED', {
+          reason: 'Directory group lookup failed',
+        });
       }
 
       // Step 4: Post context snapshot (non-critical; continue even if Slack is slow).
@@ -155,7 +157,7 @@ export class WarRoomAssembler {
         ),
       );
       const contextAttached = !!contextPostResult?.ok;
-      await this.auditWriter.write(incidentId, 'MARSHAL', 'CONTEXT_SNAPSHOT_ATTACHED', {
+      await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'CONTEXT_SNAPSHOT_ATTACHED', {
         channel_id: channel.id,
         attached: contextAttached,
         snapshot_present: contextSnapshot !== undefined,
@@ -167,7 +169,7 @@ export class WarRoomAssembler {
         await this.slack.postMessageNonCritical(
           {
             channel: channel.id,
-            text: '⚠️ *Responder auto-invite failed* — directory group lookup returned an error. Use `/marshal invite @user` to manually add responders.',
+            text: '⚠️ *Responder auto-invite failed* — directory group lookup returned an error. Use `/incident-response invite @user` to manually add responders.',
           },
           { timeoutMs: SLACK_NON_CRITICAL_TIMEOUT_MS, label: 'slack.chat.postMessage:directory-fallback', incidentId },
         );
@@ -185,7 +187,7 @@ export class WarRoomAssembler {
             label: 'slack.pins.add',
             incidentId,
           });
-          await this.auditWriter.write(incidentId, 'MARSHAL', 'CHECKLIST_PINNED', { channel_id: channel.id, message_ts: msg.ts });
+          await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'CHECKLIST_PINNED', { channel_id: channel.id, message_ts: msg.ts });
         }
         return msg;
       });
@@ -262,7 +264,7 @@ export class WarRoomAssembler {
           label: 'slack.conversations.invite',
         });
         invited.push(user.id);
-        await this.auditWriter.write(incidentId, 'MARSHAL', 'RESPONDER_INVITED', {
+        await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'RESPONDER_INVITED', {
           channel_id: channelId,
           invited_user_id: user.id,
           email,
@@ -273,7 +275,7 @@ export class WarRoomAssembler {
           { incident_id: incidentId, email, error: err instanceof Error ? err.message : String(err) },
           'Failed to invite responder',
         );
-        await this.auditWriter.write(incidentId, 'MARSHAL', 'RESPONDER_INVITE_FAILED', {
+        await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'RESPONDER_INVITE_FAILED', {
           channel_id: channelId,
           email,
           error: err instanceof Error ? err.message : String(err),
