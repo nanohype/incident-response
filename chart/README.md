@@ -8,7 +8,7 @@ Helm chart for the incident-response incident-commander assistant. Renders two w
 Plus:
 
 - **PrometheusRule** — ported verbatim from `infra/alerts/incident-response-rules.yaml`. Three rules under `incident-response.slo`: assembly P99 SLO breach, directory-lookup failure spike, Statuspage publish failures. Operator-side ruleSelector label is configurable in values (`prometheusRule.selector`).
-- **Grafana dashboard ConfigMap** — sourced from `chart/dashboards/incident-response.json` (copy of `infra/dashboards/incident-response.json`). Carries the `grafana_dashboard: "1"` label so the kube-prometheus-stack Grafana sidecar auto-imports it.
+- **GrafanaDashboard CR** — sourced from `chart/dashboards/incident-response.json`. A `GrafanaDashboard` CR (instanceSelector `dashboards: external`) the grafana-operator reconciles onto the external Amazon Managed Grafana.
 
 ## Files
 
@@ -22,7 +22,7 @@ Plus:
   - `networkpolicy.yaml` — ingress: ingress-nginx → webhook only; egress: DNS + HTTPS
   - `externalsecret.yaml` — pulls incident-response/<env>/grafana-oncall-hmac + app-secrets + grafana-cloud, composes one Secret consumed by envFrom; the HMAC secret is also referenced by its ARN in env for the handler's VersionId-keyed cache
   - `prometheusrule.yaml` — three alert rules (assembly SLO / directory failures / Statuspage publish failures)
-  - `grafana-dashboard.yaml` — ConfigMap with the dashboard JSON
+  - `grafana-dashboard.yaml` — GrafanaDashboard CR with the dashboard JSON
 
 ## App-source addition
 
@@ -85,6 +85,6 @@ The CDK stack (`infra/`, deleted) provisioned:
 - EventBridge Scheduler group + ScheduleRole → landing-zone scheduler component (new)
 - CDK custom resource for Bedrock invocation-logging-NONE → landing-zone `cluster-bootstrap` cluster-wide setting
 - Secrets Manager entries → ExternalSecret syncing the existing AWS Secrets Manager source into a k8s Secret
-- ADOT Collector sidecar + Fluent Bit FireLens sidecar → cluster-level OTel Collector + log forwarder (eks-gitops)
+- ADOT Collector sidecar + Fluent Bit FireLens sidecar → OTLP to the grafana-agent receiver in the monitoring namespace (eks-gitops), which forwards traces → Tempo, metrics → AMP, logs → Loki
 - CloudWatch alarms → the same three rules now ship as PrometheusRule
-- Grafana dashboard provisioner construct → ConfigMap auto-imported by the kube-prometheus-stack Grafana sidecar
+- Grafana dashboard provisioner construct → GrafanaDashboard CR reconciled by the grafana-operator onto Amazon Managed Grafana

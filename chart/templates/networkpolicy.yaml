@@ -48,4 +48,13 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+    # OTLP traces + metrics + logs to the grafana-agent OTLP receiver in the
+    # monitoring namespace (grafana-agent.monitoring.svc.cluster.local:4318).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 4318
 {{- end }}
