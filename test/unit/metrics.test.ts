@@ -64,7 +64,7 @@ describe('MetricsEmitter', () => {
   it('METRICS-001: gauge records to histogram with given value', async () => {
     emitter.gauge(MetricNames.AssemblyDurationMs, 4200, 'Milliseconds');
     const dps = await collect();
-    const hist = dps.find((d) => d.name === 'assembly_duration_ms');
+    const hist = dps.find((d) => d.name === 'incident_response.assembly_duration_ms');
     expect(hist).toBeDefined();
     expect(hist!.kind).toBe('histogram');
     expect(hist!.value).toBe(4200);
@@ -74,7 +74,7 @@ describe('MetricsEmitter', () => {
     emitter.increment(MetricNames.DirectoryLookupFailureCount);
     emitter.increment(MetricNames.DirectoryLookupFailureCount);
     const dps = await collect();
-    const counter = dps.find((d) => d.name === 'directory_lookup_failure_count');
+    const counter = dps.find((d) => d.name === 'incident_response.directory_lookup_failure_count');
     expect(counter).toBeDefined();
     expect(counter!.kind).toBe('counter');
     expect(counter!.value).toBe(2);
@@ -83,7 +83,7 @@ describe('MetricsEmitter', () => {
   it('METRICS-003: durationMs records histogram sample in ms', async () => {
     emitter.durationMs(MetricNames.ApprovalGateLatencyMs, 87);
     const dps = await collect();
-    const hist = dps.find((d) => d.name === 'approval_gate_latency_ms');
+    const hist = dps.find((d) => d.name === 'incident_response.approval_gate_latency_ms');
     expect(hist).toBeDefined();
     expect(hist!.kind).toBe('histogram');
     expect(hist!.value).toBe(87);
@@ -92,21 +92,21 @@ describe('MetricsEmitter', () => {
   it('METRICS-004: dimensions flow through as attributes', async () => {
     emitter.increment(MetricNames.StatuspagePublishCount, [{ name: 'outcome', value: 'published' }]);
     const dps = await collect();
-    const counter = dps.find((d) => d.name === 'statuspage_publish_count');
+    const counter = dps.find((d) => d.name === 'incident_response.statuspage_publish_count');
     expect(counter!.attrs).toEqual({ outcome: 'published' });
   });
 
   it('METRICS-005: no-dimension emit yields empty attribute map', async () => {
     emitter.increment(MetricNames.IncidentResolvedCount);
     const dps = await collect();
-    const counter = dps.find((d) => d.name === 'incident_resolved_count');
+    const counter = dps.find((d) => d.name === 'incident_response.incident_resolved_count');
     expect(counter!.attrs).toEqual({});
   });
 
   it('METRICS-006: separate dimension sets produce separate data points', async () => {
     emitter.increment(MetricNames.StatuspagePublishCount, [{ name: 'outcome', value: 'published' }]);
     emitter.increment(MetricNames.StatuspagePublishCount, [{ name: 'outcome', value: 'failed' }]);
-    const dps = (await collect()).filter((d) => d.name === 'statuspage_publish_count');
+    const dps = (await collect()).filter((d) => d.name === 'incident_response.statuspage_publish_count');
     expect(dps).toHaveLength(2);
     expect(dps.map((d) => d.attrs['outcome']).sort()).toEqual(['failed', 'published']);
   });

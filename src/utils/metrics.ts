@@ -22,6 +22,13 @@ import { Counter, Histogram, metrics as otelMetrics } from '@opentelemetry/api';
 
 const METER_NAME = 'incident-response';
 
+// Self-prefix every instrument with the service namespace so the Prometheus
+// series are deterministic — `assembly_duration_ms` becomes
+// `incident_response_assembly_duration_ms` purely from the instrument name, with
+// no dependency on a collector-side namespace rewrite.
+const NAMESPACE = 'incident_response';
+const qualify = (name: string): string => `${NAMESPACE}.${name}`;
+
 export type MetricDimension = { name: string; value: string };
 
 function toAttributes(dimensions: MetricDimension[]): Record<string, string> {
@@ -59,7 +66,7 @@ export class MetricsEmitter {
   private getCounter(name: string): Counter {
     let c = this.counters.get(name);
     if (!c) {
-      c = otelMetrics.getMeter(METER_NAME).createCounter(name);
+      c = otelMetrics.getMeter(METER_NAME).createCounter(qualify(name));
       this.counters.set(name, c);
     }
     return c;
@@ -68,7 +75,7 @@ export class MetricsEmitter {
   private getHistogram(name: string): Histogram {
     let h = this.histograms.get(name);
     if (!h) {
-      h = otelMetrics.getMeter(METER_NAME).createHistogram(name, { unit: 'ms' });
+      h = otelMetrics.getMeter(METER_NAME).createHistogram(qualify(name), { unit: 'ms' });
       this.histograms.set(name, h);
     }
     return h;
