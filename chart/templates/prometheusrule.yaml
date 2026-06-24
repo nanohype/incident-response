@@ -23,7 +23,7 @@ spec:
       interval: 1m
       rules:
         - alert: IncidentResponseAssemblyDurationBreach
-          expr: histogram_quantile(0.99, sum by (le) (rate(assembly_duration_ms_bucket[5m]))) > 300000
+          expr: histogram_quantile(0.99, sum by (le) (rate(incident_response_assembly_duration_ms_bucket[5m]))) > 300000
           for: 10m
           labels:
             severity: page
@@ -36,7 +36,7 @@ spec:
               Runbook: artifacts/runbook.md § "SLO breach — assembly latency"
 
         - alert: IncidentResponseDirectoryLookupFailureSpike
-          expr: sum(rate(directory_lookup_failure_count_total[5m])) > 0.1
+          expr: sum(rate(incident_response_directory_lookup_failure_count_total[5m])) > 0.1
           for: 5m
           labels:
             severity: warn
@@ -49,7 +49,7 @@ spec:
               Runbook: artifacts/runbook.md § "Directory lookup degraded"
 
         - alert: IncidentResponseStatuspagePublishFailures
-          expr: sum(rate(statuspage_publish_count_total{outcome="failed"}[5m])) > 0
+          expr: sum(rate(incident_response_statuspage_publish_count_total{outcome="failed"}[5m])) > 0
           for: 2m
           labels:
             severity: page

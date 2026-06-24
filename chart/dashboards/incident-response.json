@@ -17,19 +17,19 @@
       "id": 2,
       "type": "timeseries",
       "title": "War Room Assembly Duration — p50 / p99 (ms)",
-      "description": "SLO: p99 ≤ 5 min (300000 ms). Source: OTel histogram assembly_duration_ms.",
+      "description": "SLO: p99 ≤ 5 min (300000 ms). Source: OTel histogram incident_response_assembly_duration_ms.",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "${DS_MIMIR}" },
       "fieldConfig": { "defaults": { "unit": "ms" } },
       "targets": [
         {
           "refId": "P50",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(assembly_duration_ms_bucket[5m])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(incident_response_assembly_duration_ms_bucket[5m])))",
           "legendFormat": "p50"
         },
         {
           "refId": "P99",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(assembly_duration_ms_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(incident_response_assembly_duration_ms_bucket[5m])))",
           "legendFormat": "p99"
         }
       ]
@@ -38,19 +38,19 @@
       "id": 3,
       "type": "timeseries",
       "title": "Approval Gate Latency — p50 / p99 (ms)",
-      "description": "Time between IC approval click and Statuspage.io publish. Source: OTel histogram approval_gate_latency_ms.",
+      "description": "Time between IC approval click and Statuspage.io publish. Source: OTel histogram incident_response_approval_gate_latency_ms.",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "${DS_MIMIR}" },
       "fieldConfig": { "defaults": { "unit": "ms" } },
       "targets": [
         {
           "refId": "P50",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(approval_gate_latency_ms_bucket[5m])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(incident_response_approval_gate_latency_ms_bucket[5m])))",
           "legendFormat": "p50"
         },
         {
           "refId": "P99",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(approval_gate_latency_ms_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(incident_response_approval_gate_latency_ms_bucket[5m])))",
           "legendFormat": "p99"
         }
       ]
@@ -70,7 +70,7 @@
       "targets": [
         {
           "refId": "R",
-          "expr": "sum by (outcome) (rate(statuspage_publish_count_total[5m]))",
+          "expr": "sum by (outcome) (rate(incident_response_statuspage_publish_count_total[5m]))",
           "legendFormat": "{{outcome}}"
         }
       ]
@@ -84,7 +84,7 @@
       "targets": [
         {
           "refId": "R",
-          "expr": "sum(rate(directory_lookup_failure_count_total[5m]))",
+          "expr": "sum(rate(incident_response_directory_lookup_failure_count_total[5m]))",
           "legendFormat": "failures/s"
         }
       ]
