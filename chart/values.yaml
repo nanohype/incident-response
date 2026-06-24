@@ -134,9 +134,14 @@ prometheusRule:
     release: kube-prometheus-stack
 
 grafanaDashboard:
-  # Uses the grafana_dashboard sidecar pattern — Grafana auto-imports any
-  # ConfigMap with `grafana_dashboard: "1"` label.
+  # Shipped as a GrafanaDashboard CR the grafana-operator reconciles onto the
+  # external Amazon Managed Grafana — the portable path that works on both EKS
+  # and the local kx cluster.
   enabled: true
+  instanceSelector:
+    dashboards: external
+  allowCrossNamespaceImport: true
+  resyncPeriod: 24h
 
 networkPolicy:
   enabled: true
@@ -146,7 +151,7 @@ env:
   BEDROCK_MODEL_ID: anthropic.claude-sonnet-4-6
   LOG_LEVEL: info
   NODE_ENV: production
-  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability.svc.cluster.local:4318
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://grafana-agent.monitoring.svc.cluster.local:4318
   OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
   OTEL_TRACES_SAMPLER: always_on
   OTEL_METRICS_EXPORTER: otlp

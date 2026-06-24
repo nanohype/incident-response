@@ -182,7 +182,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{service=\"incident-response-processor\"} | json | level=~\"warn|error\""
+          "expr": "{namespace=\"tenants-protohype\", pod=~\"incident-response.*\"} | json | level=~\"warn|error\""
         }
       ],
       "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none" }
