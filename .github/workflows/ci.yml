@@ -196,10 +196,18 @@ jobs:
           version: v3.16.0
       - name: helm lint
         run: helm lint chart
-      - name: helm template (staging)
-        run: helm template incident-response chart -f chart/values-staging.yaml > /dev/null
-      - name: helm template (production)
-        run: helm template incident-response chart -f chart/values-production.yaml > /dev/null
+      - name: helm template (staging + production)
+        run: |
+          mkdir -p rendered
+          helm template incident-response chart -f chart/values-staging.yaml > rendered/staging.yaml
+          helm template incident-response chart -f chart/values-production.yaml > rendered/production.yaml
+      # Source files are gated elsewhere; this asserts the RENDERED chart too — a
+      # zero account id, placeholder token, or account-less ARN that only appears
+      # after templating.
+      - name: assert no unfilled sentinels in rendered output
+        uses: nanohype/nanohype/.github/actions/render-assert@main
+        with:
+          manifests: rendered
 
   docker-build:
     name: Docker Build
