@@ -18,7 +18,7 @@ spec:
               elements:
                 - name: incident-response
                   path: chart
-                  syncWave: "100"
+                  syncWave: '100'
   template:
     metadata:
       name: 'incident-response-{{ index .metadata.labels "environment" }}'
@@ -45,5 +45,5 @@ spec:
           prune: true
           selfHeal: true
         syncOptions:
-          - CreateNamespace=false   # Platform reconciler owns the Namespace
+          - CreateNamespace=false # Platform reconciler owns the Namespace
           - ServerSideApply=true

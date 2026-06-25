@@ -74,7 +74,7 @@ kubectl apply -f platform.yaml      # Platform CR + BudgetPolicy
 kubectl -n tenants-protohype get platform incident-response -w   # wait for Ready
 ```
 
-The operator reconciles Namespace `tenants-protohype`, the ResourceQuota, default-deny NetworkPolicy, the ArgoCD AppProject, and the IRSA role. Wait for the Platform to reach `Ready` before registering the ApplicationSet entry.
+The operator reconciles Namespace `tenants-protohype`, the ResourceQuota, default-deny NetworkPolicy, the ArgoCD AppProject, and the IAM role. Wait for the Platform to reach `Ready` before registering the ApplicationSet entry.
 
 ### 3. Wire chart values from landing-zone outputs
 
@@ -89,7 +89,7 @@ tofu output   # → irsa_role_arn, incidents_table_name, audit_table_name,
               #   audit_bucket_name
 ```
 
-Map them into `chart/values-staging.yaml`: `irsa_role_arn` → `aws.platformRoleArn`; the rest into the matching `tenantInfra.*` keys. The committed `values.yaml` keeps the placeholders empty (the platform-tenant-contract forbids hardcoded account/region/ARN); fill staging/prod at deploy time.
+Map the table names, queue URLs/ARNs, scheduler ids, and secret ids into the matching `tenantInfra.*` keys (the IAM role is bound by the Pod Identity association, not a chart value). The committed `values.yaml` keeps the placeholders empty (the platform-tenant-contract forbids hardcoded account/region/ARN); fill staging/prod at deploy time.
 
 ### 4. WorkOS team → group map
 
@@ -198,9 +198,9 @@ Production uses completely separate resources:
 | Queues | `incident-response-staging-incident-events.fifo`, … | `incident-response-production-incident-events.fifo`, … |
 | Scheduler group | `incident-response-staging` | `incident-response-production` |
 | Secret path | `incident-response/staging/*` | `incident-response/production/*` |
-| IRSA role | scoped to staging ARNs only | scoped to production ARNs only |
+| IAM role | scoped to staging ARNs only | scoped to production ARNs only |
 
-The staging IRSA role **cannot** read production secrets (and vice versa) — each environment's role lists only its own secret ARNs.
+The staging IAM role **cannot** read production secrets (and vice versa) — each environment's role lists only its own secret ARNs.
 
 ## Teardown
 
@@ -221,7 +221,7 @@ done
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| ExternalSecret stuck `SecretSyncedError` | A `incident-response/<env>/*` secret doesn't exist yet, or the IRSA role lacks `GetSecretValue` on its ARN | Run step 1 for that env; confirm the `incident_response_irsa` role's secrets-read scope in `landing-zone` |
+| ExternalSecret stuck `SecretSyncedError` | A `incident-response/<env>/*` secret doesn't exist yet, or the IAM role lacks `GetSecretValue` on its ARN | Run step 1 for that env; confirm the `incident_response_irsa` role's secrets-read scope in `landing-zone` |
 | Processor pod `CrashLoopBackOff` | Zod config fail on startup — one of the per-integration secrets is empty for this env | `kubectl logs deploy/incident-response-processor -n tenants-protohype` and look for the missing key; reseed + `kubectl rollout restart` |
 | `npm run typecheck` fails with SDK version errors | Stale `package-lock.json` with drifted peer deps | `rm -rf node_modules package-lock.json && npm install` — details in [`docs/troubleshooting.md`](troubleshooting.md) § "Build / TypeScript errors" |
 | Webhook returns 5xx on unsigned POST | Webhook pod crashed before the HMAC check | `kubectl logs deploy/incident-response-webhook -n tenants-protohype`. Usually a missing `GRAFANA_ONCALL_HMAC_SECRET_ID` or a Secrets Manager permission regression |

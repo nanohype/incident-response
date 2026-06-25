@@ -11,12 +11,7 @@ externalSecret:
   grafanaCloudSecret: incident-response/staging/grafana-cloud
 
 env:
-  OTEL_RESOURCE_ATTRIBUTES: "service.namespace=incident-response,service.version=0.1.0,deployment.environment=staging,agents.tenant=protohype,agents.platform=incident-response"
-
-aws:
-  # Fill from landing-zone `incident-response-platform` (staging) output: irsa_role_arn.
-  # `cd live/aws/workload-staging/us-west-2/staging/incident-response-platform && tofu output -raw irsa_role_arn`
-  platformRoleArn: ""
+  OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=incident-response,service.version=0.1.0,deployment.environment=staging,agents.tenant=protohype,agents.platform=incident-response'
 
 tenantInfra:
   # Fill the empties below from the landing-zone incident-response-platform staging
@@ -26,11 +21,11 @@ tenantInfra:
   # scheduler_role_arn, audit_bucket_name).
   incidentsTableName: incident-response-staging-incidents
   auditTableName: incident-response-staging-audit
-  identityCacheTableName: ""    # output: identity_cache_table_name
-  incidentEventsQueueUrl: ""
-  nudgeEventsQueueUrl: ""
-  nudgeEventsQueueArn: ""
-  slaCheckQueueUrl: ""
-  schedulerRoleArn: ""
+  identityCacheTableName: '' # output: identity_cache_table_name
+  incidentEventsQueueUrl: ''
+  nudgeEventsQueueUrl: ''
+  nudgeEventsQueueArn: ''
+  slaCheckQueueUrl: ''
+  schedulerRoleArn: ''
   schedulerGroupName: incident-response-staging-nudges
-  auditBucketName: ""           # output: audit_bucket_name
+  auditBucketName: '' # output: audit_bucket_name

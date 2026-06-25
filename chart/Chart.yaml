@@ -3,7 +3,7 @@ name: incident-response
 description: Incident commander assistant — webhook ingress + Slack-socket-mode processor.
 type: application
 version: 0.1.0
-appVersion: "0.1.0"
+appVersion: '0.1.0'
 maintainers:
   - name: protohype
 dependencies:

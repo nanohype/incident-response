@@ -1,4 +1,4 @@
-version: "3"
+version: '3'
 
 vars:
   IMAGE: '{{.IMAGE | default "incident-response:dev"}}'
@@ -12,7 +12,7 @@ tasks:
   # === Composite ===
 
   ci:
-    desc: "Full local CI: install, build, lint, typecheck (src + tests), unit tests, format:check, helm lint/template (staging+prod), docker build"
+    desc: 'Full local CI: install, build, lint, typecheck (src + tests), unit tests, format:check, helm lint/template (staging+prod), docker build'
     cmds:
       - task: install
       - task: build
@@ -28,58 +28,58 @@ tasks:
   # === Install ===
 
   install:
-    desc: "Install deps from the committed lockfile (npm ci)"
+    desc: 'Install deps from the committed lockfile (npm ci)'
     cmds:
       - npm ci
 
   # === TypeScript ===
 
   build:
-    desc: "Compile to dist/ (tsc)"
+    desc: 'Compile to dist/ (tsc)'
     cmds:
       - npm run build
 
   lint:
-    desc: "ESLint over src + test"
+    desc: 'ESLint over src + test'
     cmds:
       - npm run lint
 
   typecheck:
-    desc: "tsc --noEmit over src"
+    desc: 'tsc --noEmit over src'
     cmds:
       - npm run typecheck
 
   typecheck:tests:
-    desc: "Typecheck the test suite too (tsconfig.eslint.json includes test/**)"
+    desc: 'Typecheck the test suite too (tsconfig.eslint.json includes test/**)'
     cmds:
       - npm run typecheck:tests
 
   format:check:
-    desc: "Prettier --check"
+    desc: 'Prettier --check'
     cmds:
       - npm run format:check
 
   # === Tests ===
 
   test:unit:
-    desc: "Unit tests — enforces 100% branch on audit.ts + statuspage-approval-gate.ts"
+    desc: 'Unit tests — enforces 100% branch on audit.ts + statuspage-approval-gate.ts'
     cmds:
       - npm run test:unit
 
   test:integration:
-    desc: "Integration tests against dynamodb-local (spins up the container)"
+    desc: 'Integration tests against dynamodb-local (spins up the container)'
     cmds:
       - npm run test:integration:docker
 
   # === Helm ===
 
   helm:lint:
-    desc: "Lint the chart"
+    desc: 'Lint the chart'
     cmds:
       - npm run chart:lint
 
   helm:template:
-    desc: "Render the chart against staging + production values"
+    desc: 'Render the chart against staging + production values'
     cmds:
       - npm run chart:template:staging > /dev/null
       - npm run chart:template:production > /dev/null
@@ -87,14 +87,14 @@ tasks:
   # === Docker ===
 
   docker:build:
-    desc: "Build the container image (no push)"
+    desc: 'Build the container image (no push)'
     cmds:
       - docker build -t {{.IMAGE}} .
 
   # === Security ===
 
   security:scan:
-    desc: "Run security scanners (gitleaks + trivy config) if available locally"
+    desc: 'Run security scanners (gitleaks + trivy config) if available locally'
     cmds:
       - |
         if command -v gitleaks >/dev/null 2>&1; then

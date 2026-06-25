@@ -56,10 +56,10 @@ inference logs or third parties**.
 
 ### Identity & secrets
 
-- No long-lived credentials in the app. Pods get AWS access via IRSA (Workload Identity); there
+- No long-lived credentials in the app. Pods get AWS access via EKS Pod Identity; there
   are no static keys anywhere in the repo or image. DynamoDB, SQS, Bedrock, EventBridge Scheduler,
   and Secrets Manager calls AssumeRoleWithWebIdentity into the landing-zone `incident-response-platform`
-  IRSA role.
+  IAM role.
 - App-level secrets are projected at deploy time by External Secrets Operator from AWS Secrets
   Manager (`incident-response/<env>/*` — the Grafana OnCall HMAC secret, app secrets, and Grafana Cloud
   credentials) into a Kubernetes Secret consumed `envFrom` — never committed.
@@ -76,7 +76,7 @@ inference logs or third parties**.
 
 - Webhook authenticity is bounded by the secrecy of the HMAC signing secret. Anyone who can read
   the `incident-response/<env>` HMAC secret can forge a P1; protection of the secret rests on Secrets
-  Manager access control and the IRSA-only posture.
+  Manager access control and the Pod-Identity-only posture.
 - The Bedrock-logging-NONE guarantee is a substrate control. If the `landing-zone` account
   configuration drifts (someone re-enables invocation logging out of band), IC↔AI conversations
   could reach CloudWatch — the app cannot detect or correct that on its own. Verifying it stays
@@ -87,7 +87,7 @@ inference logs or third parties**.
 
 ## Compliance
 
-incident-response exposes the controls needed for **SOC 2 Type II** — IRSA-only access with no
+incident-response exposes the controls needed for **SOC 2 Type II** — Pod-Identity-only access with no
 static credentials, secrets sourced from AWS Secrets Manager (never committed), a constant-time
 HMAC check at the only ingress, PII scrubbing before inference, inference logging disabled at the
 account level, and a recorded human-approval gate as the sole path to any customer-facing

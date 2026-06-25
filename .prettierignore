@@ -5,3 +5,5 @@ infra/cdk.out/
 infra/cdk.context.json
 package-lock.json
 *.md
+chart/templates/
+chart/dashboards/
