@@ -66,7 +66,7 @@ spec:
   isolation: namespace
 ```
 
-The operator reconciles the namespace `tenants-protohype`, ResourceQuota, LimitRange, default-deny NetworkPolicy, ArgoCD AppProject, and a per-Platform IRSA role trusting the `tenant-runtime` SA. **incident-response's own app pods don't use that operator role** — both workloads assume the landing-zone `incident-response-platform` IRSA role directly via the chart's `aws.platformRoleArn` Helm value. `extraPolicyArns` stays empty for that reason; the operator's per-tenant role is for AgentFleet pods, not incident-response's app pods. The tenant identity (`tenant: protohype`, namespace `tenants-protohype`, AppProject `tenant-protohype`) is the protohype *team* boundary, not the repo, and stays stable.
+The operator reconciles the namespace `tenants-protohype`, ResourceQuota, LimitRange, default-deny NetworkPolicy, ArgoCD AppProject, and a per-Platform IAM role trusting the `tenant-runtime` SA. **incident-response's own app pods don't use that operator role** — both workloads assume the landing-zone `incident-response-platform` IAM role directly via the EKS Pod Identity association. `extraPolicyArns` stays empty for that reason; the operator's per-tenant role is for AgentFleet pods, not incident-response's app pods. The tenant identity (`tenant: protohype`, namespace `tenants-protohype`, AppProject `tenant-protohype`) is the protohype *team* boundary, not the repo, and stays stable.
 
 ### The Helm chart (`chart/`)
 
@@ -77,13 +77,13 @@ Two workloads in one chart — the webhook ingress and the processor — plus ev
 | `webhook-deployment.yaml` + `webhook-service.yaml`      | The public-ingress webhook (`dist/bin/webhook-server.js`) — Grafana OnCall HMAC verifier + SQS FIFO enqueue, ClusterIP :3001, 2 replicas for rolling restarts        |
 | `webhook-ingress.yaml`                                  | ingress-nginx + cert-manager TLS, `POST /webhook` for Grafana OnCall                                                                                                  |
 | `processor-deployment.yaml`                             | The Slack socket-mode singleton (`dist/index.js`) — SQS consumer + state machine. `Recreate` strategy + 60s `terminationGracePeriodSeconds` for in-flight SQS drain   |
-| `serviceaccount.yaml`                                   | Shared SA across both workloads; `eks.amazonaws.com/role-arn` rendered from `aws.platformRoleArn`                                                                      |
+| `serviceaccount.yaml`                                   | Shared SA across both workloads, name pinned to the app; bound to the landing-zone IAM role by a Pod Identity association                                                                      |
 | `externalsecret.yaml`                                   | ESO syncs `incident-response/<env>/grafana-oncall-hmac` + `app-secrets` + `grafana-cloud` into one Secret consumed via `envFrom`; HMAC secret id also passed as env for the VersionId-keyed cache refresh |
 | `networkpolicy.yaml`                                    | Default-deny + ingress (ingress-nginx → webhook only) + egress (DNS + HTTPS)                                                                                           |
 | `prometheusrule.yaml`                                   | SLO + reliability alerts                                                                                                                                               |
 | `grafana-dashboard.yaml`                                | ConfigMap labeled `grafana_dashboard: "1"` loading `chart/dashboards/incident-response.json`                                                                                     |
 
-`values.yaml` is the base; `values-staging.yaml` / `values-production.yaml` carry the per-env deltas (image tag, `aws.platformRoleArn`, `tenantInfra.*` from the landing-zone outputs, ingress host). The image is `ghcr.io/nanohype/incident-response`. OTel attrs `service.namespace=incident-response`, `agents.tenant=protohype`, and `agents.platform=incident-response` are set in every values file (required by the platform-tenant contract — see the identity split in [`ARCHITECTURE.md`](ARCHITECTURE.md)).
+`values.yaml` is the base; `values-staging.yaml` / `values-production.yaml` carry the per-env deltas (image tag, `tenantInfra.*` from the landing-zone outputs, ingress host). The image is `ghcr.io/nanohype/incident-response`. OTel attrs `service.namespace=incident-response`, `agents.tenant=protohype`, and `agents.platform=incident-response` are set in every values file (required by the platform-tenant contract — see the identity split in [`ARCHITECTURE.md`](ARCHITECTURE.md)).
 
 ### Required tenant files
 
@@ -132,4 +132,4 @@ The processor drains two FIFO queues; each message dispatches through an `EventR
 - [`docs/`](docs/) — deployment guide, secrets, troubleshooting, drills, fork-for-a-new-client
 - [Platform Reference](../nanohype/docs/platform-reference.md) — the stack-wide view
 - [`eks-agent-platform`](https://github.com/nanohype/eks-agent-platform) — the operator that reconciles the Platform CR
-- [`landing-zone`](https://github.com/nanohype/landing-zone) — the `incident-response-platform` substrate the chart's IRSA role and data stores live in
+- [`landing-zone`](https://github.com/nanohype/landing-zone) — the `incident-response-platform` substrate the chart's IAM role and data stores live in

@@ -100,7 +100,7 @@ file plus a registration, never a branch in the consumer.
 
 This app ships as a Platform tenant: a Helm `chart/`, a `platform.yaml` (Platform CR), and a
 `gitops/applicationset-entry.yaml`. Per-tenant AWS substrate (DynamoDB, SQS, EventBridge
-Scheduler, S3, IRSA) lives in `landing-zone` (the `incident-response-platform` component); cluster addons
+Scheduler, S3, IAM) lives in `landing-zone` (the `incident-response-platform` component); cluster addons
 live in `eks-gitops`. Do not add IAM, cloud resources, or cluster addons to the chart — see
 [ARCHITECTURE.md](./ARCHITECTURE.md#boundaries).
 

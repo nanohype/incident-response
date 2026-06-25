@@ -23,23 +23,18 @@ externalSecret:
   grafanaCloudSecret: incident-response/production/grafana-cloud
 
 env:
-  OTEL_RESOURCE_ATTRIBUTES: "service.namespace=incident-response,service.version=0.1.0,deployment.environment=production,agents.tenant=protohype,agents.platform=incident-response"
-
-aws:
-  # Fill from landing-zone `incident-response-platform` (production) output: irsa_role_arn.
-  # `cd live/aws/workload-prod/us-west-2/production/incident-response-platform && tofu output -raw irsa_role_arn`
-  platformRoleArn: ""
+  OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=incident-response,service.version=0.1.0,deployment.environment=production,agents.tenant=protohype,agents.platform=incident-response'
 
 tenantInfra:
   # Fill the empties below from the landing-zone incident-response-platform production
   # outputs (terragrunt output -json). Slot names match output names 1:1.
   incidentsTableName: incident-response-production-incidents
   auditTableName: incident-response-production-audit
-  identityCacheTableName: ""    # output: identity_cache_table_name
-  incidentEventsQueueUrl: ""
-  nudgeEventsQueueUrl: ""
-  nudgeEventsQueueArn: ""
-  slaCheckQueueUrl: ""
-  schedulerRoleArn: ""
+  identityCacheTableName: '' # output: identity_cache_table_name
+  incidentEventsQueueUrl: ''
+  nudgeEventsQueueUrl: ''
+  nudgeEventsQueueArn: ''
+  slaCheckQueueUrl: ''
+  schedulerRoleArn: ''
   schedulerGroupName: incident-response-production-nudges
-  auditBucketName: ""           # output: audit_bucket_name
+  auditBucketName: '' # output: audit_bucket_name

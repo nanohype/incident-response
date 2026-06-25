@@ -33,8 +33,8 @@ incident-response is a ceremonial incident commander assistant. It assembles P1 
 
 #### Tenant trio
 
-- `chart/` — Helm chart: webhook Deployment + Service + Ingress, processor Deployment, shared ServiceAccount (IRSA via `aws.platformRoleArn`), default-deny NetworkPolicy, ExternalSecret, PrometheusRule, Grafana dashboard. Per-env deltas in `chart/values-{staging,production}.yaml`.
-- `platform.yaml` — `Platform` CR + `BudgetPolicy` declaring incident-response as a tenant of the `protohype` team. The operator reconciles Namespace `tenants-protohype`, ResourceQuota, default-deny NetworkPolicy, ArgoCD AppProject, and the IRSA role.
+- `chart/` — Helm chart: webhook Deployment + Service + Ingress, processor Deployment, shared ServiceAccount (Pod Identity), default-deny NetworkPolicy, ExternalSecret, PrometheusRule, Grafana dashboard. Per-env deltas in `chart/values-{staging,production}.yaml`.
+- `platform.yaml` — `Platform` CR + `BudgetPolicy` declaring incident-response as a tenant of the `protohype` team. The operator reconciles Namespace `tenants-protohype`, ResourceQuota, default-deny NetworkPolicy, ArgoCD AppProject, and the IAM role.
 - `gitops/applicationset-entry.yaml` — ApplicationSet entry registered into `nanohype/eks-gitops` for ArgoCD reconciliation.
 
 #### Substrate (landing-zone `incident-response-platform`)
@@ -43,7 +43,7 @@ incident-response is a ceremonial incident commander assistant. It assembles P1 
 - DynamoDB `incident-response-{env}-audit` with a `published-without-approval-index` GSI for invariant auditing.
 - SQS FIFO `incident-response-{env}-incident-events.fifo` + DLQ with `maxReceiveCount: 3`. Non-FIFO queues for nudges + SLA checks.
 - EventBridge Scheduler group `incident-response-{env}` for per-incident nudges.
-- S3 audit/artifacts bucket and the `incident_response_irsa` role. Outputs (`irsa_role_arn`, table names, queue URLs/ARN, scheduler role/group, bucket names) feed the chart via `tenantInfra.*` + `aws.platformRoleArn`.
+- S3 audit/artifacts bucket and the `incident_response_irsa` role. Outputs (`irsa_role_arn`, table names, queue URLs/ARN, scheduler role/group, bucket names) feed the chart via `tenantInfra.*`.
 
 #### Operator surface
 
@@ -74,7 +74,7 @@ incident-response is a ceremonial incident commander assistant. It assembles P1 
 - Zod validation at every system boundary (webhook payload + slash-command text + args).
 - No secrets baked into images or manifests — the External Secrets Operator projects `incident-response/<env>/*` from AWS Secrets Manager into a k8s Secret consumed via `envFrom`.
 - Audit scrubber (`src/utils/audit.ts:scrubDetails`) redacts secret-shaped field names with two-tier matching (substring for compounds, exact for bare `key`/`auth`/`cookie`).
-- IAM least privilege — the IRSA role is scoped to specific resource ARNs + GSI paths; the staging role cannot read production secrets and vice versa.
+- IAM least privilege — the IAM role is scoped to specific resource ARNs + GSI paths; the staging role cannot read production secrets and vice versa.
 
 [Unreleased]: https://github.com/nanohype/incident-response/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/nanohype/incident-response/releases/tag/v0.1.0

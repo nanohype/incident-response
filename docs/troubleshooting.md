@@ -90,7 +90,7 @@ kubectl -n tenants-protohype describe externalsecret incident-response
 kubectl -n tenants-protohype get secret incident-response -o jsonpath='{.data}' | jq 'keys'
 ```
 
-If the ExternalSecret shows `SecretSyncError`, the IRSA role can't `GetSecretValue` on the `incident-response/<env>/*` ARNs, or a referenced secret doesn't exist. Seed the secret (`npm run seed:{env}`) and confirm the role's secrets-read scope in `landing-zone incident-response-platform`.
+If the ExternalSecret shows `SecretSyncError`, the IAM role can't `GetSecretValue` on the `incident-response/<env>/*` ARNs, or a referenced secret doesn't exist. Seed the secret (`npm run seed:{env}`) and confirm the role's secrets-read scope in `landing-zone incident-response-platform`.
 
 ### `exec format error` in the container's logs / pod won't start
 
@@ -212,7 +212,7 @@ Three distinct causes — check in this order:
 
 ### Seeder shows `OK : put:` for every secret but the pod can't find them
 
-**Cause:** Account mismatch. Your AWS CLI profile for seeding points at one account; the cluster's IRSA role authenticates against another. The secrets got written to the wrong account.
+**Cause:** Account mismatch. Your AWS CLI profile for seeding points at one account; the cluster's IAM role authenticates against another. The secrets got written to the wrong account.
 
 **Fix:**
 
@@ -220,7 +220,7 @@ Three distinct causes — check in this order:
 # Confirm the seeding identity
 aws sts get-caller-identity
 
-# Confirm the IRSA role's account matches (the role ARN is in chart/values-<env>.yaml aws.platformRoleArn)
+# Confirm the Pod Identity association exists for the incident-response ServiceAccount
 ```
 
 Both should reference the same AWS account ID — the one the cluster's `incident_response_irsa` role lives in.
@@ -262,7 +262,7 @@ const HAIKU_MODEL_ID  = 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
 
 The `us.` prefix is the cross-region inference profile for the US — AWS routes each request across multiple regions for capacity availability. Equivalent profiles exist for EU (`eu.`) and APAC (`apac.`).
 
-**Also update the IRSA policy** in `landing-zone incident-response-platform`. The role's `bedrock:InvokeModel` permission needs:
+**Also update the IAM policy** in `landing-zone incident-response-platform`. The role's `bedrock:InvokeModel` permission needs:
 
 ```
 # The inference-profile ARNs

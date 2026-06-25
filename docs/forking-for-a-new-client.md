@@ -148,7 +148,7 @@ npm run seed:production
 npm run chart:template:production   # render + sanity-check before commit
 ```
 
-The production tenant is identical in shape; only IRSA scoping and the substrate's data-retention policy (DDB `RETAIN`) differ — both owned by `landing-zone`.
+The production tenant is identical in shape; only IAM scoping and the substrate's data-retention policy (DDB `RETAIN`) differ — both owned by `landing-zone`.
 
 ## What you should NOT touch
 

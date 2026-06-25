@@ -36,32 +36,22 @@ Single-tenant component `components/aws/incident-response-platform/` provisions 
 - SQS FIFO ×6 — incident-events / nudge-events / sla-check (+ DLQs)
 - EventBridge Scheduler group + ScheduleRole IAM role
 - S3 audit-archive bucket
-- IRSA role with the consolidated inline policy (DDB rw, SQS rw, Bedrock invoke for Claude Sonnet 4.6 + Haiku 4.5, EventBridge Scheduler crud, Secrets Manager read, CloudWatch PutMetricData)
+- IAM role with the consolidated inline policy (DDB rw, SQS rw, Bedrock invoke for Claude Sonnet 4.6 + Haiku 4.5, EventBridge Scheduler crud, Secrets Manager read, CloudWatch PutMetricData)
 
 The Bedrock invocation-logging-NONE setting is a Bedrock account+region scoped policy — the CDK era enforced it via a custom resource per stack. In the k8s world it belongs to landing-zone's `cluster-bootstrap` (or a new `bedrock-account-config`) component, NOT per-tenant; the operator-side decision is documented in `eks-agent-platform/ARCHITECTURE.md`.
 
 Secrets Manager entries (`incident-response/<env>/grafana-oncall-hmac`, `app-secrets`, `grafana-cloud`) are still seeded via incident-response's own `scripts/seed-secrets.sh` — operator tooling unchanged from the CDK era.
 
-## IRSA wiring
+## Pod identity
 
-Two IRSA roles exist for any incident-response Platform tenant — different SAs, different policies, different owners:
+Two IAM roles exist for any incident-response Platform tenant — different SAs, different policies, different owners:
 
 | Role | Owner | Trust | Used by |
 |---|---|---|---|
 | `<env>-incident-response-platform` | landing-zone `incident-response-platform` component | `system:serviceaccount:tenants-protohype:incident-response` | This chart's webhook + processor pods |
 | `<env>-incident-response-tenant` | eks-agent-platform operator | `system:serviceaccount:tenants-protohype:tenant-runtime` | AgentFleet pods (if/when any land in this Platform) |
 
-The chart's `serviceaccount.yaml` annotates `eks.amazonaws.com/role-arn` with `.Values.aws.platformRoleArn`. Per-env values plumb in the landing-zone output:
-
-```sh
-# Staging
-tofu -chdir=live/aws/workload-staging/us-west-2/staging/incident-response-platform output -raw irsa_role_arn
-
-# Production
-tofu -chdir=live/aws/workload-prod/us-west-2/production/incident-response-platform output -raw irsa_role_arn
-```
-
-Drop those into `chart/values-staging.yaml` / `chart/values-production.yaml` under `aws.platformRoleArn`. ArgoCD reads the per-env values at render time; pod restart picks up the SA annotation; pods AssumeRoleWithWebIdentity into the right role on next AWS call.
+The chart's `serviceaccount.yaml` creates a ServiceAccount named `incident-response` (pinned via `serviceAccount.name`) with no role-arn annotation. The landing-zone `incident-response-platform` component creates an EKS Pod Identity association binding that `(namespace, service-account)` to the IAM role, so EKS injects credentials through the standard AWS credential chain — no annotation, no role ARN in the chart. The ServiceAccount name must match the association's `service_account`, which is why it is pinned to the app name.
 
 The operator-managed role is unused by this chart today and is harmless. It only matters once an AgentFleet CR lands in the `incident-response` Platform.
 

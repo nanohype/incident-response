@@ -7,23 +7,18 @@
 
 image:
   repository: ghcr.io/nanohype/incident-response
-  tag: ""
+  tag: ''
   pullPolicy: IfNotPresent
 
 serviceAccount:
   create: true
-  # Free-form additional annotations to merge into the ServiceAccount. The
-  # eks.amazonaws.com/role-arn annotation is generated separately from
-  # aws.platformRoleArn so per-env role swaps don't trample on this map.
+  # Pinned to the app name so it matches the service_account of the EKS Pod
+  # Identity association landing-zone's incident-response-platform component
+  # creates — that association binds this ServiceAccount to its IAM role, so the
+  # pod needs no role-arn annotation and the chart carries no AWS account values.
+  name: incident-response
+  # Free-form additional annotations to merge into the ServiceAccount.
   annotations: {}
-
-aws:
-  # ARN of the IRSA role incident-response's pods assume. Comes from landing-zone's
-  # incident-response-platform component (output: irsa_role_arn). Empty at the chart
-  # level — per-env values plumb in the actual ARN. Empty value omits the
-  # eks.amazonaws.com/role-arn annotation entirely (useful for local
-  # helm-template / kind smoke runs where no real IAM role exists).
-  platformRoleArn: ""
 
 # Resource attributes the shared chart labels read (tenant-chart-base.labels →
 # agents.nanohype.dev/{tenant,platform}). The OTEL_RESOURCE_ATTRIBUTES env var
@@ -49,9 +44,9 @@ containerSecurityContext:
 
 webhook:
   enabled: true
-  replicaCount: 2          # public-facing — keep two for rolling restarts
+  replicaCount: 2 # public-facing — keep two for rolling restarts
   port: 3001
-  command: ["node", "--enable-source-maps", "dist/bin/webhook-server.js"]
+  command: ['node', '--enable-source-maps', 'dist/bin/webhook-server.js']
   resources:
     requests:
       cpu: 50m
@@ -62,9 +57,9 @@ webhook:
 
 processor:
   enabled: true
-  replicaCount: 1          # Slack socket-mode singleton (multiple sockets would dupe events)
+  replicaCount: 1 # Slack socket-mode singleton (multiple sockets would dupe events)
   port: 3001
-  command: ["node", "--enable-source-maps", "dist/index.js"]
+  command: ['node', '--enable-source-maps', 'dist/index.js']
   resources:
     requests:
       cpu: 100m
@@ -92,7 +87,7 @@ probes:
       httpGet:
         path: /health
         port: 3001
-      initialDelaySeconds: 30          # Bolt socket-mode connect takes a moment
+      initialDelaySeconds: 30 # Bolt socket-mode connect takes a moment
       periodSeconds: 30
       failureThreshold: 5
     readiness:
@@ -108,8 +103,8 @@ ingress:
   tls:
     enabled: true
     issuer: letsencrypt-prod
-  host: ""                  # set per-env
-  path: /webhook            # Grafana OnCall sends POST here
+  host: '' # set per-env
+  path: /webhook # Grafana OnCall sends POST here
 
 externalSecret:
   enabled: true
@@ -118,9 +113,9 @@ externalSecret:
   # Source secrets in AWS Secrets Manager. The HMAC secret has its own entry
   # because the webhook handler caches it keyed on VersionId (per
   # src/handlers/webhook-ingress.ts).
-  hmacSecret: ""            # incident-response/<env>/grafana-oncall-hmac
-  appSecret: ""             # incident-response/<env>/app-secrets (Slack, Linear, Grafana, Statuspage, WorkOS)
-  grafanaCloudSecret: ""    # incident-response/<env>/grafana-cloud (OTLP basic auth)
+  hmacSecret: '' # incident-response/<env>/grafana-oncall-hmac
+  appSecret: '' # incident-response/<env>/app-secrets (Slack, Linear, Grafana, Statuspage, WorkOS)
+  grafanaCloudSecret: '' # incident-response/<env>/grafana-cloud (OTLP basic auth)
 
 prometheusRule:
   # Ships the rules to Mimir via the kube-prometheus-stack PrometheusRule CR.
@@ -155,23 +150,23 @@ env:
   OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
   OTEL_TRACES_SAMPLER: always_on
   OTEL_METRICS_EXPORTER: otlp
-  OTEL_METRIC_EXPORT_INTERVAL: "60000"
-  OTEL_RESOURCE_ATTRIBUTES: "service.namespace=incident-response,service.version=0.1.0,agents.tenant=protohype,agents.platform=incident-response"
+  OTEL_METRIC_EXPORT_INTERVAL: '60000'
+  OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=incident-response,service.version=0.1.0,agents.tenant=protohype,agents.platform=incident-response'
 
 # Per-tenant infra references — populated by per-env values from the
 # landing-zone incident-response-platform component's outputs (terragrunt run-all
 # output -json — the chart values plumb these in at apply time).
 tenantInfra:
-  incidentsTableName: ""
-  auditTableName: ""
-  identityCacheTableName: ""    # output: identity_cache_table_name
-  incidentEventsQueueUrl: ""
-  nudgeEventsQueueUrl: ""
-  nudgeEventsQueueArn: ""
-  slaCheckQueueUrl: ""
-  schedulerRoleArn: ""
-  schedulerGroupName: ""
-  auditBucketName: ""           # output: audit_bucket_name
+  incidentsTableName: ''
+  auditTableName: ''
+  identityCacheTableName: '' # output: identity_cache_table_name
+  incidentEventsQueueUrl: ''
+  nudgeEventsQueueUrl: ''
+  nudgeEventsQueueArn: ''
+  slaCheckQueueUrl: ''
+  schedulerRoleArn: ''
+  schedulerGroupName: ''
+  auditBucketName: '' # output: audit_bucket_name
 
 nodeSelector: {}
 tolerations: []

@@ -10,7 +10,7 @@ The repo and its GitHub-coupled handles are `incident-response`. Everything the 
 | --- | --- | --- |
 | GitHub repo, product name, npm package, image repo, gitops `repoURL`/`path` | `incident-response` | GitHub-coupled identity — flips with the repo |
 | OTel `service.namespace` + `agents.platform` | `incident-response` | Telemetry identity. Grafana dashboards, PrometheusRule PromQL, and historical metrics/traces key on it — renaming orphans them |
-| `agents.tenant` + namespace + AppProject | `protohype` / `tenants-protohype` / `tenant-protohype` | The protohype *team* boundary, not the repo. The landing-zone IRSA trust assumes it |
+| `agents.tenant` + namespace + AppProject | `protohype` / `tenants-protohype` / `tenant-protohype` | The protohype *team* boundary, not the repo. The landing-zone Pod Identity association targets it |
 | `/incident-response` slash commands + the Slack app | `incident-response` | The user-facing product surface in Slack — renaming changes how operators invoke the bot |
 | Secret prefixes (`incident-response/<env>/*`), DDB/SQS/Scheduler resource names, `incident-response.json` dashboard | `incident-response` | Owned by the landing-zone `incident-response-platform` substrate outputs — renaming them is a substrate change, out of scope here |
 
@@ -84,7 +84,7 @@ Directory resolution failing is an explicit IC error plus a `DIRECTORY_LOOKUP_FA
 
 ## What this repo deliberately does NOT do
 
-- **Not its own cloud substrate.** It does not provision DynamoDB, SQS, EventBridge Scheduler, S3, KMS, or the IRSA role. Those are landing-zone (see Boundaries). The chart consumes their outputs.
+- **Not its own cloud substrate.** It does not provision DynamoDB, SQS, EventBridge Scheduler, S3, KMS, or the IAM role. Those are landing-zone (see Boundaries). The chart consumes their outputs.
 - **Not a model host.** Bedrock runs Claude inference outside the cluster on-account. No self-hosted models, no AI framework (no LangChain) — direct Bedrock SDK via `IncidentResponseAI`.
 - **Not a cluster bootstrap.** The EKS cluster, ArgoCD, and the cluster addons it depends on (ESO, ingress-nginx, cert-manager, the observability stack) must already exist (eks-gitops).
 - **Not the tenant operator.** It declares a `Platform` CR; the `eks-agent-platform` operator reconciles the namespace, IRSA, and AppProject.
@@ -106,7 +106,7 @@ This repo owns the application — source, chart, Platform CR, gitops entry. Eve
 - Secrets Manager seeding (`incident-response/<env>/grafana-oncall-hmac`, `app-secrets`, `grafana-cloud`)
 - Account-level Bedrock invocation logging = NONE
 
-Its `irsa_role_arn` output is the role incident-response's app pods assume — plumbed into the chart through the per-env `aws.platformRoleArn` Helm value. The table names, queue URLs/ARNs, scheduler role/group, and the secret ids land in the chart's `tenantInfra.*` (filled from `tofu output` at deploy time; the committed defaults stay empty so no account id / region / ARN is hardcoded). The chart contains **no inline IAM**; the trust relationship is owned in landing-zone and consumed by reference. Both workloads share one SA, both assume the `incident-response-platform` role. The substrate directory name and the `incident-response/<env>/*` secret prefixes stay `incident-response` — they're the substrate's own identity.
+Its IAM role is the role incident-response's app pods assume, bound to the chart's ServiceAccount by an EKS Pod Identity association. The table names, queue URLs/ARNs, scheduler role/group, and the secret ids land in the chart's `tenantInfra.*` (filled from `tofu output` at deploy time; the committed defaults stay empty so no account id / region / ARN is hardcoded). The chart contains **no inline IAM**; the role and the association are owned in landing-zone and consumed by reference. Both workloads share one SA, both assume the `incident-response-platform` role. The substrate directory name and the `incident-response/<env>/*` secret prefixes stay `incident-response` — they're the substrate's own identity.
 
 ### Cluster addons → `eks-gitops`
 
