@@ -118,10 +118,12 @@ externalSecret:
   grafanaCloudSecret: '' # incident-response/<env>/grafana-cloud (OTLP basic auth)
 
 prometheusRule:
-  # Ships the rules to Mimir via the kube-prometheus-stack PrometheusRule CR.
-  # Set `enabled: false` if your cluster doesn't run kube-prometheus-stack
-  # (e.g. using direct Mimir ruler API instead — operator-side decision).
-  enabled: true
+  # Ships SLO recording rules + burn-rate alerts to a Prometheus Operator
+  # (kube-prometheus-stack) via the PrometheusRule CR. Off by default — inert
+  # without an operator, which the managed-Prometheus stack (grafana-agent + AMP,
+  # alerts in Amazon Managed Grafana) doesn't run. Set `enabled: true` on a
+  # cluster that runs one.
+  enabled: false
   # Label that the Prometheus operator selector watches for. Match whatever
   # eks-gitops's kube-prometheus-stack release uses (default in upstream is
   # `release: <prometheus-release-name>`; matched on prometheus.spec.ruleSelector).
