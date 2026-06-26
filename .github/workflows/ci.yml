@@ -156,6 +156,22 @@ jobs:
             exit 1
           fi
           echo "✅ HTTP-client discipline verified"
+      - name: Env-name parity — webhook HMAC secret env matches code and chart
+        run: |
+          # The webhook handler fetches the HMAC secret by the name passed in
+          # GRAFANA_ONCALL_HMAC_SECRET_*; the chart sets it on the webhook
+          # Deployment. A mismatch (e.g. chart _ID vs code _ARN) makes the handler
+          # throw and 500 every Grafana OnCall webhook — silent until prod because
+          # local dev sets the other name. Assert both sides use the same name.
+          CODE=$(grep -rohE "GRAFANA_ONCALL_HMAC_SECRET_[A-Z]+" src/ --include="*.ts" | sort -u)
+          CHART=$(grep -rohE "GRAFANA_ONCALL_HMAC_SECRET_[A-Z]+" chart/templates/ | sort -u)
+          if [ -z "$CODE" ] || [ "$CODE" != "$CHART" ]; then
+            echo "ENV DRIFT: webhook HMAC secret env name differs between code and chart"
+            echo "  code:  ${CODE:-<none>}"
+            echo "  chart: ${CHART:-<none>}"
+            exit 1
+          fi
+          echo "✅ webhook HMAC secret env-name parity verified ($CODE)"
       - name: Inventory invariant — seeder and template agree on the secret list
         run: |
           # Two sources of truth for the secret inventory:

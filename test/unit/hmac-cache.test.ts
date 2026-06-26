@@ -13,20 +13,20 @@ import { getHmacSecret, __resetHmacCacheForTests } from '../../src/handlers/webh
 const smMock = mockClient(SecretsManagerClient);
 
 describe('HMAC secret cache', () => {
-  const ORIGINAL_ARN = process.env['GRAFANA_ONCALL_HMAC_SECRET_ARN'];
+  const ORIGINAL_ID = process.env['GRAFANA_ONCALL_HMAC_SECRET_ID'];
 
   beforeEach(() => {
     smMock.reset();
     __resetHmacCacheForTests();
-    process.env['GRAFANA_ONCALL_HMAC_SECRET_ARN'] = 'arn:aws:secretsmanager:us-west-2:000000000000:secret:test-abcdef';
+    process.env['GRAFANA_ONCALL_HMAC_SECRET_ID'] = 'arn:aws:secretsmanager:us-west-2:000000000000:secret:test-abcdef';
     jest.useFakeTimers({ doNotFake: ['setImmediate', 'queueMicrotask'] });
     jest.setSystemTime(new Date('2026-04-15T00:00:00Z'));
   });
 
   afterEach(() => {
     jest.useRealTimers();
-    if (ORIGINAL_ARN === undefined) delete process.env['GRAFANA_ONCALL_HMAC_SECRET_ARN'];
-    else process.env['GRAFANA_ONCALL_HMAC_SECRET_ARN'] = ORIGINAL_ARN;
+    if (ORIGINAL_ID === undefined) delete process.env['GRAFANA_ONCALL_HMAC_SECRET_ID'];
+    else process.env['GRAFANA_ONCALL_HMAC_SECRET_ID'] = ORIGINAL_ID;
   });
 
   it('HMAC-CACHE-001: first call fetches from Secrets Manager', async () => {
@@ -69,8 +69,8 @@ describe('HMAC secret cache', () => {
   });
 
   it('HMAC-CACHE-005: missing ARN env throws', async () => {
-    delete process.env['GRAFANA_ONCALL_HMAC_SECRET_ARN'];
-    await expect(getHmacSecret()).rejects.toThrow('GRAFANA_ONCALL_HMAC_SECRET_ARN not set');
+    delete process.env['GRAFANA_ONCALL_HMAC_SECRET_ID'];
+    await expect(getHmacSecret()).rejects.toThrow('GRAFANA_ONCALL_HMAC_SECRET_ID not set');
   });
 
   it('HMAC-CACHE-006: empty SecretString throws', async () => {
