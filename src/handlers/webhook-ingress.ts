@@ -33,9 +33,9 @@ export function __resetHmacCacheForTests(): void {
 }
 
 async function fetchHmacSecret(): Promise<HmacSecretCacheEntry> {
-  const secretArn = process.env['GRAFANA_ONCALL_HMAC_SECRET_ARN'];
-  if (!secretArn) throw new Error('GRAFANA_ONCALL_HMAC_SECRET_ARN not set');
-  const result = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretArn }));
+  const secretId = process.env['GRAFANA_ONCALL_HMAC_SECRET_ID'];
+  if (!secretId) throw new Error('GRAFANA_ONCALL_HMAC_SECRET_ID not set');
+  const result = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretId }));
   if (!result.SecretString) throw new Error('HMAC secret is empty');
   return { value: result.SecretString, versionId: result.VersionId, expiresAt: Date.now() + HMAC_SECRET_TTL_MS };
 }
