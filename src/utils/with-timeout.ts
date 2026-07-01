@@ -4,6 +4,7 @@
  */
 
 import { logger } from './logger.js';
+import { stringifyError } from './errors.js';
 
 export class TimeoutError extends Error {
   constructor(label: string, ms: number) {
@@ -43,7 +44,7 @@ export async function withTimeoutOrDefault<T>(
     return await withTimeout(promise, ms, label);
   } catch (err) {
     logger.warn(
-      { incident_id: incidentId, label, timeout_ms: ms, error: err instanceof Error ? err.message : String(err) },
+      { incident_id: incidentId, label, timeout_ms: ms, error: stringifyError(err) },
       `Non-critical op failed or timed out — continuing with fallback`,
     );
     return fallback;

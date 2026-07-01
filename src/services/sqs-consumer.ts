@@ -7,6 +7,7 @@ import { SQSClient, ReceiveMessageCommand, DeleteMessageCommand, Message } from 
 import { logger } from '../utils/logger.js';
 import { GrafanaOnCallAlertPayload } from '../types/index.js';
 import { context, extractSqsTraceContext } from '../utils/tracing.js';
+import { stringifyError } from '../utils/errors.js';
 
 export type IncidentEventType = 'ALERT_RECEIVED' | 'ALERT_RESOLVED';
 export type NudgeEventType = 'STATUS_UPDATE_NUDGE' | 'SLA_CHECK';
@@ -69,7 +70,7 @@ export class SqsConsumer {
       );
       messages = result.Messages ?? [];
     } catch (err) {
-      logger.warn({ queue: queueName, error: err instanceof Error ? err.message : String(err) }, 'SQS receive failed');
+      logger.warn({ queue: queueName, error: stringifyError(err) }, 'SQS receive failed');
       return;
     }
 
@@ -97,7 +98,7 @@ export class SqsConsumer {
         logger.error(
           {
             queue: queueName,
-            error: err instanceof Error ? err.message : String(err),
+            error: stringifyError(err),
             receive_count: msg.Attributes?.['ApproximateReceiveCount'],
           },
           'Message processing failed — retrying via SQS visibility timeout',
@@ -110,7 +111,7 @@ export class SqsConsumer {
     try {
       await this.sqs.send(new DeleteMessageCommand({ QueueUrl: queueUrl, ReceiptHandle: receiptHandle }));
     } catch (err) {
-      logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Failed to delete SQS message');
+      logger.warn({ error: stringifyError(err) }, 'Failed to delete SQS message');
     }
   }
 }

@@ -12,7 +12,7 @@
 
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { mockClient } from 'aws-sdk-client-mock';
-import 'aws-sdk-client-mock-jest';
+import 'aws-sdk-client-mock-vitest/extend';
 
 import { initOtelIfNeeded, __resetOtelInitForTests } from '../../src/handlers/webhook-otel-init.js';
 
@@ -21,15 +21,18 @@ const smMock = mockClient(SecretsManagerClient);
 describe('initOtelIfNeeded', () => {
   const ORIGINAL_ENV = { ...process.env };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     smMock.reset();
-    __resetOtelInitForTests();
+    // Also shuts down any NodeSDK started by the previous test — a started
+    // SDK holds a live metric-export interval that would otherwise leak.
+    await __resetOtelInitForTests();
     // Clean slate each test — individual tests opt in by setting the two vars.
     delete process.env['GRAFANA_CLOUD_OTLP_SECRET_ARN'];
     delete process.env['OTEL_EXPORTER_OTLP_ENDPOINT'];
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await __resetOtelInitForTests();
     process.env = ORIGINAL_ENV;
   });
 

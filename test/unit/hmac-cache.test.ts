@@ -6,7 +6,7 @@
 
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { mockClient } from 'aws-sdk-client-mock';
-import 'aws-sdk-client-mock-jest';
+import 'aws-sdk-client-mock-vitest/extend';
 
 import { getHmacSecret, __resetHmacCacheForTests } from '../../src/handlers/webhook-ingress.js';
 
@@ -19,12 +19,12 @@ describe('HMAC secret cache', () => {
     smMock.reset();
     __resetHmacCacheForTests();
     process.env['GRAFANA_ONCALL_HMAC_SECRET_ID'] = 'arn:aws:secretsmanager:us-west-2:000000000000:secret:test-abcdef';
-    jest.useFakeTimers({ doNotFake: ['setImmediate', 'queueMicrotask'] });
-    jest.setSystemTime(new Date('2026-04-15T00:00:00Z'));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    vi.setSystemTime(new Date('2026-04-15T00:00:00Z'));
   });
 
   afterEach(() => {
-    jest.useRealTimers();
+    vi.useRealTimers();
     if (ORIGINAL_ID === undefined) delete process.env['GRAFANA_ONCALL_HMAC_SECRET_ID'];
     else process.env['GRAFANA_ONCALL_HMAC_SECRET_ID'] = ORIGINAL_ID;
   });
@@ -39,7 +39,7 @@ describe('HMAC secret cache', () => {
   it('HMAC-CACHE-002: second call within TTL hits cache (no refetch)', async () => {
     smMock.on(GetSecretValueCommand).resolves({ SecretString: 'secret-v1', VersionId: 'v1' });
     await getHmacSecret();
-    jest.advanceTimersByTime(4 * 60 * 1000); // 4 minutes — still within 5-min TTL
+    vi.advanceTimersByTime(4 * 60 * 1000); // 4 minutes — still within 5-min TTL
     await getHmacSecret();
     expect(smMock).toHaveReceivedCommandTimes(GetSecretValueCommand, 1);
   });
@@ -50,7 +50,7 @@ describe('HMAC secret cache', () => {
       .resolvesOnce({ SecretString: 'secret-v1', VersionId: 'v1' })
       .resolves({ SecretString: 'secret-v2', VersionId: 'v2' });
     const first = await getHmacSecret();
-    jest.advanceTimersByTime(6 * 60 * 1000); // 6 minutes — past 5-min TTL
+    vi.advanceTimersByTime(6 * 60 * 1000); // 6 minutes — past 5-min TTL
     const second = await getHmacSecret();
     expect(first).toBe('secret-v1');
     expect(second).toBe('secret-v2');

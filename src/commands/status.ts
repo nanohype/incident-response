@@ -11,6 +11,7 @@ import type { StatuspageApprovalGate } from '../services/statuspage-approval-gat
 import { buildStatusPageApprovalBlocks } from '../services/slack-blocks.js';
 import type { IncidentRecord, GrafanaOnCallAlertPayload } from '../types/index.js';
 import { logger } from '../utils/logger.js';
+import { stringifyError } from '../utils/errors.js';
 
 export interface StatusDeps {
   docClient: DynamoDBDocumentClient;
@@ -51,10 +52,7 @@ export function makeStatusHandler(deps: StatusDeps): CommandHandler {
           text: '📡 Status page draft ready for IC approval',
         });
       } catch (err) {
-        logger.error(
-          { incident_id: ctx.incidentId, error: err instanceof Error ? err.message : String(err) },
-          'Failed to generate status draft',
-        );
+        logger.error({ incident_id: ctx.incidentId, error: stringifyError(err) }, 'Failed to generate status draft');
         await ctx.respond({ text: '❌ Failed to generate status draft. Check logs; retry with `/incident-response status draft`.' });
       }
       return;

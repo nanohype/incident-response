@@ -123,7 +123,7 @@ describe('createCircuitBreaker', () => {
 
   it('CB-007: emits circuit_open and circuit_open_reject metrics', async () => {
     const clock = makeClock(0);
-    const increment = jest.fn();
+    const increment = vi.fn();
     const metrics = { increment } as unknown as import('../../src/utils/metrics.js').MetricsEmitter;
     const cb = createCircuitBreaker({
       name: 'test',

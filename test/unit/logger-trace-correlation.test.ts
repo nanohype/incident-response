@@ -4,6 +4,7 @@
  * matching Loki log line with one click.
  */
 
+import type { MockInstance } from 'vitest';
 import { context, trace } from '@opentelemetry/api';
 import { AsyncHooksContextManager } from '@opentelemetry/context-async-hooks';
 import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
@@ -13,7 +14,7 @@ import { logger } from '../../src/utils/logger.js';
 describe('logger trace correlation', () => {
   let provider: BasicTracerProvider;
   let ctxMgr: AsyncHooksContextManager;
-  let stdoutSpy: jest.SpyInstance;
+  let stdoutSpy: MockInstance;
 
   beforeAll(() => {
     ctxMgr = new AsyncHooksContextManager().enable();
@@ -28,7 +29,7 @@ describe('logger trace correlation', () => {
   });
 
   beforeEach(() => {
-    stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
   });
   afterEach(() => {
     stdoutSpy.mockRestore();

@@ -63,7 +63,7 @@ Commit the refreshed `package-lock.json`. CI uses `npm ci` which needs the lockf
 
 ### Docker build fails on the `npm run build` stage
 
-**Cause:** the build stage runs `tsc` against the full `tsconfig.json`. A type error that lazy `ts-jest` would skip at test time fails the image build.
+**Cause:** the build stage runs `tsc` against the full `tsconfig.json`. A type error that Vitest's esbuild transform would skip at test time fails the image build.
 
 **Fix:** run `npm run typecheck` locally (it covers `test/**` too) before building. The Dockerfile's builder stage is the same `tsc` invocation, so a green local typecheck means a green image build.
 

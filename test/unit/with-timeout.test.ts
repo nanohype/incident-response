@@ -22,12 +22,7 @@ describe('withTimeout', () => {
 
   it('TO-004: TimeoutError message includes label and ms', async () => {
     const slow = new Promise((resolve) => setTimeout(resolve, 100));
-    try {
-      await withTimeout(slow, 25, 'my-op');
-      fail('expected rejection');
-    } catch (err) {
-      expect((err as Error).message).toBe('my-op timed out after 25ms');
-    }
+    await expect(withTimeout(slow, 25, 'my-op')).rejects.toThrow('my-op timed out after 25ms');
   });
 });
 

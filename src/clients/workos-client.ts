@@ -10,6 +10,7 @@ import { HttpClient } from '../utils/http-client.js';
 import { DirectoryUser, DirectoryLookupFailedError } from '../types/index.js';
 import { logger } from '../utils/logger.js';
 import { CircuitOpenError, type CircuitBreaker } from '../utils/circuit-breaker.js';
+import { stringifyError } from '../utils/errors.js';
 
 interface CacheEntry<T> {
   value: T;
@@ -82,7 +83,7 @@ export class WorkOSClient {
           {
             incident_id: incidentId,
             group_id: groupId,
-            error: err instanceof Error ? err.message : String(err),
+            error: stringifyError(err),
             circuit_open: err instanceof CircuitOpenError,
           },
           'WorkOS lookup failed, using stale cache data',
@@ -92,7 +93,7 @@ export class WorkOSClient {
       const reason =
         err instanceof CircuitOpenError
           ? `WorkOS circuit is open (recent failures exceeded threshold). IC must manually invite responders.`
-          : `WorkOS directory group lookup failed for group ${groupId}: ${err instanceof Error ? err.message : String(err)}. IC must manually invite responders.`;
+          : `WorkOS directory group lookup failed for group ${groupId}: ${stringifyError(err)}. IC must manually invite responders.`;
       const error = new DirectoryLookupFailedError(reason);
       logger.error(
         { incident_id: incidentId, group_id: groupId, error: error.message, circuit_open: err instanceof CircuitOpenError },

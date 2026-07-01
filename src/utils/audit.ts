@@ -18,15 +18,12 @@
 
 import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { AuditEvent, AuditEventType, AuditDetailsByType, AutoPublishNotPermittedError } from '../types/index.js';
+import { stringifyError } from './errors.js';
 import { logger } from './logger.js';
 import * as crypto from 'crypto';
 
 function computeTTL(): number {
   return Math.floor(Date.now() / 1000) + 366 * 24 * 60 * 60;
-}
-
-export function stringifyError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 // Credential-shaped field names. Two-tier matching:

@@ -20,7 +20,7 @@ export const GrafanaOnCallPayloadSchema = z.object({
   route_id: z.string(),
   team_id: z.string(),
   team_name: z.string(),
-  labels: z.record(z.string()).optional(),
+  labels: z.record(z.string(), z.string()).optional(),
   alerts: z
     .array(
       z.object({

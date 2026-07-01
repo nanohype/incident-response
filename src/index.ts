@@ -15,6 +15,7 @@ import { registerSlackActions } from './actions/register-slack-actions.js';
 import { SqsConsumer } from './services/sqs-consumer.js';
 import { SlashCommandTextSchema, SlashCommandArgsSchema } from './services/command-registry.js';
 import { resolveIncidentByChannel } from './utils/incident-lookup.js';
+import { stringifyError } from './utils/errors.js';
 
 // Subcommands that require an active war-room context. `help` does not — it
 // should work anywhere in the workspace.
@@ -94,10 +95,7 @@ app.command('/incident-response', async ({ command, ack, respond, client }) => {
         return;
       }
     } catch (err) {
-      logger.error(
-        { channel_id: command.channel_id, error: err instanceof Error ? err.message : String(err) },
-        'Failed to resolve incident by channel',
-      );
+      logger.error({ channel_id: command.channel_id, error: stringifyError(err) }, 'Failed to resolve incident by channel');
       await respond({ text: '❌ Internal error resolving incident for this channel. Check logs.' });
       return;
     }
@@ -152,7 +150,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  logger.error({ error: err instanceof Error ? err.message : String(err) }, 'Fatal startup error');
+  logger.error({ error: stringifyError(err) }, 'Fatal startup error');
   process.exit(1);
 });
 
@@ -181,7 +179,7 @@ process.on('SIGTERM', () => {
       logger.info('Drain complete');
       process.exit(0);
     } catch (err) {
-      logger.error({ error: err instanceof Error ? err.message : String(err) }, 'Drain failed');
+      logger.error({ error: stringifyError(err) }, 'Drain failed');
       process.exit(1);
     }
   })();

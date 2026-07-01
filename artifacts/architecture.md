@@ -141,13 +141,13 @@ All external clients share a common wrapper with:
 
 | Integration | Client | Auth |
 |-------------|--------|------|
-| Grafana OnCall | REST (node-fetch + custom wrapper) | Bearer token from Secrets Manager |
-| Grafana Cloud (Mimir/Loki/Tempo) | REST (node-fetch + custom wrapper) | Bearer token from Secrets Manager (separate from OnCall token) |
+| Grafana OnCall | REST (global fetch via shared HttpClient) | Bearer token from Secrets Manager |
+| Grafana Cloud (Mimir/Loki/Tempo) | REST (global fetch via shared HttpClient) | Bearer token from Secrets Manager (separate from OnCall token) |
 | Slack | @slack/bolt + @slack/web-api | Bot token from Secrets Manager; socket mode |
-| Statuspage.io | REST (node-fetch + custom wrapper) | API key from Secrets Manager |
+| Statuspage.io | REST (global fetch via shared HttpClient) | API key from Secrets Manager |
 | GitHub | Octokit (github MCP or direct) | App installation token from Secrets Manager |
 | Linear | Linear SDK (linear MCP client) | API key from Secrets Manager |
-| WorkOS Directory Sync | REST (node-fetch + custom wrapper) | API token from Secrets Manager |
+| WorkOS Directory Sync | REST (global fetch via shared HttpClient) | API token from Secrets Manager |
 | Bedrock | @aws-sdk/client-bedrock-runtime | IAM role (ECS task role) |
 | DynamoDB | @aws-sdk/client-dynamodb + @aws-sdk/lib-dynamodb | IAM role (ECS task role) |
 

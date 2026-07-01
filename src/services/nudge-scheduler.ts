@@ -15,6 +15,7 @@ import {
   ResourceNotFoundException,
 } from '@aws-sdk/client-scheduler';
 import { logger } from '../utils/logger.js';
+import { stringifyError } from '../utils/errors.js';
 
 export class NudgeScheduler {
   private readonly scheduler: SchedulerClient;
@@ -55,7 +56,7 @@ export class NudgeScheduler {
       logger.info({ incident_id: incidentId, group: this.groupName }, 'Nudge schedule created');
     } catch (err) {
       logger.warn(
-        { incident_id: incidentId, error: err instanceof Error ? err.message : String(err) },
+        { incident_id: incidentId, error: stringifyError(err) },
         'Failed to create nudge schedule — nudges will not fire for this incident',
       );
     }
@@ -67,7 +68,7 @@ export class NudgeScheduler {
       logger.info({ incident_id: incidentId, group: this.groupName }, 'Nudge schedule deleted');
     } catch (err) {
       if (err instanceof ResourceNotFoundException) return;
-      logger.warn({ incident_id: incidentId, error: err instanceof Error ? err.message : String(err) }, 'Failed to delete nudge schedule');
+      logger.warn({ incident_id: incidentId, error: stringifyError(err) }, 'Failed to delete nudge schedule');
     }
   }
 
@@ -86,7 +87,7 @@ export class NudgeScheduler {
       );
       logger.info({ incident_id: incidentId, group: this.groupName }, 'Nudge schedule paused (IC silenced)');
     } catch (err) {
-      logger.warn({ incident_id: incidentId, error: err instanceof Error ? err.message : String(err) }, 'Failed to pause nudge schedule');
+      logger.warn({ incident_id: incidentId, error: stringifyError(err) }, 'Failed to pause nudge schedule');
     }
   }
 

@@ -24,7 +24,7 @@ function mkMessage(id = 'inc-42'): IncidentQueueMessage {
 
 describe('makeAlertResolvedHandler', () => {
   it('ALRES-001: writes INCIDENT_RESOLVED audit on happy path', async () => {
-    const write = jest.fn().mockResolvedValue(undefined);
+    const write = vi.fn().mockResolvedValue(undefined);
     const auditWriter = { write } as unknown as AuditWriter;
     await makeAlertResolvedHandler(auditWriter)(mkMessage('inc-1'));
     expect(write).toHaveBeenCalledWith(
@@ -36,13 +36,13 @@ describe('makeAlertResolvedHandler', () => {
   });
 
   it('ALRES-002: rethrows on audit write failure so SQS retries via visibility timeout', async () => {
-    const write = jest.fn().mockRejectedValue(new Error('DynamoDB throttled'));
+    const write = vi.fn().mockRejectedValue(new Error('DynamoDB throttled'));
     const auditWriter = { write } as unknown as AuditWriter;
     await expect(makeAlertResolvedHandler(auditWriter)(mkMessage('inc-2'))).rejects.toThrow('DynamoDB throttled');
   });
 
   it('ALRES-003: rethrows non-Error rejection shape unchanged', async () => {
-    const write = jest.fn().mockRejectedValue('string rejection');
+    const write = vi.fn().mockRejectedValue('string rejection');
     const auditWriter = { write } as unknown as AuditWriter;
     await expect(makeAlertResolvedHandler(auditWriter)(mkMessage('inc-3'))).rejects.toBeDefined();
   });

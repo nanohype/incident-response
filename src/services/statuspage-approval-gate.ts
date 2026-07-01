@@ -16,6 +16,7 @@ import { AuditWriter } from '../utils/audit.js';
 import { StatusPageDraft } from '../types/index.js';
 import { logger } from '../utils/logger.js';
 import { MetricsEmitter, MetricNames } from '../utils/metrics.js';
+import { stringifyError } from '../utils/errors.js';
 
 export class StatuspageApprovalGate {
   constructor(
@@ -96,12 +97,12 @@ export class StatuspageApprovalGate {
       );
     } catch (publishError) {
       logger.error(
-        { incident_id: incidentId, draft_id: draftId, error: publishError instanceof Error ? publishError.message : String(publishError) },
+        { incident_id: incidentId, draft_id: draftId, error: stringifyError(publishError) },
         'Statuspage.io publish failed after approval',
       );
       this.metrics?.increment(MetricNames.StatuspagePublishCount, [{ name: 'outcome', value: 'failed' }]);
       throw new Error(
-        `Statuspage.io publish failed after IC approval. Retry by clicking Approve & Publish again. Error: ${publishError instanceof Error ? publishError.message : String(publishError)}`,
+        `Statuspage.io publish failed after IC approval. Retry by clicking Approve & Publish again. Error: ${stringifyError(publishError)}`,
       );
     }
 

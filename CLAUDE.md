@@ -34,8 +34,10 @@ Customer-facing Statuspage messages ALWAYS go through the `StatuspageApprovalGat
 - **src/events/** — one file per SQS event type.
 - **src/actions/register-slack-actions.ts** — Slack Block Kit interactive action bindings (approve, edit, silence, pulse 1–5).
 - **src/clients/** — per-service adapters. All use `HttpClient` (5s timeout, 2-retry cap, jittered backoff) except `linear-client` (uses `@linear/sdk` directly, with every SDK call wrapped in `withTimeout(8000ms)` since the SDK has no native deadline).
-- **src/ai/incident-response-ai.ts** — Bedrock wrapper. System prompts have `cache_control: { type: 'ephemeral' }`. `stripPII` runs BEFORE every Bedrock call. Safe fallback templates for both `generateStatusDraft` and `generatePostmortemSections` if Bedrock fails.
-- **src/utils/audit.ts** — All writes AWAITED. ConditionExpression for idempotency. `stringifyError` helper exported so the ternary branch coverage on error-path logging can hit both arms explicitly.
+- **src/ai/incident-response-ai.ts** — Bedrock wrapper. Model IDs come from the zod-validated env config (`BEDROCK_SONNET_MODEL_ID` / `BEDROCK_HAIKU_MODEL_ID` in `src/config/`). System prompts have `cache_control: { type: 'ephemeral' }`. `stripPII` runs BEFORE every Bedrock call. Safe fallback templates for both `generateStatusDraft` and `generatePostmortemSections` if Bedrock fails; the classifier zod-parses Haiku's JSON output and falls back to `{ is_status_update: false, confidence: 0 }` on malformed or wrong-shape output.
+- **src/config/** — zod-validated env config for defaulted values (Bedrock model IDs). Required no-default env vars stay with `requireEnv` at startup.
+- **src/utils/audit.ts** — All writes AWAITED. ConditionExpression for idempotency.
+- **src/utils/errors.ts** — `stringifyError` — the one error-normalization helper every structured-log `error:` field goes through; both ternary arms covered explicitly in `test/unit/errors.test.ts`.
 - **src/utils/http-client.ts** — Base HTTP client. Hard-capped timeout (≤5000ms) and retries (≤2). AbortController. Structured log on every retry + timeout.
 - **src/utils/metrics.ts** — `MetricsEmitter` over `PutMetricData`. Fire-and-forget. Catches and warns on failure — never throws up to the caller.
 - **src/utils/with-timeout.ts** — `withTimeout` (throws on deadline) + `withTimeoutOrDefault` (swallows, returns fallback, warn-logs). Used around non-critical Slack calls.
@@ -128,7 +130,7 @@ IncidentResponse-specific:
 | `@aws-sdk/client-bedrock-runtime` | `claude-sonnet-4-6` + `claude-haiku-4-5` inference via `InvokeModel` |
 | `@aws-sdk/client-cloudwatch` | Custom metrics (assembly latency, approval-gate latency, etc.) |
 | `@linear/sdk` | Postmortem issue creation in Linear |
-| `zod` | Webhook payload validation at the webhook ingress boundary |
-| `aws-sdk-client-mock`, `aws-sdk-client-mock-jest` | Mocking AWS calls in unit tests |
+| `zod` | Boundary validation — webhook payloads, env config defaults, LLM classifier output |
+| `aws-sdk-client-mock`, `aws-sdk-client-mock-vitest` | Mocking AWS calls + custom matchers in unit tests |
 
 No heavy AI frameworks (no LangChain) — direct Bedrock SDK calls via `IncidentResponseAI`.
