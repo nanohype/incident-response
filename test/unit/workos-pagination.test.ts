@@ -5,7 +5,7 @@
 import { WorkOSClient, __resetWorkOSCacheForTests } from '../../src/clients/workos-client.js';
 import { DirectoryLookupFailedError } from '../../src/types/index.js';
 
-const mockFetch = jest.fn();
+const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
 function mkResponse(status: number, body: unknown): Response {
@@ -13,8 +13,8 @@ function mkResponse(status: number, body: unknown): Response {
     ok: status >= 200 && status < 300,
     status,
     headers: new Headers({ 'content-type': 'application/json' }),
-    json: jest.fn().mockResolvedValue(body),
-    text: jest.fn().mockResolvedValue(JSON.stringify(body)),
+    json: vi.fn().mockResolvedValue(body),
+    text: vi.fn().mockResolvedValue(JSON.stringify(body)),
   } as unknown as Response;
 }
 
@@ -132,19 +132,19 @@ describe('WorkOSClient pagination', () => {
   });
 
   it('WORKOS-PAGE-010: stale cache fallback on live fetch failure after TTL expiry', async () => {
-    jest.useFakeTimers({ doNotFake: ['setImmediate', 'queueMicrotask'] });
-    jest.setSystemTime(new Date('2026-04-15T00:00:00Z'));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    vi.setSystemTime(new Date('2026-04-15T00:00:00Z'));
     try {
       mockFetch.mockResolvedValueOnce(mkResponse(200, mkPage([mkUser('u1')]))).mockResolvedValue(mkResponse(500, {}));
       const groupId = `stale-${Date.now()}`;
       const first = await client.getUsersInGroup(groupId, 'inc-1');
       expect(first.map((u) => u.id)).toEqual(['u1']);
       // Advance past the 5-minute cache TTL.
-      jest.advanceTimersByTime(6 * 60 * 1000);
+      vi.advanceTimersByTime(6 * 60 * 1000);
       const second = await client.getUsersInGroup(groupId, 'inc-2');
       expect(second.map((u) => u.id)).toEqual(['u1']); // stale cache returned
     } finally {
-      jest.useRealTimers();
+      vi.useRealTimers();
     }
   });
 

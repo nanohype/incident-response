@@ -5,10 +5,10 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { mockClient } from 'aws-sdk-client-mock';
-import 'aws-sdk-client-mock-jest';
+import 'aws-sdk-client-mock-vitest/extend';
 import * as crypto from 'crypto';
 
-import { AuditWriter, stringifyError, scrubDetails } from '../../src/utils/audit.js';
+import { AuditWriter, scrubDetails } from '../../src/utils/audit.js';
 import { AutoPublishNotPermittedError } from '../../src/types/index.js';
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
@@ -50,19 +50,6 @@ describe('AuditWriter', () => {
     it('AUDIT-003: throws on non-idempotency DynamoDB failure', async () => {
       ddbMock.on(PutCommand).rejects(new Error('DynamoDB unavailable'));
       await expect(auditWriter.write(INCIDENT_ID, ACTOR, 'WAR_ROOM_CREATED', {})).rejects.toThrow('DynamoDB unavailable');
-    });
-  });
-
-  describe('stringifyError()', () => {
-    it('AUDIT-ERR-001: Error instances return err.message', () => {
-      expect(stringifyError(new Error('boom'))).toBe('boom');
-    });
-    it('AUDIT-ERR-002: non-Error values return String(err)', () => {
-      expect(stringifyError('plain string')).toBe('plain string');
-      expect(stringifyError(42)).toBe('42');
-      expect(stringifyError({ foo: 'bar' })).toBe('[object Object]');
-      expect(stringifyError(null)).toBe('null');
-      expect(stringifyError(undefined)).toBe('undefined');
     });
   });
 

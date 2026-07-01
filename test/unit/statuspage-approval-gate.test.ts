@@ -3,10 +3,11 @@
  * THE MOST CRITICAL TESTS IN THE CODEBASE.
  */
 
+import type { Mocked } from 'vitest';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { mockClient } from 'aws-sdk-client-mock';
-import 'aws-sdk-client-mock-jest';
+import 'aws-sdk-client-mock-vitest/extend';
 
 import { StatuspageApprovalGate } from '../../src/services/statuspage-approval-gate.js';
 import { AuditWriter } from '../../src/utils/audit.js';
@@ -23,21 +24,21 @@ describe('StatuspageApprovalGate — SECURITY CRITICAL', () => {
   const DRAFT_BODY = 'We are investigating an issue affecting some customers.';
 
   let gate: StatuspageApprovalGate;
-  let mockAuditWriter: jest.Mocked<AuditWriter>;
-  let mockStatuspageClient: jest.Mocked<StatuspageClient>;
+  let mockAuditWriter: Mocked<AuditWriter>;
+  let mockStatuspageClient: Mocked<StatuspageClient>;
 
   beforeEach(() => {
     ddbMock.reset();
     mockAuditWriter = {
-      write: jest.fn().mockResolvedValue(undefined),
-      writeStatuspageApproval: jest.fn().mockResolvedValue({ body_sha256: 'abc123' }),
-      verifyApprovalBeforePublish: jest.fn().mockResolvedValue(undefined),
-      auditApprovalGateViolations: jest.fn().mockResolvedValue([]),
-    } as unknown as jest.Mocked<AuditWriter>;
+      write: vi.fn().mockResolvedValue(undefined),
+      writeStatuspageApproval: vi.fn().mockResolvedValue({ body_sha256: 'abc123' }),
+      verifyApprovalBeforePublish: vi.fn().mockResolvedValue(undefined),
+      auditApprovalGateViolations: vi.fn().mockResolvedValue([]),
+    } as unknown as Mocked<AuditWriter>;
 
     mockStatuspageClient = {
-      listComponents: jest.fn(),
-      createIncident: jest.fn().mockResolvedValue({
+      listComponents: vi.fn(),
+      createIncident: vi.fn().mockResolvedValue({
         id: 'sp-incident-001',
         shortlink: 'https://status.example.com/incidents/sp-001',
         name: 'Incident',
@@ -46,8 +47,8 @@ describe('StatuspageApprovalGate — SECURITY CRITICAL', () => {
         created_at: new Date().toISOString(),
         page_id: 'page-001',
       }),
-      updateIncident: jest.fn(),
-    } as unknown as jest.Mocked<StatuspageClient>;
+      updateIncident: vi.fn(),
+    } as unknown as Mocked<StatuspageClient>;
 
     gate = new StatuspageApprovalGate(
       DynamoDBDocumentClient.from(new DynamoDBClient({ region: 'us-west-2' })),

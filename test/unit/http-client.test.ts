@@ -4,7 +4,7 @@
 
 import { HttpClient } from '../../src/utils/http-client.js';
 
-const mockFetch = jest.fn();
+const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
 function mockJsonResponse(status: number, body: unknown): Response {
@@ -12,8 +12,8 @@ function mockJsonResponse(status: number, body: unknown): Response {
     ok: status >= 200 && status < 300,
     status,
     headers: new Headers({ 'content-type': 'application/json' }),
-    json: jest.fn().mockResolvedValue(body),
-    text: jest.fn().mockResolvedValue(JSON.stringify(body)),
+    json: vi.fn().mockResolvedValue(body),
+    text: vi.fn().mockResolvedValue(JSON.stringify(body)),
   } as unknown as Response;
 }
 
@@ -102,8 +102,8 @@ describe('HttpClient', () => {
       ok: true,
       status: 200,
       headers: new Headers({ 'content-type': 'text/plain' }),
-      text: jest.fn().mockResolvedValue('hello'),
-      json: jest.fn(),
+      text: vi.fn().mockResolvedValue('hello'),
+      json: vi.fn(),
     } as unknown as Response);
     const result = await client.get<string>('/test');
     expect(result.data).toBe('hello');
@@ -126,8 +126,8 @@ describe('HttpClient', () => {
       ok: true,
       status: 200,
       headers: new Headers({ 'content-type': 'application/json' }),
-      json: jest.fn().mockRejectedValue(new Error('bad json')),
-      text: jest.fn(),
+      json: vi.fn().mockRejectedValue(new Error('bad json')),
+      text: vi.fn(),
     } as unknown as Response);
     const result = await client.get<{ x: number }>('/test');
     expect(result.data).toBeNull();

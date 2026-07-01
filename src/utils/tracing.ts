@@ -12,6 +12,7 @@
 
 import { context, propagation, Span, SpanStatusCode, trace } from '@opentelemetry/api';
 import type { MessageAttributeValue as SqsMessageAttributeValue } from '@aws-sdk/client-sqs';
+import { stringifyError } from './errors.js';
 
 const TRACER_NAME = 'incident-response';
 
@@ -31,7 +32,7 @@ export async function withSpan<T>(
       span.recordException(err instanceof Error ? err : new Error(String(err)));
       span.setStatus({
         code: SpanStatusCode.ERROR,
-        message: err instanceof Error ? err.message : String(err),
+        message: stringifyError(err),
       });
       throw err;
     } finally {

@@ -9,6 +9,7 @@
  * Requires dynamodb-local on localhost:8000. See package.json `test:integration:docker`.
  */
 
+import type { Mock } from 'vitest';
 import { GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { WarRoomAssembler } from '../../src/services/war-room-assembler.js';
 import { AuditWriter } from '../../src/utils/audit.js';
@@ -22,12 +23,12 @@ const INCIDENTS_TABLE = 'incident-response-incidents-war-room-int';
 // Narrow stub surface — only the methods WarRoomAssembler.assemble actually calls.
 type SlackStub = {
   conversations: {
-    create: jest.Mock;
-    invite: jest.Mock;
+    create: Mock;
+    invite: Mock;
   };
-  chat: { postMessage: jest.Mock };
-  pins: { add: jest.Mock };
-  users: { lookupByEmail: jest.Mock };
+  chat: { postMessage: Mock };
+  pins: { add: Mock };
+  users: { lookupByEmail: Mock };
 };
 
 function makeSlackStub(
@@ -42,19 +43,19 @@ function makeSlackStub(
   const channelName = overrides.channelName ?? 'incident-response-p1-20260416-abc123';
   return {
     conversations: {
-      create: jest
+      create: vi
         .fn()
         .mockResolvedValue(
           overrides.createOk === false ? { ok: false, error: 'name_taken' } : { ok: true, channel: { id: channelId, name: channelName } },
         ),
-      invite: jest.fn().mockResolvedValue({ ok: true }),
+      invite: vi.fn().mockResolvedValue({ ok: true }),
     },
     chat: {
-      postMessage: jest.fn().mockResolvedValue({ ok: true, ts: overrides.postMessageTs ?? '1734567890.123' }),
+      postMessage: vi.fn().mockResolvedValue({ ok: true, ts: overrides.postMessageTs ?? '1734567890.123' }),
     },
-    pins: { add: jest.fn().mockResolvedValue({ ok: true }) },
+    pins: { add: vi.fn().mockResolvedValue({ ok: true }) },
     users: {
-      lookupByEmail: jest
+      lookupByEmail: vi
         .fn()
         .mockImplementation(({ email }: { email: string }) => Promise.resolve({ ok: true, user: { id: `U-${email.split('@')[0]}` } })),
     },
@@ -63,20 +64,20 @@ function makeSlackStub(
 
 function makeWorkOSStub(users: Array<{ id: string; email: string; first_name: string; last_name: string; state: 'active' }> = []) {
   return {
-    getUsersInGroup: jest.fn().mockResolvedValue(users),
+    getUsersInGroup: vi.fn().mockResolvedValue(users),
   };
 }
 
 function makeGrafanaOnCallStub(chain: unknown = null, emails: string[] = []) {
   return {
-    getEscalationChainForIntegration: jest.fn().mockResolvedValue(chain),
-    extractEmailsFromChain: jest.fn().mockReturnValue(emails),
+    getEscalationChainForIntegration: vi.fn().mockResolvedValue(chain),
+    extractEmailsFromChain: vi.fn().mockReturnValue(emails),
   };
 }
 
 function makeGrafanaCloudStub(snapshot?: GrafanaContextSnapshot | null) {
   return {
-    getContextSnapshot: jest
+    getContextSnapshot: vi
       .fn()
       .mockImplementation(() =>
         snapshot === null ? Promise.reject(new Error('Mimir unreachable')) : Promise.resolve(snapshot ?? undefined),
@@ -84,7 +85,7 @@ function makeGrafanaCloudStub(snapshot?: GrafanaContextSnapshot | null) {
   };
 }
 
-const nudgeStub = { scheduleNudge: jest.fn().mockResolvedValue(undefined) };
+const nudgeStub = { scheduleNudge: vi.fn().mockResolvedValue(undefined) };
 
 function alertPayload(overrides: Partial<GrafanaOnCallAlertPayload> = {}): GrafanaOnCallAlertPayload {
   const id = overrides.alert_group_id ?? `int-alert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -232,7 +233,7 @@ describe('WarRoomAssembler — integration vs dynamodb-local', () => {
     await seedIncident(alert.alert_group_id);
 
     const slack = makeSlackStub();
-    const workos = { getUsersInGroup: jest.fn().mockRejectedValue(new Error('WorkOS 503')) };
+    const workos = { getUsersInGroup: vi.fn().mockRejectedValue(new Error('WorkOS 503')) };
     const oncall = makeGrafanaOnCallStub(null, []); // no escalation chain either
     const cloud = makeGrafanaCloudStub(undefined);
 

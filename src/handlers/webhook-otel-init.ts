@@ -28,14 +28,22 @@ import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { logger } from '../utils/logger.js';
+import { stringifyError } from '../utils/errors.js';
 
 // Memoize on the promise so a cold-start burst of concurrent invocations
 // doesn't fetch the secret more than once. On failure we clear the memo so
 // the next cold start retries — cached failure would be worse than a retry.
 let initPromise: Promise<boolean> | undefined;
+// Retained so tests can shut the SDK down. A started NodeSDK holds a live
+// metric-export interval — without shutdown, every start leaks that handle.
+let activeSdk: NodeSDK | undefined;
 
-export function __resetOtelInitForTests(): void {
+export async function __resetOtelInitForTests(): Promise<void> {
   initPromise = undefined;
+  if (activeSdk) {
+    await activeSdk.shutdown().catch(() => undefined);
+    activeSdk = undefined;
+  }
 }
 
 /**
@@ -45,7 +53,7 @@ export function __resetOtelInitForTests(): void {
 export function initOtelIfNeeded(): Promise<boolean> {
   if (!initPromise) {
     initPromise = initOtel().catch((err) => {
-      logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'OTel init failed — webhook will continue without tracing');
+      logger.warn({ error: stringifyError(err) }, 'OTel init failed — webhook will continue without tracing');
       initPromise = undefined;
       return false;
     });
@@ -92,6 +100,7 @@ async function initOtel(): Promise<boolean> {
   });
 
   sdk.start();
+  activeSdk = sdk;
   logger.info({ service: process.env['OTEL_SERVICE_NAME'], endpoint }, 'OTel SDK started (webhook Lambda cold start)');
   return true;
 }

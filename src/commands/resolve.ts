@@ -26,6 +26,7 @@ import { buildPulseRatingBlocks } from '../services/slack-blocks.js';
 import type { IncidentRecord } from '../types/index.js';
 import { logger } from '../utils/logger.js';
 import { withTimeoutOrDefault } from '../utils/with-timeout.js';
+import { stringifyError } from '../utils/errors.js';
 
 export interface ResolveDeps {
   docClient: DynamoDBDocumentClient;
@@ -120,7 +121,7 @@ export function makeResolveHandler(deps: ResolveDeps): CommandHandler {
       });
       deps.metrics?.increment(MetricNames.PostmortemCreatedCount);
     } catch (err) {
-      log.error({ error: err instanceof Error ? err.message : String(err) }, 'Linear postmortem creation failed — IC must create manually');
+      log.error({ error: stringifyError(err) }, 'Linear postmortem creation failed — IC must create manually');
     }
 
     // Step 5: stop pinging the IC
@@ -188,7 +189,7 @@ export function makeResolveHandler(deps: ResolveDeps): CommandHandler {
         archived_at: new Date().toISOString(),
       });
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
+      const errMsg = stringifyError(err);
       log.warn({ channel_id: ctx.channelId, error: errMsg }, 'Failed to archive war room channel');
       await deps.auditWriter.write(incident.incident_id, ctx.userId, 'WAR_ROOM_ARCHIVE_FAILED', {
         channel_id: ctx.channelId,

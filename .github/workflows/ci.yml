@@ -58,10 +58,12 @@ jobs:
           cache-dependency-path: package-lock.json
       - run: npm ci
       - name: Run unit tests with coverage
-        run: npm run test:unit -- --coverage --coverageReporters=text --coverageReporters=lcov
+        # Coverage (text + lcov + html) is always on in vitest.config.ts, so the
+        # local run and this CI run enforce the exact same thresholds.
+        run: npm run test:unit
       - name: Verify coverage thresholds enforce (sanity check)
         run: |
-          # Jest exits non-zero when thresholds in jest.config.cjs are violated. This step
+          # Vitest exits non-zero when thresholds in vitest.config.ts are violated. This step
           # fails loudly if the `test:unit` step above happened to pass with 0 coverage.
           test -s coverage/lcov.info && echo "Coverage data captured" || { echo "No coverage data — tests may not be running"; exit 1; }
       - name: Upload coverage

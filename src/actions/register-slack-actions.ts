@@ -8,6 +8,7 @@ import type { App } from '@slack/bolt';
 import type { AuditWriter } from '../utils/audit.js';
 import type { StatuspageApprovalGate } from '../services/statuspage-approval-gate.js';
 import { logger } from '../utils/logger.js';
+import { stringifyError } from '../utils/errors.js';
 
 export function registerSlackActions(app: App, deps: { approvalGate: StatuspageApprovalGate; auditWriter: AuditWriter }): void {
   app.action('statuspage_approve', async ({ action, ack, body, respond }) => {
@@ -21,7 +22,7 @@ export function registerSlackActions(app: App, deps: { approvalGate: StatuspageA
         replace_original: true,
       });
     } catch (err) {
-      logger.error({ incident_id, draft_id, error: err instanceof Error ? err.message : String(err) }, 'Status page approval failed');
+      logger.error({ incident_id, draft_id, error: stringifyError(err) }, 'Status page approval failed');
       await respond({
         text: `❌ Failed to publish status page: ${err instanceof Error ? err.message : 'Unknown error'}. Please try again.`,
       });

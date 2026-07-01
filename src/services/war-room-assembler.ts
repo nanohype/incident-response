@@ -20,6 +20,7 @@ import { buildChecklistBlocks, buildContextSnapshotBlocks } from './slack-blocks
 import { NudgeScheduler } from './nudge-scheduler.js';
 import { withSpan } from '../utils/tracing.js';
 import type { SlackAdapter } from '../adapters/slack-adapter.js';
+import { stringifyError } from '../utils/errors.js';
 
 // Slack call deadlines. Channel create is critical (assembly depends on it).
 // Everything else is non-critical — budget < channel-create so a wedge doesn't cascade.
@@ -113,11 +114,7 @@ export class WarRoomAssembler {
 
       let contextSnapshot: GrafanaContextSnapshot | undefined;
       if (contextResult.status === 'fulfilled') contextSnapshot = contextResult.value;
-      else
-        log.warn(
-          { error: contextResult.reason instanceof Error ? contextResult.reason.message : String(contextResult.reason) },
-          'Grafana Cloud context failed — proceeding without snapshot',
-        );
+      else log.warn({ error: stringifyError(contextResult.reason) }, 'Grafana Cloud context failed — proceeding without snapshot');
 
       // Step 3: Invite responders (or fallback if the directory lookup failed)
       let invitedUserIds: string[] = [];
@@ -133,7 +130,7 @@ export class WarRoomAssembler {
         directoryFallback = true;
         this.metrics?.increment(MetricNames.DirectoryLookupFailureCount);
         await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'DIRECTORY_LOOKUP_FAILED', {
-          error: responderResult.reason instanceof Error ? responderResult.reason.message : String(responderResult.reason),
+          error: stringifyError(responderResult.reason),
         });
         await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'ASSEMBLY_FALLBACK_INITIATED', {
           reason: 'Directory group lookup failed',
@@ -271,14 +268,11 @@ export class WarRoomAssembler {
           invited_at: new Date().toISOString(),
         });
       } catch (err) {
-        logger.warn(
-          { incident_id: incidentId, email, error: err instanceof Error ? err.message : String(err) },
-          'Failed to invite responder',
-        );
+        logger.warn({ incident_id: incidentId, email, error: stringifyError(err) }, 'Failed to invite responder');
         await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'RESPONDER_INVITE_FAILED', {
           channel_id: channelId,
           email,
-          error: err instanceof Error ? err.message : String(err),
+          error: stringifyError(err),
         });
       }
     }

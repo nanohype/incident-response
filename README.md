@@ -122,7 +122,7 @@ First-time deployers should stand staging up, run the scripted drill (`npm run d
 
 ## Configuration
 
-All configuration via env vars (validated by `src/utils/env.ts` at startup). In production, secret values come from AWS Secrets Manager, projected by the ExternalSecret into a k8s Secret consumed via `envFrom`; `.env.example` is for local dev only. See [`docs/secrets.md`](docs/secrets.md) for the full inventory + provenance.
+All configuration via env vars. Required vars are asserted by `src/utils/env.ts` at startup; defaulted vars are parsed by the zod-validated config in `src/config/`. In production, secret values come from AWS Secrets Manager, projected by the ExternalSecret into a k8s Secret consumed via `envFrom`; `.env.example` is for local dev only. See [`docs/secrets.md`](docs/secrets.md) for the full inventory + provenance.
 
 | Variable | Source | Purpose |
 |----------|--------|---------|
@@ -139,6 +139,7 @@ All configuration via env vars (validated by `src/utils/env.ts` at startup). In 
 | `INCIDENT_EVENTS_QUEUE_URL`, `NUDGE_EVENTS_QUEUE_URL`, `SLA_CHECK_QUEUE_URL` | from chart `tenantInfra.*` (landing-zone output) | SQS URLs |
 | `SCHEDULER_ROLE_ARN`, `AWS_REGION` | from chart `tenantInfra.*` (landing-zone output) | EventBridge Scheduler |
 | `GRAFANA_ONCALL_HMAC_SECRET_ID` | from chart `externalSecret.hmacSecret` | name of `incident-response/<env>/grafana-oncall-hmac` — the handler fetches the value dynamically so rotation doesn't require a pod restart |
+| `BEDROCK_SONNET_MODEL_ID`, `BEDROCK_HAIKU_MODEL_ID` | optional; defaults in `src/config/` | Bedrock model IDs (Sonnet drafts, Haiku classifies) — override to pin a snapshot or cross-region inference profile |
 
 The JSON-shaped secret `incident-response/{env}/grafana-cloud/otlp-auth` carries the Grafana Cloud telemetry credentials in one payload. Operator-provisioned like every other secret — the seeder auto-computes `basic_auth` from `instance_id` + `api_token` if you omit it from the JSON. The cluster OTel Collector + log forwarder (eks-gitops) own the export path; the app just emits OTLP + JSON. See [`docs/secrets.md`](docs/secrets.md) § "The `incident-response/{env}/grafana-cloud/otlp-auth` secret".
 
@@ -148,7 +149,7 @@ Both ship as Kubernetes resources from the chart — no manual import step. The 
 
 ## Conventions
 
-Per root `protohype/CLAUDE.md`: TypeScript, ESM (`.js` import suffixes), Node 24, 2-space indent, strict TS (`exactOptionalPropertyTypes: true`), Zod at system boundaries, structured JSON logging to stderr/stdout, Jest for tests, ESLint + typescript-eslint.
+Per root `protohype/CLAUDE.md`: TypeScript, ESM (`.js` import suffixes), Node 24, 2-space indent, strict TS (`exactOptionalPropertyTypes: true`), Zod at system boundaries, structured JSON logging to stderr/stdout, Vitest for tests, ESLint + typescript-eslint.
 
 IncidentResponse-specific:
 - **Ubiquitous language.** `WarRoomAssembler`, `StatuspageApprovalGate`, `NudgeScheduler`, `CommandRegistry` — not `DataProcessor` or `ExternalServiceAdapter`.
@@ -172,7 +173,7 @@ Security-critical thresholds are load-bearing — they gate the approval-gate in
 
 ### Proving enforcement is live
 
-Thresholds that never fail are ceremonial. To prove the 100% gate actually blocks CI, flip one branch in `src/utils/audit.ts` (e.g. change `ConsistentRead: true` to `false`) and run `npm run test:unit`. Expected outcome: `Jest exit code: 1`, `AUDIT-006: uses ConsistentRead: true` fails. Restore, re-run: exit 0. This experiment is in the PR comment history and should be re-run whenever the threshold config changes.
+Thresholds that never fail are ceremonial. To prove the 100% gate actually blocks CI, flip one branch in `src/utils/audit.ts` (e.g. change `ConsistentRead: true` to `false`) and run `npm run test:unit`. Expected outcome: `Vitest exit code: 1`, `AUDIT-006: uses ConsistentRead: true` fails. Restore, re-run: exit 0. This experiment is in the PR comment history and should be re-run whenever the threshold config changes.
 
 ### Adding tests
 
@@ -186,7 +187,7 @@ Thresholds that never fail are ceremonial. To prove the 100% gate actually block
 - `@opentelemetry/api` + `@opentelemetry/auto-instrumentations-node` + `@opentelemetry/sdk-node` — tracing + metrics via OTLP. Traces land in Grafana Cloud Tempo; metrics in Mimir.
 - `@linear/sdk` — postmortem issue creation.
 - `zod` — webhook payload validation.
-- `aws-sdk-client-mock` + `aws-sdk-client-mock-jest` — AWS SDK mocks for unit tests.
+- `aws-sdk-client-mock` + `aws-sdk-client-mock-vitest` — AWS SDK mocks + custom matchers for unit tests.
 
 ## Boundaries
 

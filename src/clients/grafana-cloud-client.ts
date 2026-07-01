@@ -7,6 +7,7 @@
 import { HttpClient } from '../utils/http-client.js';
 import { GrafanaContextSnapshot } from '../types/index.js';
 import { logger } from '../utils/logger.js';
+import { stringifyError } from '../utils/errors.js';
 
 interface MimirQueryResult {
   status: string;
@@ -56,22 +57,19 @@ export class GrafanaCloudClient {
 
     let errorRate = { current: 0, baseline: 0, series_url: '' };
     if (errorRateResult.status === 'fulfilled') errorRate = errorRateResult.value;
-    else
-      datasourceErrors.push(
-        `Mimir error rate: ${errorRateResult.reason instanceof Error ? errorRateResult.reason.message : String(errorRateResult.reason)}`,
-      );
+    else datasourceErrors.push(`Mimir error rate: ${stringifyError(errorRateResult.reason)}`);
 
     let p99Latency = { current: 0, baseline: 0 };
     if (p99Result.status === 'fulfilled') p99Latency = p99Result.value;
-    else datasourceErrors.push(`Mimir p99: ${p99Result.reason instanceof Error ? p99Result.reason.message : String(p99Result.reason)}`);
+    else datasourceErrors.push(`Mimir p99: ${stringifyError(p99Result.reason)}`);
 
     let logExcerpts: string[] = [];
     if (logResult.status === 'fulfilled') logExcerpts = logResult.value;
-    else datasourceErrors.push(`Loki: ${logResult.reason instanceof Error ? logResult.reason.message : String(logResult.reason)}`);
+    else datasourceErrors.push(`Loki: ${stringifyError(logResult.reason)}`);
 
     let traceIds: string[] = [];
     if (traceResult.status === 'fulfilled') traceIds = traceResult.value;
-    else datasourceErrors.push(`Tempo: ${traceResult.reason instanceof Error ? traceResult.reason.message : String(traceResult.reason)}`);
+    else datasourceErrors.push(`Tempo: ${stringifyError(traceResult.reason)}`);
 
     const errorBudgetBurnRate =
       errorRate.current > 0 && errorRate.baseline > 0 ? errorRate.current / Math.max(errorRate.baseline, 0.001) : 0;

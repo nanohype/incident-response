@@ -14,6 +14,7 @@ import { GrafanaOnCallPayloadSchema } from '../types/index.js';
 import { logger } from '../utils/logger.js';
 import { injectSqsTraceAttributes } from '../utils/tracing.js';
 import { initOtelIfNeeded } from './webhook-otel-init.js';
+import { stringifyError } from '../utils/errors.js';
 
 const sqsClient = new SQSClient({ region: process.env['AWS_REGION'] ?? 'us-west-2' });
 const dynamoClient = new DynamoDBClient({ region: process.env['AWS_REGION'] ?? 'us-west-2' });
@@ -71,7 +72,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event): Promise<APIGatew
       if (!verifyHmacSignature(body, signature, secret)) return { statusCode: 401, body: JSON.stringify({ error: 'Invalid signature' }) };
     }
   } catch (err) {
-    logger.error({ error: err instanceof Error ? err.message : String(err) }, 'HMAC secret fetch failed');
+    logger.error({ error: stringifyError(err) }, 'HMAC secret fetch failed');
     return { statusCode: 500, body: JSON.stringify({ error: 'Internal error' }) };
   }
 

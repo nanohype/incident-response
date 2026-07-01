@@ -7,6 +7,7 @@ import { LinearClient } from '@linear/sdk';
 import { PostmortemDraft } from '../types/index.js';
 import { logger } from '../utils/logger.js';
 import { withTimeout } from '../utils/with-timeout.js';
+import { stringifyError } from '../utils/errors.js';
 
 // `@linear/sdk` does not expose a request-level timeout. Without an external
 // deadline a hung Linear endpoint would wedge `/incident-response resolve` past the SQS
@@ -81,10 +82,7 @@ export class LinearIncidentResponseClient {
         sla_deadline: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
       };
     } catch (err) {
-      logger.error(
-        { incident_id: incidentId, error: err instanceof Error ? err.message : String(err) },
-        'Failed to create postmortem draft in Linear',
-      );
+      logger.error({ incident_id: incidentId, error: stringifyError(err) }, 'Failed to create postmortem draft in Linear');
       throw err;
     }
   }

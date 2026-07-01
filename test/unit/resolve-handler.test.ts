@@ -3,10 +3,11 @@
  * Exercises the 6-step flow: load → AI postmortem → Linear draft → nudge delete → pulse rating → status flip.
  */
 
+import type { Mock } from 'vitest';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { mockClient } from 'aws-sdk-client-mock';
-import 'aws-sdk-client-mock-jest';
+import 'aws-sdk-client-mock-vitest/extend';
 
 import { makeResolveHandler, type ResolveDeps } from '../../src/commands/resolve.js';
 import type { CommandContext } from '../../src/services/command-registry.js';
@@ -21,10 +22,10 @@ const ddbMock = mockClient(DynamoDBDocumentClient);
 function mkDeps(): ResolveDeps {
   const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region: 'us-west-2' }));
   const incidentResponseAI = {
-    generatePostmortemSections: jest.fn().mockResolvedValue('postmortem body'),
+    generatePostmortemSections: vi.fn().mockResolvedValue('postmortem body'),
   } as unknown as IncidentResponseAI;
   const linearClient = {
-    createPostmortemDraft: jest.fn().mockResolvedValue({
+    createPostmortemDraft: vi.fn().mockResolvedValue({
       incident_id: 'inc-1',
       linear_issue_id: 'LIN-1',
       linear_issue_url: 'https://linear.app/x/issue/LIN-1',
@@ -33,9 +34,9 @@ function mkDeps(): ResolveDeps {
       sla_deadline: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
     }),
   } as unknown as LinearIncidentResponseClient;
-  const githubClient = { getRecentCommits: jest.fn().mockResolvedValue([]) } as unknown as GitHubClient;
-  const nudgeScheduler = { deleteNudge: jest.fn().mockResolvedValue(undefined) } as unknown as NudgeScheduler;
-  const auditWriter = { write: jest.fn().mockResolvedValue(undefined) } as unknown as AuditWriter;
+  const githubClient = { getRecentCommits: vi.fn().mockResolvedValue([]) } as unknown as GitHubClient;
+  const nudgeScheduler = { deleteNudge: vi.fn().mockResolvedValue(undefined) } as unknown as NudgeScheduler;
+  const auditWriter = { write: vi.fn().mockResolvedValue(undefined) } as unknown as AuditWriter;
   return {
     docClient,
     incidentsTableName: 'tbl',
@@ -49,7 +50,7 @@ function mkDeps(): ResolveDeps {
 }
 
 function mkCtx(overrides: Partial<CommandContext> = {}): CommandContext {
-  const slack = { chat: { postMessage: jest.fn().mockResolvedValue({ ok: true, ts: '1' }) } };
+  const slack = { chat: { postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '1' }) } };
   return {
     subCommand: 'resolve',
     args: [],
@@ -58,7 +59,7 @@ function mkCtx(overrides: Partial<CommandContext> = {}): CommandContext {
     channelId: 'C1',
     rawCommand: {} as never,
     slack: slack as never,
-    respond: jest.fn() as never,
+    respond: vi.fn() as never,
     ...overrides,
   };
 }
@@ -129,16 +130,14 @@ describe('/incident-response resolve', () => {
     const updates = ddbMock.commandCalls(UpdateCommand);
     expect(updates).toHaveLength(1);
     expect(updates[0]!.args[0]!.input.ExpressionAttributeValues![':status']).toBe('RESOLVED');
-    expect(ctx.slack.chat.postMessage as jest.Mock).toHaveBeenCalledWith(
-      expect.objectContaining({ text: expect.stringContaining('resolved') }),
-    );
+    expect(ctx.slack.chat.postMessage as Mock).toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining('resolved') }));
   });
 
   it('RESOLVE-004: Linear failure → still marks resolved, emits had_postmortem:false', async () => {
     ddbMock.on(GetCommand).resolves({ Item: ACTIVE_INCIDENT });
     ddbMock.on(UpdateCommand).resolves({});
     const deps = mkDeps();
-    (deps.linearClient.createPostmortemDraft as jest.Mock).mockRejectedValueOnce(new Error('Linear down'));
+    (deps.linearClient.createPostmortemDraft as Mock).mockRejectedValueOnce(new Error('Linear down'));
     const ctx = mkCtx();
 
     await makeResolveHandler(deps)(ctx);
