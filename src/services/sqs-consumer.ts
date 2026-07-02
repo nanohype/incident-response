@@ -3,7 +3,12 @@
  * Long-polling; DLQ-safe (no delete on processing failure).
  */
 
-import { SQSClient, ReceiveMessageCommand, DeleteMessageCommand, Message } from '@aws-sdk/client-sqs';
+import {
+  SQSClient,
+  ReceiveMessageCommand,
+  DeleteMessageCommand,
+  Message,
+} from '@aws-sdk/client-sqs';
 import { logger } from '../utils/logger.js';
 import { GrafanaOnCallAlertPayload } from '../types/index.js';
 import { context, extractSqsTraceContext } from '../utils/tracing.js';
@@ -49,14 +54,22 @@ export class SqsConsumer {
   private async pollLoop(): Promise<void> {
     while (this.running) {
       await Promise.all([
-        this.pollQueue<IncidentQueueMessage>(this.incidentQueueUrl, this.onIncidentEvent, 'incident-events'),
+        this.pollQueue<IncidentQueueMessage>(
+          this.incidentQueueUrl,
+          this.onIncidentEvent,
+          'incident-events',
+        ),
         this.pollQueue<NudgeQueueMessage>(this.nudgeQueueUrl, this.onNudgeEvent, 'nudge-events'),
       ]);
       if (this.running) await new Promise((r) => setTimeout(r, this.pollIntervalMs));
     }
   }
 
-  private async pollQueue<T>(queueUrl: string, handler: MessageHandler<T>, queueName: string): Promise<void> {
+  private async pollQueue<T>(
+    queueUrl: string,
+    handler: MessageHandler<T>,
+    queueName: string,
+  ): Promise<void> {
     let messages: Message[] = [];
     try {
       const result = await this.sqs.send(
@@ -109,7 +122,9 @@ export class SqsConsumer {
 
   private async del(queueUrl: string, receiptHandle: string): Promise<void> {
     try {
-      await this.sqs.send(new DeleteMessageCommand({ QueueUrl: queueUrl, ReceiptHandle: receiptHandle }));
+      await this.sqs.send(
+        new DeleteMessageCommand({ QueueUrl: queueUrl, ReceiptHandle: receiptHandle }),
+      );
     } catch (err) {
       logger.warn({ error: stringifyError(err) }, 'Failed to delete SQS message');
     }

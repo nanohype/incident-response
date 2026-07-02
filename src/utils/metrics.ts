@@ -48,7 +48,12 @@ export class MetricsEmitter {
   }
 
   /** Emit a distribution sample (duration, rate, etc.). Routes to a histogram. */
-  gauge(metricName: string, value: number, _unit: unknown, dimensions: MetricDimension[] = []): void {
+  gauge(
+    metricName: string,
+    value: number,
+    _unit: unknown,
+    dimensions: MetricDimension[] = [],
+  ): void {
     void _unit;
     this.getHistogram(metricName).record(value, toAttributes(dimensions));
   }

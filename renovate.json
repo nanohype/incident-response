@@ -41,7 +41,12 @@
     {
       "description": "Group typescript-eslint plugins",
       "matchManagers": ["npm"],
-      "matchPackagePatterns": ["^@typescript-eslint/", "^typescript-eslint$", "^@eslint/", "^eslint-plugin-"],
+      "matchPackagePatterns": [
+        "^@typescript-eslint/",
+        "^typescript-eslint$",
+        "^@eslint/",
+        "^eslint-plugin-"
+      ],
       "groupName": "eslint-stack"
     },
     {

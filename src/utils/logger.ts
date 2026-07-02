@@ -50,7 +50,13 @@ function log(level: LogLevel, context: Record<string, unknown> | string, message
   if (typeof context === 'string') {
     entry = { level, timestamp: new Date().toISOString(), message: context, ...trc };
   } else {
-    entry = { level, timestamp: new Date().toISOString(), message: message ?? '', ...trc, ...context };
+    entry = {
+      level,
+      timestamp: new Date().toISOString(),
+      message: message ?? '',
+      ...trc,
+      ...context,
+    };
   }
 
   const output = JSON.stringify(entry);
@@ -62,10 +68,14 @@ function log(level: LogLevel, context: Record<string, unknown> | string, message
 }
 
 export const logger = {
-  debug: (context: Record<string, unknown> | string, message?: string) => log('debug', context, message),
-  info: (context: Record<string, unknown> | string, message?: string) => log('info', context, message),
-  warn: (context: Record<string, unknown> | string, message?: string) => log('warn', context, message),
-  error: (context: Record<string, unknown> | string, message?: string) => log('error', context, message),
+  debug: (context: Record<string, unknown> | string, message?: string) =>
+    log('debug', context, message),
+  info: (context: Record<string, unknown> | string, message?: string) =>
+    log('info', context, message),
+  warn: (context: Record<string, unknown> | string, message?: string) =>
+    log('warn', context, message),
+  error: (context: Record<string, unknown> | string, message?: string) =>
+    log('error', context, message),
   child: (base: Record<string, unknown>) => ({
     debug: (context: Record<string, unknown> | string, message?: string) => {
       const ctx = typeof context === 'string' ? { ...base } : { ...base, ...context };

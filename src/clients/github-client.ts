@@ -66,7 +66,9 @@ export class GitHubClient {
   async getCodeOwners(repoName: string, incidentId: string): Promise<CodeOwnersEntry[]> {
     logger.debug({ incident_id: incidentId, repo: repoName }, 'Querying GitHub CODEOWNERS');
     for (const filePath of ['CODEOWNERS', '.github/CODEOWNERS', 'docs/CODEOWNERS']) {
-      const resp = await this.http.get<{ content: string; encoding: string }>(`/repos/${this.orgSlug}/${repoName}/contents/${filePath}`);
+      const resp = await this.http.get<{ content: string; encoding: string }>(
+        `/repos/${this.orgSlug}/${repoName}/contents/${filePath}`,
+      );
       if (!resp.ok) continue;
       const content = Buffer.from(resp.data.content, 'base64').toString('utf8');
       return content
@@ -74,7 +76,10 @@ export class GitHubClient {
         .filter((l) => l.trim() && !l.trim().startsWith('#'))
         .map((l) => {
           const parts = l.trim().split(/\s+/);
-          return { pattern: parts[0] ?? '', owners: parts.slice(1).filter((p) => p.startsWith('@')) };
+          return {
+            pattern: parts[0] ?? '',
+            owners: parts.slice(1).filter((p) => p.startsWith('@')),
+          };
         })
         .filter((e) => e.pattern && e.owners.length > 0);
     }

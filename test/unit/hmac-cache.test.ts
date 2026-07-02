@@ -18,8 +18,11 @@ describe('HMAC secret cache', () => {
   beforeEach(() => {
     smMock.reset();
     __resetHmacCacheForTests();
-    process.env['GRAFANA_ONCALL_HMAC_SECRET_ID'] = 'arn:aws:secretsmanager:us-west-2:000000000000:secret:test-abcdef';
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    process.env['GRAFANA_ONCALL_HMAC_SECRET_ID'] =
+      'arn:aws:secretsmanager:us-west-2:000000000000:secret:test-abcdef';
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
     vi.setSystemTime(new Date('2026-04-15T00:00:00Z'));
   });
 

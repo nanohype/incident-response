@@ -21,7 +21,10 @@ describe('AuditWriter', () => {
 
   beforeEach(() => {
     ddbMock.reset();
-    auditWriter = new AuditWriter(DynamoDBDocumentClient.from(new DynamoDBClient({ region: 'us-west-2' })), TABLE_NAME);
+    auditWriter = new AuditWriter(
+      DynamoDBDocumentClient.from(new DynamoDBClient({ region: 'us-west-2' })),
+      TABLE_NAME,
+    );
   });
 
   describe('write()', () => {
@@ -44,12 +47,16 @@ describe('AuditWriter', () => {
       const err = new Error('ConditionalCheckFailedException');
       err.name = 'ConditionalCheckFailedException';
       ddbMock.on(PutCommand).rejectsOnce(err);
-      await expect(auditWriter.write(INCIDENT_ID, ACTOR, 'WAR_ROOM_CREATED', {})).resolves.toBeUndefined();
+      await expect(
+        auditWriter.write(INCIDENT_ID, ACTOR, 'WAR_ROOM_CREATED', {}),
+      ).resolves.toBeUndefined();
     });
 
     it('AUDIT-003: throws on non-idempotency DynamoDB failure', async () => {
       ddbMock.on(PutCommand).rejects(new Error('DynamoDB unavailable'));
-      await expect(auditWriter.write(INCIDENT_ID, ACTOR, 'WAR_ROOM_CREATED', {})).rejects.toThrow('DynamoDB unavailable');
+      await expect(auditWriter.write(INCIDENT_ID, ACTOR, 'WAR_ROOM_CREATED', {})).rejects.toThrow(
+        'DynamoDB unavailable',
+      );
     });
   });
 
@@ -58,7 +65,12 @@ describe('AuditWriter', () => {
       ddbMock.on(PutCommand).resolves({});
       const draftBody = 'We are investigating an issue affecting some customers.';
       const expectedSha = crypto.createHash('sha256').update(draftBody, 'utf8').digest('hex');
-      const result = await auditWriter.writeStatuspageApproval(INCIDENT_ID, 'user-123', draftBody, 'draft-001');
+      const result = await auditWriter.writeStatuspageApproval(
+        INCIDENT_ID,
+        'user-123',
+        draftBody,
+        'draft-001',
+      );
       expect(result.body_sha256).toBe(expectedSha);
       expect(ddbMock).toHaveReceivedCommandWith(PutCommand, {
         TableName: TABLE_NAME,
@@ -73,7 +85,9 @@ describe('AuditWriter', () => {
   describe('verifyApprovalBeforePublish()', () => {
     it('AUDIT-005: throws AutoPublishNotPermittedError when no approval event', async () => {
       ddbMock.on(QueryCommand).resolves({ Items: [], Count: 0 });
-      await expect(auditWriter.verifyApprovalBeforePublish(INCIDENT_ID)).rejects.toThrow(AutoPublishNotPermittedError);
+      await expect(auditWriter.verifyApprovalBeforePublish(INCIDENT_ID)).rejects.toThrow(
+        AutoPublishNotPermittedError,
+      );
     });
 
     it('AUDIT-006: uses ConsistentRead: true', async () => {
@@ -85,7 +99,9 @@ describe('AuditWriter', () => {
     });
 
     it('AUDIT-007: does not throw when approval event exists', async () => {
-      ddbMock.on(QueryCommand).resolves({ Items: [{ action_type: 'STATUSPAGE_DRAFT_APPROVED' }], Count: 1 });
+      ddbMock
+        .on(QueryCommand)
+        .resolves({ Items: [{ action_type: 'STATUSPAGE_DRAFT_APPROVED' }], Count: 1 });
       await expect(auditWriter.verifyApprovalBeforePublish(INCIDENT_ID)).resolves.toBeUndefined();
     });
   });
@@ -94,7 +110,9 @@ describe('AuditWriter', () => {
     it('AUDIT-008: returns empty array when all published events have approval events', async () => {
       ddbMock
         .on(QueryCommand)
-        .resolvesOnce({ Items: [{ incident_id: INCIDENT_ID, action_type: 'STATUSPAGE_PUBLISHED' }] })
+        .resolvesOnce({
+          Items: [{ incident_id: INCIDENT_ID, action_type: 'STATUSPAGE_PUBLISHED' }],
+        })
         .resolvesOnce({ Items: [{ action_type: 'STATUSPAGE_DRAFT_APPROVED' }], Count: 1 });
       const violations = await auditWriter.auditApprovalGateViolations();
       expect(violations).toHaveLength(0);
@@ -103,7 +121,9 @@ describe('AuditWriter', () => {
     it('AUDIT-009: returns violations when published events lack approval', async () => {
       ddbMock
         .on(QueryCommand)
-        .resolvesOnce({ Items: [{ incident_id: INCIDENT_ID, action_type: 'STATUSPAGE_PUBLISHED' }] })
+        .resolvesOnce({
+          Items: [{ incident_id: INCIDENT_ID, action_type: 'STATUSPAGE_PUBLISHED' }],
+        })
         .resolvesOnce({ Items: [], Count: 0 });
       const violations = await auditWriter.auditApprovalGateViolations();
       expect(violations).toHaveLength(1);
@@ -118,7 +138,9 @@ describe('AuditWriter', () => {
     it('AUDIT-011: treats undefined inner Items as "lacking approval"', async () => {
       ddbMock
         .on(QueryCommand)
-        .resolvesOnce({ Items: [{ incident_id: INCIDENT_ID, action_type: 'STATUSPAGE_PUBLISHED' }] })
+        .resolvesOnce({
+          Items: [{ incident_id: INCIDENT_ID, action_type: 'STATUSPAGE_PUBLISHED' }],
+        })
         .resolvesOnce({});
       const violations = await auditWriter.auditApprovalGateViolations();
       expect(violations).toHaveLength(1);
@@ -143,7 +165,9 @@ describe('AuditWriter', () => {
         api_key: '[REDACTED]',
         user: 'u1',
       });
-      expect(scrubDetails({ Authorization: 'Bearer xyz' })).toEqual({ Authorization: '[REDACTED]' });
+      expect(scrubDetails({ Authorization: 'Bearer xyz' })).toEqual({
+        Authorization: '[REDACTED]',
+      });
     });
 
     it('AUDIT-SCRUB-003: walks nested objects and arrays', () => {

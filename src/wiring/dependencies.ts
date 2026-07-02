@@ -73,7 +73,8 @@ export function buildDependencies(): Dependencies {
     process.env['GRAFANA_ONCALL_TOKEN']!,
   );
   const grafanaCloudClient = new GrafanaCloudClient(
-    process.env['GRAFANA_CLOUD_BASE_URL'] ?? 'https://prometheus-prod-01-prod-us-east-0.grafana.net',
+    process.env['GRAFANA_CLOUD_BASE_URL'] ??
+      'https://prometheus-prod-01-prod-us-east-0.grafana.net',
     process.env['GRAFANA_CLOUD_ORG_ID']!,
     process.env['GRAFANA_CLOUD_TOKEN']!,
   );
@@ -89,14 +90,24 @@ export function buildDependencies(): Dependencies {
     halfOpenAfterMs: 30_000,
     metrics,
   });
-  const directoryClient = new WorkOSClient(process.env['WORKOS_API_KEY']!, process.env['WORKOS_DIRECTORY_ID']!, directoryBreaker);
-  const statuspageClient = new StatuspageClient(process.env['STATUSPAGE_API_KEY']!, process.env['STATUSPAGE_PAGE_ID']!);
+  const directoryClient = new WorkOSClient(
+    process.env['WORKOS_API_KEY']!,
+    process.env['WORKOS_DIRECTORY_ID']!,
+    directoryBreaker,
+  );
+  const statuspageClient = new StatuspageClient(
+    process.env['STATUSPAGE_API_KEY']!,
+    process.env['STATUSPAGE_PAGE_ID']!,
+  );
   const linearClient = new LinearIncidentResponseClient(
     process.env['LINEAR_API_KEY']!,
     process.env['LINEAR_PROJECT_ID']!,
     process.env['LINEAR_TEAM_ID']!,
   );
-  const githubClient = new GitHubClient(process.env['GITHUB_TOKEN'] ?? '', process.env['GITHUB_ORG_SLUG'] ?? '');
+  const githubClient = new GitHubClient(
+    process.env['GITHUB_TOKEN'] ?? '',
+    process.env['GITHUB_ORG_SLUG'] ?? '',
+  );
   const auditWriter = new AuditWriter(dynamoDb, process.env['AUDIT_TABLE_NAME']!);
   // NudgeScheduler's second arg is the queue ARN, not URL — EventBridge
   // Scheduler's `Target.Arn` field expects an AWS resource ARN. Passing the
@@ -112,7 +123,13 @@ export function buildDependencies(): Dependencies {
   const incidentResponseAI = new IncidentResponseAI(awsRegion);
   const slackWebClient = new WebClient(process.env['SLACK_BOT_TOKEN'], { timeout: 10000 });
   const slackAdapter = createSlackAdapter(slackWebClient);
-  const approvalGate = new StatuspageApprovalGate(dynamoDb, incidentsTableName, auditWriter, statuspageClient, metrics);
+  const approvalGate = new StatuspageApprovalGate(
+    dynamoDb,
+    incidentsTableName,
+    auditWriter,
+    statuspageClient,
+    metrics,
+  );
   const warRoomAssembler = new WarRoomAssembler(
     slackAdapter,
     dynamoDb,

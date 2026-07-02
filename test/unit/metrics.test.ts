@@ -6,7 +6,12 @@
  */
 
 import { metrics } from '@opentelemetry/api';
-import { AggregationTemporality, InMemoryMetricExporter, MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import {
+  AggregationTemporality,
+  InMemoryMetricExporter,
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from '@opentelemetry/sdk-metrics';
 
 import { MetricsEmitter, MetricNames } from '../../src/utils/metrics.js';
 
@@ -38,14 +43,24 @@ describe('MetricsEmitter', () => {
   async function collect() {
     await reader.forceFlush();
     const batches = exporter.getMetrics();
-    const datapoints: Array<{ name: string; kind: 'counter' | 'histogram'; value: number; attrs: Record<string, string> }> = [];
+    const datapoints: Array<{
+      name: string;
+      kind: 'counter' | 'histogram';
+      value: number;
+      attrs: Record<string, string>;
+    }> = [];
     for (const batch of batches) {
       for (const scope of batch.scopeMetrics) {
         for (const metric of scope.metrics) {
           for (const dp of metric.dataPoints) {
             const value = dp.value as number | { sum: number };
             if (typeof value === 'number') {
-              datapoints.push({ name: metric.descriptor.name, kind: 'counter', value, attrs: dp.attributes as Record<string, string> });
+              datapoints.push({
+                name: metric.descriptor.name,
+                kind: 'counter',
+                value,
+                attrs: dp.attributes as Record<string, string>,
+              });
             } else {
               datapoints.push({
                 name: metric.descriptor.name,
@@ -90,7 +105,9 @@ describe('MetricsEmitter', () => {
   });
 
   it('METRICS-004: dimensions flow through as attributes', async () => {
-    emitter.increment(MetricNames.StatuspagePublishCount, [{ name: 'outcome', value: 'published' }]);
+    emitter.increment(MetricNames.StatuspagePublishCount, [
+      { name: 'outcome', value: 'published' },
+    ]);
     const dps = await collect();
     const counter = dps.find((d) => d.name === 'incident_response.statuspage_publish_count');
     expect(counter!.attrs).toEqual({ outcome: 'published' });
@@ -104,9 +121,13 @@ describe('MetricsEmitter', () => {
   });
 
   it('METRICS-006: separate dimension sets produce separate data points', async () => {
-    emitter.increment(MetricNames.StatuspagePublishCount, [{ name: 'outcome', value: 'published' }]);
+    emitter.increment(MetricNames.StatuspagePublishCount, [
+      { name: 'outcome', value: 'published' },
+    ]);
     emitter.increment(MetricNames.StatuspagePublishCount, [{ name: 'outcome', value: 'failed' }]);
-    const dps = (await collect()).filter((d) => d.name === 'incident_response.statuspage_publish_count');
+    const dps = (await collect()).filter(
+      (d) => d.name === 'incident_response.statuspage_publish_count',
+    );
     expect(dps).toHaveLength(2);
     expect(dps.map((d) => d.attrs['outcome']).sort()).toEqual(['failed', 'published']);
   });

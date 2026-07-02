@@ -15,7 +15,11 @@ import { GrafanaCloudClient } from '../clients/grafana-cloud-client.js';
 import { AuditWriter } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { MetricsEmitter, MetricNames } from '../utils/metrics.js';
-import { GrafanaOnCallAlertPayload, GrafanaContextSnapshot, IncidentRecord } from '../types/index.js';
+import {
+  GrafanaOnCallAlertPayload,
+  GrafanaContextSnapshot,
+  IncidentRecord,
+} from '../types/index.js';
 import { buildChecklistBlocks, buildContextSnapshotBlocks } from './slack-blocks.js';
 import { NudgeScheduler } from './nudge-scheduler.js';
 import { withSpan } from '../utils/tracing.js';
@@ -108,13 +112,21 @@ export class WarRoomAssembler {
 
       // Step 2: Parallel queries — responder directory + Grafana Cloud context snapshot.
       const [responderResult, contextResult] = await Promise.allSettled([
-        withSpan('assemble.resolve_responders', () => this.resolveResponderEmails(alert, incidentId)),
-        withSpan('assemble.context_snapshot', () => this.grafanaCloudClient.getContextSnapshot(alert.team_name, incidentId)),
+        withSpan('assemble.resolve_responders', () =>
+          this.resolveResponderEmails(alert, incidentId),
+        ),
+        withSpan('assemble.context_snapshot', () =>
+          this.grafanaCloudClient.getContextSnapshot(alert.team_name, incidentId),
+        ),
       ]);
 
       let contextSnapshot: GrafanaContextSnapshot | undefined;
       if (contextResult.status === 'fulfilled') contextSnapshot = contextResult.value;
-      else log.warn({ error: stringifyError(contextResult.reason) }, 'Grafana Cloud context failed — proceeding without snapshot');
+      else
+        log.warn(
+          { error: stringifyError(contextResult.reason) },
+          'Grafana Cloud context failed — proceeding without snapshot',
+        );
 
       // Step 3: Invite responders (or fallback if the directory lookup failed)
       let invitedUserIds: string[] = [];
@@ -132,9 +144,14 @@ export class WarRoomAssembler {
         await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'DIRECTORY_LOOKUP_FAILED', {
           error: stringifyError(responderResult.reason),
         });
-        await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'ASSEMBLY_FALLBACK_INITIATED', {
-          reason: 'Directory group lookup failed',
-        });
+        await this.auditWriter.write(
+          incidentId,
+          'INCIDENT_RESPONSE',
+          'ASSEMBLY_FALLBACK_INITIATED',
+          {
+            reason: 'Directory group lookup failed',
+          },
+        );
       }
 
       // Step 4: Post context snapshot (non-critical; continue even if Slack is slow).
@@ -168,15 +185,27 @@ export class WarRoomAssembler {
             channel: channel.id,
             text: '⚠️ *Responder auto-invite failed* — directory group lookup returned an error. Use `/incident-response invite @user` to manually add responders.',
           },
-          { timeoutMs: SLACK_NON_CRITICAL_TIMEOUT_MS, label: 'slack.chat.postMessage:directory-fallback', incidentId },
+          {
+            timeoutMs: SLACK_NON_CRITICAL_TIMEOUT_MS,
+            label: 'slack.chat.postMessage:directory-fallback',
+            incidentId,
+          },
         );
       }
 
       // Step 5: Post + pin checklist (non-critical)
       const checklistMsg = await withSpan('assemble.pin_checklist', async () => {
         const msg = await this.slack.postMessageNonCritical(
-          { channel: channel.id, blocks: buildChecklistBlocks(incidentId, CHECKLIST_ITEMS), text: '📋 Incident Checklist' },
-          { timeoutMs: SLACK_NON_CRITICAL_TIMEOUT_MS, label: 'slack.chat.postMessage:checklist', incidentId },
+          {
+            channel: channel.id,
+            blocks: buildChecklistBlocks(incidentId, CHECKLIST_ITEMS),
+            text: '📋 Incident Checklist',
+          },
+          {
+            timeoutMs: SLACK_NON_CRITICAL_TIMEOUT_MS,
+            label: 'slack.chat.postMessage:checklist',
+            incidentId,
+          },
         );
         if (msg?.ok && msg.ts) {
           await this.slack.pinMessage(channel.id, msg.ts, {
@@ -184,13 +213,18 @@ export class WarRoomAssembler {
             label: 'slack.pins.add',
             incidentId,
           });
-          await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'CHECKLIST_PINNED', { channel_id: channel.id, message_ts: msg.ts });
+          await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'CHECKLIST_PINNED', {
+            channel_id: channel.id,
+            message_ts: msg.ts,
+          });
         }
         return msg;
       });
 
       // Step 6: Schedule 15-min nudge
-      await withSpan('assemble.schedule_nudge', () => this.nudgeScheduler.scheduleNudge(incidentId, channel.id));
+      await withSpan('assemble.schedule_nudge', () =>
+        this.nudgeScheduler.scheduleNudge(incidentId, channel.id),
+      );
 
       const incidentRecord: IncidentRecord = {
         incident_id: incidentId,
@@ -231,14 +265,21 @@ export class WarRoomAssembler {
     });
   }
 
-  private async resolveResponderEmails(alert: GrafanaOnCallAlertPayload, incidentId: string): Promise<string[]> {
+  private async resolveResponderEmails(
+    alert: GrafanaOnCallAlertPayload,
+    incidentId: string,
+  ): Promise<string[]> {
     const emails = new Set<string>();
-    const chain = await this.grafanaOnCallClient.getEscalationChainForIntegration(alert.integration_id);
+    const chain = await this.grafanaOnCallClient.getEscalationChainForIntegration(
+      alert.integration_id,
+    );
     if (chain) {
       for (const e of this.grafanaOnCallClient.extractEmailsFromChain(chain)) emails.add(e);
     }
     const directoryGroupId = process.env['WORKOS_TEAM_GROUP_MAP']
-      ? ((JSON.parse(process.env['WORKOS_TEAM_GROUP_MAP']) as Record<string, string>)[alert.team_id] ?? '')
+      ? ((JSON.parse(process.env['WORKOS_TEAM_GROUP_MAP']) as Record<string, string>)[
+          alert.team_id
+        ] ?? '')
       : '';
     if (directoryGroupId) {
       const users = await this.directoryClient.getUsersInGroup(directoryGroupId, incidentId);
@@ -247,7 +288,11 @@ export class WarRoomAssembler {
     return Array.from(emails);
   }
 
-  private async inviteResponders(channelId: string, emails: string[], incidentId: string): Promise<string[]> {
+  private async inviteResponders(
+    channelId: string,
+    emails: string[],
+    incidentId: string,
+  ): Promise<string[]> {
     const invited: string[] = [];
     for (const email of emails) {
       try {
@@ -268,7 +313,10 @@ export class WarRoomAssembler {
           invited_at: new Date().toISOString(),
         });
       } catch (err) {
-        logger.warn({ incident_id: incidentId, email, error: stringifyError(err) }, 'Failed to invite responder');
+        logger.warn(
+          { incident_id: incidentId, email, error: stringifyError(err) },
+          'Failed to invite responder',
+        );
         await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'RESPONDER_INVITE_FAILED', {
           channel_id: channelId,
           email,
@@ -295,7 +343,12 @@ export class WarRoomAssembler {
     await this.docClient.send(
       new PutCommand({
         TableName: this.incidentsTableName,
-        Item: { PK: `INCIDENT#${record.incident_id}`, SK: 'METADATA', ...record, TTL: Math.floor(Date.now() / 1000) + 366 * 24 * 60 * 60 },
+        Item: {
+          PK: `INCIDENT#${record.incident_id}`,
+          SK: 'METADATA',
+          ...record,
+          TTL: Math.floor(Date.now() / 1000) + 366 * 24 * 60 * 60,
+        },
       }),
     );
   }

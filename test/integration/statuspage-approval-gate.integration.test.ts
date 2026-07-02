@@ -35,7 +35,9 @@ describe('Approval gate — integration vs dynamodb-local', () => {
 
   it('INT-GATE-002 [CRITICAL]: verify throws AutoPublishNotPermittedError when no approval exists', async () => {
     const incidentId = `int-no-approval-${Date.now()}`;
-    await expect(auditWriter.verifyApprovalBeforePublish(incidentId)).rejects.toBeInstanceOf(AutoPublishNotPermittedError);
+    await expect(auditWriter.verifyApprovalBeforePublish(incidentId)).rejects.toBeInstanceOf(
+      AutoPublishNotPermittedError,
+    );
   });
 
   it('INT-GATE-003: write is immediately visible to verify (ConsistentRead semantics)', async () => {
@@ -50,7 +52,9 @@ describe('Approval gate — integration vs dynamodb-local', () => {
     const incidentWithout = `int-iso-without-${Date.now()}`;
     await auditWriter.writeStatuspageApproval(incidentWithApproval, 'U-ic', 'body', 'draft-x');
     // Approval for one incident must not authorize publish for another.
-    await expect(auditWriter.verifyApprovalBeforePublish(incidentWithout)).rejects.toBeInstanceOf(AutoPublishNotPermittedError);
+    await expect(auditWriter.verifyApprovalBeforePublish(incidentWithout)).rejects.toBeInstanceOf(
+      AutoPublishNotPermittedError,
+    );
   });
 
   it('INT-GATE-005: duplicate approval writes are idempotent (SK uniqueness)', async () => {

@@ -56,14 +56,20 @@ export class WorkOSClient {
     // capped timeout and selective retry. Auth lives in HttpClient's default
     // headers, so the vendored client's own header arg is ignored here.
     const fetchViaHttpClient: typeof fetch = async (input) => {
-      const url = new URL(input instanceof URL || typeof input === 'string' ? String(input) : input.url);
+      const url = new URL(
+        input instanceof URL || typeof input === 'string' ? String(input) : input.url,
+      );
       const resp = await this.http.get<unknown>(`${url.pathname}${url.search}`);
       return new Response(JSON.stringify(resp.data), {
         status: resp.status,
         headers: { 'content-type': 'application/json' },
       });
     };
-    this.directory = createWorkOsDirectoryClient({ apiKey, directoryId, fetchImpl: fetchViaHttpClient });
+    this.directory = createWorkOsDirectoryClient({
+      apiKey,
+      directoryId,
+      fetchImpl: fetchViaHttpClient,
+    });
     this.breaker = breaker;
   }
 
@@ -72,19 +78,30 @@ export class WorkOSClient {
     const cached = this.groupCache.get(cacheKey);
 
     if (cached && Date.now() < cached.expiresAt) {
-      logger.debug({ incident_id: incidentId, group_id: groupId }, 'Using cached WorkOS group membership');
+      logger.debug(
+        { incident_id: incidentId, group_id: groupId },
+        'Using cached WorkOS group membership',
+      );
       return cached.value;
     }
 
-    logger.info({ incident_id: incidentId, group_id: groupId }, 'Fetching WorkOS directory group members');
+    logger.info(
+      { incident_id: incidentId, group_id: groupId },
+      'Fetching WorkOS directory group members',
+    );
 
     const fetchUnderBreaker = (): Promise<DirectoryUser[]> =>
-      this.breaker ? this.breaker.exec(() => this.fetchActiveGroupMembers(groupId)) : this.fetchActiveGroupMembers(groupId);
+      this.breaker
+        ? this.breaker.exec(() => this.fetchActiveGroupMembers(groupId))
+        : this.fetchActiveGroupMembers(groupId);
 
     try {
       const users = await fetchUnderBreaker();
       this.groupCache.set(cacheKey, { value: users, expiresAt: Date.now() + GROUP_CACHE_TTL_MS });
-      logger.info({ incident_id: incidentId, group_id: groupId, user_count: users.length }, 'WorkOS group members fetched');
+      logger.info(
+        { incident_id: incidentId, group_id: groupId, user_count: users.length },
+        'WorkOS group members fetched',
+      );
       return users;
     } catch (err) {
       if (cached) {
@@ -107,7 +124,12 @@ export class WorkOSClient {
           : `WorkOS directory group lookup failed for group ${groupId}: ${stringifyError(err)}. IC must manually invite responders.`;
       const error = new DirectoryLookupFailedError(reason);
       logger.error(
-        { incident_id: incidentId, group_id: groupId, error: error.message, circuit_open: err instanceof CircuitOpenError },
+        {
+          incident_id: incidentId,
+          group_id: groupId,
+          error: error.message,
+          circuit_open: err instanceof CircuitOpenError,
+        },
         'DIRECTORY LOOKUP FAILED — IC must manually specify responders',
       );
       throw error;

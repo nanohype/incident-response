@@ -53,7 +53,10 @@ export interface SlackAdapter {
   postMessageCritical(args: PostMessageArgs, opts: SlackCallOpts): Promise<SlackPostResult>;
 
   /** Non-critical: returns undefined on timeout/failure, warn-logs with incident_id. */
-  postMessageNonCritical(args: PostMessageArgs, opts: SlackNonCriticalCallOpts): Promise<SlackPostResult | undefined>;
+  postMessageNonCritical(
+    args: PostMessageArgs,
+    opts: SlackNonCriticalCallOpts,
+  ): Promise<SlackPostResult | undefined>;
 
   /** Non-critical: silently swallows failures (pinning is cosmetic). */
   pinMessage(channel: string, timestamp: string, opts: SlackNonCriticalCallOpts): Promise<void>;
@@ -68,7 +71,11 @@ export interface SlackAdapter {
 export function createSlackAdapter(client: WebClient): SlackAdapter {
   return {
     async createPrivateChannel(name, { timeoutMs, label }) {
-      const res = await withTimeout(client.conversations.create({ name, is_private: true }), timeoutMs, label);
+      const res = await withTimeout(
+        client.conversations.create({ name, is_private: true }),
+        timeoutMs,
+        label,
+      );
       if (!res.ok || !res.channel?.id) {
         throw new Error(`Failed to create Slack channel: ${res.error ?? 'unknown'}`);
       }
@@ -83,7 +90,13 @@ export function createSlackAdapter(client: WebClient): SlackAdapter {
     },
 
     async postMessageNonCritical(args, { timeoutMs, label, incidentId }) {
-      const res = await withTimeoutOrDefault(client.chat.postMessage(args), timeoutMs, label, undefined, incidentId);
+      const res = await withTimeoutOrDefault(
+        client.chat.postMessage(args),
+        timeoutMs,
+        label,
+        undefined,
+        incidentId,
+      );
       if (!res) return undefined;
       const out: SlackPostResult = { ok: !!res.ok };
       if (res.ts) out.ts = res.ts;
@@ -91,7 +104,13 @@ export function createSlackAdapter(client: WebClient): SlackAdapter {
     },
 
     async pinMessage(channel, timestamp, { timeoutMs, label, incidentId }) {
-      await withTimeoutOrDefault(client.pins.add({ channel, timestamp }), timeoutMs, label, undefined, incidentId);
+      await withTimeoutOrDefault(
+        client.pins.add({ channel, timestamp }),
+        timeoutMs,
+        label,
+        undefined,
+        incidentId,
+      );
     },
 
     async lookupUserByEmail(email, { timeoutMs, label }) {

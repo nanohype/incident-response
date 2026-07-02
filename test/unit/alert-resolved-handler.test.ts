@@ -38,7 +38,9 @@ describe('makeAlertResolvedHandler', () => {
   it('ALRES-002: rethrows on audit write failure so SQS retries via visibility timeout', async () => {
     const write = vi.fn().mockRejectedValue(new Error('DynamoDB throttled'));
     const auditWriter = { write } as unknown as AuditWriter;
-    await expect(makeAlertResolvedHandler(auditWriter)(mkMessage('inc-2'))).rejects.toThrow('DynamoDB throttled');
+    await expect(makeAlertResolvedHandler(auditWriter)(mkMessage('inc-2'))).rejects.toThrow(
+      'DynamoDB throttled',
+    );
   });
 
   it('ALRES-003: rethrows non-Error rejection shape unchanged', async () => {

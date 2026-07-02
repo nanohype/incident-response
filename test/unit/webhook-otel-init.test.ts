@@ -37,7 +37,8 @@ describe('initOtelIfNeeded', () => {
   });
 
   it('OTEL-INIT-001: returns false when secret ARN is missing', async () => {
-    process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] = 'https://otlp-gateway-prod-us-west-0.grafana.net/otlp';
+    process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] =
+      'https://otlp-gateway-prod-us-west-0.grafana.net/otlp';
     const started = await initOtelIfNeeded();
     expect(started).toBe(false);
     expect(smMock.calls()).toHaveLength(0);
@@ -62,7 +63,9 @@ describe('initOtelIfNeeded', () => {
   it('OTEL-INIT-004: returns false + warns when `basic_auth` field is missing', async () => {
     process.env['GRAFANA_CLOUD_OTLP_SECRET_ARN'] = 'arn:test';
     process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] = 'https://otlp-gateway.example.com/otlp';
-    smMock.on(GetSecretValueCommand).resolves({ SecretString: JSON.stringify({ instance_id: 'x', api_token: 'y' }) });
+    smMock
+      .on(GetSecretValueCommand)
+      .resolves({ SecretString: JSON.stringify({ instance_id: 'x', api_token: 'y' }) });
     const started = await initOtelIfNeeded();
     expect(started).toBe(false);
   });
@@ -78,7 +81,8 @@ describe('initOtelIfNeeded', () => {
   it('OTEL-INIT-006: memoizes concurrent calls — secret is fetched once per cold start', async () => {
     process.env['GRAFANA_CLOUD_OTLP_SECRET_ARN'] = 'arn:test';
     process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] = 'https://otlp-gateway.example.com/otlp';
-    process.env['OTEL_RESOURCE_ATTRIBUTES'] = 'service.name=incident-response-staging-webhook,service.version=0.1.0';
+    process.env['OTEL_RESOURCE_ATTRIBUTES'] =
+      'service.name=incident-response-staging-webhook,service.version=0.1.0';
     smMock.on(GetSecretValueCommand).resolves({
       SecretString: JSON.stringify({ basic_auth: 'dXNlcjpwYXNz' }),
     });

@@ -9,7 +9,9 @@ import type { AuditWriter } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { stringifyError } from '../utils/errors.js';
 
-export function makeAlertResolvedHandler(auditWriter: AuditWriter): EventHandler<IncidentQueueMessage> {
+export function makeAlertResolvedHandler(
+  auditWriter: AuditWriter,
+): EventHandler<IncidentQueueMessage> {
   return async (message) => {
     const incidentId = message.payload.alert_group_id;
     try {

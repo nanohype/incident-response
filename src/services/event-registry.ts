@@ -27,7 +27,10 @@ export class EventRegistry<T extends DispatchableMessage> {
   async dispatch(message: T): Promise<void> {
     const handler = this.handlers.get(message.type);
     if (!handler) {
-      logger.warn({ registry: this.name, event_type: message.type }, 'No handler registered for event type — dropping message');
+      logger.warn(
+        { registry: this.name, event_type: message.type },
+        'No handler registered for event type — dropping message',
+      );
       return;
     }
     await handler(message);
