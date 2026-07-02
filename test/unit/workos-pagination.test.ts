@@ -1,8 +1,15 @@
 /**
- * Unit tests for WorkOS Directory Sync cursor pagination + cache semantics.
+ * Unit tests for the WorkOS client wiring: the vendored directory client
+ * (pagination, mapping) riding through the HttpClient fetch port, plus the
+ * app-owned pieces — active-member/email filtering, per-instance TTL cache
+ * with stale fallback, and the DirectoryLookupFailedError contract.
+ *
+ * Pure pagination/mapping semantics (cursor walk, maxPages bound, primary
+ * email preference, displayName fallback) are the vendored module's contract,
+ * tested upstream in nanohype/library/runtime/src/workos-directory.test.ts.
  */
 
-import { WorkOSClient, __resetWorkOSCacheForTests } from '../../src/clients/workos-client.js';
+import { WorkOSClient } from '../../src/clients/workos-client.js';
 import { DirectoryLookupFailedError } from '../../src/types/index.js';
 
 const mockFetch = vi.fn();
@@ -32,32 +39,35 @@ function mkPage(users: unknown[], after: string | null = null) {
   return { data: users, list_metadata: { before: null, after } };
 }
 
-describe('WorkOSClient pagination', () => {
+describe('WorkOSClient', () => {
   let client: WorkOSClient;
 
   beforeEach(() => {
     mockFetch.mockReset();
-    __resetWorkOSCacheForTests();
-    client = new WorkOSClient('sk_test_key');
+    // Fresh client per test — the group cache is per-instance, so a new
+    // construction is the isolation mechanism (no module-level escape hatch).
+    client = new WorkOSClient('sk_test_key', 'directory_test');
   });
 
-  it('WORKOS-PAGE-001: single page returns all active members, one fetch', async () => {
+  it('WORKOS-PAGE-001: single page returns all active members, one fetch, scoped to the directory', async () => {
     mockFetch.mockResolvedValueOnce(mkResponse(200, mkPage([mkUser('u1'), mkUser('u2')])));
     const users = await client.getUsersInGroup(`single-${Date.now()}`, 'inc-1');
     expect(users).toHaveLength(2);
     expect(users[0]!.email).toBe('u1@example.com');
     expect(users[0]!.state).toBe('active');
     expect(mockFetch).toHaveBeenCalledTimes(1);
+    const url = String(mockFetch.mock.calls[0]![0]);
+    expect(url).toContain('directory=directory_test');
   });
 
-  it('WORKOS-PAGE-002: follows list_metadata.after across two pages', async () => {
+  it('WORKOS-PAGE-002: follows list_metadata.after across two pages through the fetch port', async () => {
     mockFetch
       .mockResolvedValueOnce(mkResponse(200, mkPage([mkUser('u1'), mkUser('u2')], 'CURSOR1')))
       .mockResolvedValueOnce(mkResponse(200, mkPage([mkUser('u3'), mkUser('u4')])));
     const users = await client.getUsersInGroup(`two-page-${Date.now()}`, 'inc-1');
     expect(users.map((u) => u.id).sort()).toEqual(['u1', 'u2', 'u3', 'u4']);
     expect(mockFetch).toHaveBeenCalledTimes(2);
-    const secondUrl = mockFetch.mock.calls[1]![0];
+    const secondUrl = String(mockFetch.mock.calls[1]![0]);
     expect(secondUrl).toContain('after=CURSOR1');
   });
 
@@ -76,45 +86,7 @@ describe('WorkOSClient pagination', () => {
     expect(users.map((u) => u.id)).toEqual(['u1']);
   });
 
-  it('WORKOS-PAGE-005: prefers primary email when multiple are present', async () => {
-    const multi = {
-      id: 'multi',
-      emails: [
-        { primary: false, type: 'work', value: 'alt@example.com' },
-        { primary: true, type: 'work', value: 'primary@example.com' },
-      ],
-      first_name: 'M',
-      last_name: 'U',
-      state: 'active',
-    };
-    mockFetch.mockResolvedValueOnce(mkResponse(200, mkPage([multi])));
-    const users = await client.getUsersInGroup(`multi-${Date.now()}`, 'inc-1');
-    expect(users[0]!.email).toBe('primary@example.com');
-  });
-
-  it('WORKOS-PAGE-006: falls back to first email if no primary flag is set', async () => {
-    const noPrimary = {
-      id: 'noprim',
-      emails: [
-        { type: 'work', value: 'first@example.com' },
-        { type: 'work', value: 'second@example.com' },
-      ],
-      first_name: 'N',
-      last_name: 'P',
-      state: 'active',
-    };
-    mockFetch.mockResolvedValueOnce(mkResponse(200, mkPage([noPrimary])));
-    const users = await client.getUsersInGroup(`noprim-${Date.now()}`, 'inc-1');
-    expect(users[0]!.email).toBe('first@example.com');
-  });
-
-  it('WORKOS-PAGE-007: stops at 50-page cap', async () => {
-    mockFetch.mockResolvedValue(mkResponse(200, mkPage([mkUser('u')], 'X')));
-    await client.getUsersInGroup(`cap-${Date.now()}`, 'inc-1');
-    expect(mockFetch.mock.calls.length).toBeLessThanOrEqual(50);
-  });
-
-  it('WORKOS-PAGE-008: mid-pagination 500 surfaces DirectoryLookupFailedError with page number', async () => {
+  it('WORKOS-PAGE-008: mid-pagination 500 surfaces DirectoryLookupFailedError', async () => {
     mockFetch
       .mockResolvedValueOnce(mkResponse(200, mkPage([mkUser('u1')], 'X')))
       .mockResolvedValueOnce(mkResponse(500, {}))

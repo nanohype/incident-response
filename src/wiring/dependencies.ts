@@ -77,9 +77,10 @@ export function buildDependencies(): Dependencies {
     process.env['GRAFANA_CLOUD_ORG_ID']!,
     process.env['GRAFANA_CLOUD_TOKEN']!,
   );
-  // Circuit breaker for WorkOS directory lookups: 5 failures within 60s opens
-  // the circuit for 30s, so a degraded WorkOS doesn't get hammered by every
-  // P1 incident retry. WarRoomAssembler still degrades to manual-invite via
+  // Circuit breaker for WorkOS directory lookups: 5 failures within a 60s
+  // sliding window opens the circuit for 30s (then a single half-open probe),
+  // so a degraded WorkOS doesn't get hammered by every P1 incident retry.
+  // WarRoomAssembler still degrades to manual-invite via
   // `DirectoryLookupFailedError` while the circuit is open.
   const directoryBreaker = createCircuitBreaker({
     name: 'workos.directory',
@@ -88,7 +89,7 @@ export function buildDependencies(): Dependencies {
     halfOpenAfterMs: 30_000,
     metrics,
   });
-  const directoryClient = new WorkOSClient(process.env['WORKOS_API_KEY']!, directoryBreaker);
+  const directoryClient = new WorkOSClient(process.env['WORKOS_API_KEY']!, process.env['WORKOS_DIRECTORY_ID']!, directoryBreaker);
   const statuspageClient = new StatuspageClient(process.env['STATUSPAGE_API_KEY']!, process.env['STATUSPAGE_PAGE_ID']!);
   const linearClient = new LinearIncidentResponseClient(
     process.env['LINEAR_API_KEY']!,

@@ -7,3 +7,6 @@ package-lock.json
 *.md
 chart/templates/
 chart/dashboards/
+# Vendored byte-identical copies from nanohype (library/runtime) — formatted
+# and linted upstream; reformatting here would be drift by definition.
+src/vendor/

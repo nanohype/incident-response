@@ -21,6 +21,8 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "start": "node dist/index.js",
     "start:webhook": "node dist/bin/webhook-server.js",
+    "sync:vendored": "node scripts/sync-vendored.mjs",
+    "sync:vendored:check": "node scripts/sync-vendored.mjs --check",
     "chart:lint": "helm lint chart",
     "chart:template:staging": "helm template incident-response chart -f chart/values-staging.yaml",
     "chart:template:production": "helm template incident-response chart -f chart/values-production.yaml",

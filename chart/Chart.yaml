@@ -10,6 +10,7 @@ dependencies:
   # Shared named templates (serviceaccount, grafana dashboard, name/label
   # helpers). Vendored under charts/tenant-chart-base from
   # nanohype/templates/tenant-chart-base — helm works offline, no fetch.
+  # Kept byte-identical to the source by scripts/sync-vendored.mjs (CI gate).
   - name: tenant-chart-base
-    version: 0.1.0
+    version: 0.2.0
     repository: file://charts/tenant-chart-base

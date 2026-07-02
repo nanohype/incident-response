@@ -30,7 +30,7 @@ Provision these **separately** for each environment — staging and production e
 | **Grafana Cloud** | OTLP instance ID, API token (`glc_…` with `otlp:write`), org ID, Loki username, Loki host | Grafana Cloud → Connections → OpenTelemetry (for OTLP) + Connections → Logs (Loki). See [`docs/secrets.md`](secrets.md) § "The `incident-response/{env}/grafana-cloud/otlp-auth` secret" for the JSON shape. |
 | **Statuspage.io** | API key + page ID | Statuspage → Manage → API. Page ID is visible in the Statuspage URL (`manage.statuspage.io/pages/<PAGE_ID>/`). |
 | **Linear** | Personal API key + team UUID + project UUID | Linear → Settings → API → Personal API keys. **`linear/team-id` must be the team UUID, not the team key**. Get both UUIDs via GraphQL: `{ teams { nodes { id key name } } projects { nodes { id name } } }` against `https://api.linear.app/graphql`. A team key (`ENG`) in `team-id` produces `Argument Validation Error - teamId must be a UUID` at resolve time. |
-| **WorkOS** | Directory Sync API key (`sk_live_…`) | [dashboard.workos.com](https://dashboard.workos.com) → API Keys. Also prepare the team-to-group map — see step 4. |
+| **WorkOS** | Directory Sync API key (`sk_live_…`) + directory ID (`directory_…`) | [dashboard.workos.com](https://dashboard.workos.com) → API Keys; the directory ID is on the Directory Sync page. Also prepare the team-to-group map — see step 4. |
 | **GitHub** | PAT or App token | GitHub → Settings → Developer settings → Personal access tokens. Scope: `repo:read` over the repos listed in `GITHUB_REPO_NAMES`. Read-only; used to fetch CODEOWNERS + recent commits for postmortems. |
 
 ### Slack app (required before first deploy)
@@ -93,10 +93,11 @@ Map the table names, queue URLs/ARNs, scheduler ids, and secret ids into the mat
 
 ### 4. WorkOS team → group map
 
-The war-room assembler resolves responders via `WORKOS_TEAM_GROUP_MAP` — a JSON map from Grafana OnCall `team_id` → WorkOS `directory_group_id`. It's a plain env var (not a secret — just an identifier lookup). Set it under the chart's `env.*` block in `chart/values-staging.yaml`:
+The war-room assembler resolves responders via `WORKOS_TEAM_GROUP_MAP` — a JSON map from Grafana OnCall `team_id` → WorkOS `directory_group_id`. Group lookups are scoped to one directory via `WORKOS_DIRECTORY_ID` (required — the processor fails fast at startup without it). Both are plain env vars (not secrets — just identifier lookups). Set them under the chart's `env.*` block in `chart/values-staging.yaml`:
 
 ```yaml
 env:
+  WORKOS_DIRECTORY_ID: directory_01...
   WORKOS_TEAM_GROUP_MAP: |
     {"team-platform":"directory_group_01...","team-data":"directory_group_01..."}
 ```

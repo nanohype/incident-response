@@ -1,27 +1,31 @@
 /**
- * Circuit breaker — protect external dependencies from retry storms.
+ * Circuit breaker — app-side instrumentation over the vendored sliding-window
+ * breaker (`src/vendor/runtime/circuit-breaker.ts`, source of truth in
+ * nanohype `library/runtime`). The vendored module owns the state machine
+ * (closed → open → half_open, injectable `now()`, single half-open probe) and
+ * deliberately leaves observability to the consumer. This wrapper wires:
  *
- * Wraps a slow/failing dependency. After `failureThreshold` failures within
- * `windowMs`, the circuit opens — subsequent calls reject immediately with
- * `CircuitOpenError` until `halfOpenAfterMs` has passed. The first call after
- * that probes; success closes the circuit, failure re-opens it.
+ *   - closed→open trips → structured warn log + `circuit_open_count` metric
+ *     (via the vendored `onOpen` hook, once per trip)
+ *   - fast-fail rejections while open / during an in-flight probe →
+ *     `circuit_open_reject_count` metric
  *
  * Used today around WorkOS directory lookups so a degraded directory doesn't
  * cause every P1 to thrash the API and cascade timeouts. Easy to wire around
  * any other external dependency the same way.
  */
 
+import {
+  createCircuitBreaker as createVendoredCircuitBreaker,
+  CircuitOpenError,
+  type CircuitBreaker,
+  type CircuitState,
+} from '../vendor/runtime/circuit-breaker.js';
 import { logger } from './logger.js';
 import { MetricNames, type MetricsEmitter } from './metrics.js';
 
-export class CircuitOpenError extends Error {
-  readonly name = 'CircuitOpenError';
-  constructor(public readonly circuit: string) {
-    super(`Circuit "${circuit}" is open — request rejected without dispatch`);
-  }
-}
-
-export type CircuitState = 'closed' | 'open' | 'half_open';
+export { CircuitOpenError };
+export type { CircuitBreaker, CircuitState };
 
 export interface CircuitBreakerOpts {
   /** Identifier used in logs + metrics. */
@@ -38,78 +42,28 @@ export interface CircuitBreakerOpts {
   now?: () => number;
 }
 
-export interface CircuitBreaker {
-  exec<T>(fn: () => Promise<T>): Promise<T>;
-  state(): CircuitState;
-  /** Force-close (operator override). Clears failure history. */
-  reset(): void;
-}
-
 export function createCircuitBreaker(opts: CircuitBreakerOpts): CircuitBreaker {
-  const now = opts.now ?? Date.now;
-  let state: CircuitState = 'closed';
-  let failures: number[] = [];
-  let openedAt = 0;
-
-  function pruneOldFailures(t: number): void {
-    const cutoff = t - opts.windowMs;
-    failures = failures.filter((f) => f >= cutoff);
-  }
-
-  function open(t: number): void {
-    state = 'open';
-    openedAt = t;
-    logger.warn({ circuit: opts.name, failure_count: failures.length, window_ms: opts.windowMs }, 'Circuit opened');
-    opts.metrics?.increment(MetricNames.CircuitOpenCount, [{ name: 'circuit', value: opts.name }]);
-  }
-
-  function close(): void {
-    state = 'closed';
-    failures = [];
-    logger.info({ circuit: opts.name }, 'Circuit closed');
-  }
-
-  function transitionToHalfOpenIfDue(t: number): void {
-    if (state === 'open' && t - openedAt >= opts.halfOpenAfterMs) {
-      state = 'half_open';
-      logger.info({ circuit: opts.name }, 'Circuit half-open — probing next call');
-    }
-  }
+  const breaker = createVendoredCircuitBreaker({
+    name: opts.name,
+    failureThreshold: opts.failureThreshold,
+    windowMs: opts.windowMs,
+    halfOpenAfterMs: opts.halfOpenAfterMs,
+    ...(opts.now ? { now: opts.now } : {}),
+    onOpen: (name) => {
+      logger.warn({ circuit: name, failure_threshold: opts.failureThreshold, window_ms: opts.windowMs }, 'Circuit opened');
+      opts.metrics?.increment(MetricNames.CircuitOpenCount, [{ name: 'circuit', value: name }]);
+    },
+  });
 
   return {
-    state(): CircuitState {
-      transitionToHalfOpenIfDue(now());
-      return state;
-    },
-
-    reset(): void {
-      close();
-    },
-
+    state: (): CircuitState => breaker.state(),
+    reset: (): void => breaker.reset(),
     async exec<T>(fn: () => Promise<T>): Promise<T> {
-      const t = now();
-      transitionToHalfOpenIfDue(t);
-
-      if (state === 'open') {
-        opts.metrics?.increment(MetricNames.CircuitOpenRejectCount, [{ name: 'circuit', value: opts.name }]);
-        throw new CircuitOpenError(opts.name);
-      }
-
       try {
-        const result = await fn();
-        if (state === 'half_open') close();
-        return result;
+        return await breaker.exec(fn);
       } catch (err) {
-        if (state === 'half_open') {
-          // Probe failed — re-open immediately, do not count toward threshold.
-          open(t);
-          throw err;
-        }
-        const failureTime = now();
-        failures.push(failureTime);
-        pruneOldFailures(failureTime);
-        if (failures.length >= opts.failureThreshold) {
-          open(failureTime);
+        if (err instanceof CircuitOpenError) {
+          opts.metrics?.increment(MetricNames.CircuitOpenRejectCount, [{ name: 'circuit', value: opts.name }]);
         }
         throw err;
       }

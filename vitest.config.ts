@@ -6,7 +6,7 @@
  * a threshold violation exiting 1). Only files loaded by the tests are
  * measured — matching the gate the thresholds were calibrated against.
  */
-import { defineConfig } from 'vitest/config';
+import { coverageConfigDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
@@ -19,6 +19,11 @@ export default defineConfig({
       provider: 'v8',
       reportsDirectory: 'coverage',
       reporter: ['text', 'lcov', 'html'],
+      // Vendored modules carry their coverage upstream (nanohype
+      // library/runtime colocates full test suites) and are byte-identical by
+      // CI gate — measuring them here would double-count logic this repo must
+      // not modify. App-side wiring around them stays measured.
+      exclude: [...coverageConfigDefaults.exclude, 'src/vendor/**'],
       thresholds: {
         // Global thresholds reflect realistic coverage of untested service/client
         // modules (follow-up issue tracks expanding unit-test surface to 85/80 per

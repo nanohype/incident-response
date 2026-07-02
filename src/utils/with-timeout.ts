@@ -1,33 +1,17 @@
 /**
- * withTimeout — race a promise against a deadline.
- * Non-critical Slack calls use this so a wedged API can't stall war-room assembly.
+ * Deadline helpers. `withTimeout` (throws `TimeoutError` on deadline) comes
+ * from the vendored resilience module (`src/vendor/runtime/resilience.ts`,
+ * source of truth in nanohype `library/runtime`) and is re-exported so call
+ * sites keep one import path. `withTimeoutOrDefault` is the app-side flavour:
+ * swallow the failure as a warn log and return a fallback — used around
+ * non-critical Slack calls so a wedged API can't stall war-room assembly.
  */
 
 import { logger } from './logger.js';
 import { stringifyError } from './errors.js';
+import { withTimeout } from '../vendor/runtime/resilience.js';
 
-export class TimeoutError extends Error {
-  constructor(label: string, ms: number) {
-    super(`${label} timed out after ${ms}ms`);
-    this.name = 'TimeoutError';
-  }
-}
-
-/**
- * Rejects with TimeoutError if `promise` does not settle within `ms`.
- * The underlying promise is NOT cancelled (JS limitation) — the caller just stops waiting.
- */
-export async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new TimeoutError(label, ms)), ms);
-  });
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
+export { withTimeout, TimeoutError } from '../vendor/runtime/resilience.js';
 
 /**
  * Run a non-critical operation with a timeout; swallow failure as a warn-log and return fallback.
