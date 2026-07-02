@@ -53,7 +53,10 @@ export async function __resetOtelInitForTests(): Promise<void> {
 export function initOtelIfNeeded(): Promise<boolean> {
   if (!initPromise) {
     initPromise = initOtel().catch((err) => {
-      logger.warn({ error: stringifyError(err) }, 'OTel init failed — webhook will continue without tracing');
+      logger.warn(
+        { error: stringifyError(err) },
+        'OTel init failed — webhook will continue without tracing',
+      );
       initPromise = undefined;
       return false;
     });
@@ -80,13 +83,21 @@ async function initOtel(): Promise<boolean> {
   }
 
   const headers = { Authorization: `Basic ${parsed.basic_auth}` };
-  const resource = resourceFromAttributes(parseOtelResourceAttrs(process.env['OTEL_RESOURCE_ATTRIBUTES'] ?? ''));
+  const resource = resourceFromAttributes(
+    parseOtelResourceAttrs(process.env['OTEL_RESOURCE_ATTRIBUTES'] ?? ''),
+  );
 
   const sdk = new NodeSDK({
     resource,
-    traceExporter: new OTLPTraceExporter({ url: `${endpoint.replace(/\/$/, '')}/v1/traces`, headers }),
+    traceExporter: new OTLPTraceExporter({
+      url: `${endpoint.replace(/\/$/, '')}/v1/traces`,
+      headers,
+    }),
     metricReader: new PeriodicExportingMetricReader({
-      exporter: new OTLPMetricExporter({ url: `${endpoint.replace(/\/$/, '')}/v1/metrics`, headers }),
+      exporter: new OTLPMetricExporter({
+        url: `${endpoint.replace(/\/$/, '')}/v1/metrics`,
+        headers,
+      }),
       exportIntervalMillis: Number(process.env['OTEL_METRIC_EXPORT_INTERVAL'] ?? 60000),
     }),
     instrumentations: [
@@ -101,7 +112,10 @@ async function initOtel(): Promise<boolean> {
 
   sdk.start();
   activeSdk = sdk;
-  logger.info({ service: process.env['OTEL_SERVICE_NAME'], endpoint }, 'OTel SDK started (webhook Lambda cold start)');
+  logger.info(
+    { service: process.env['OTEL_SERVICE_NAME'], endpoint },
+    'OTel SDK started (webhook Lambda cold start)',
+  );
   return true;
 }
 

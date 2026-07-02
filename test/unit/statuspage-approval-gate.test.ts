@@ -5,7 +5,12 @@
 
 import type { Mocked } from 'vitest';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  PutCommand,
+  GetCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { mockClient } from 'aws-sdk-client-mock';
 import 'aws-sdk-client-mock-vitest/extend';
 
@@ -104,7 +109,9 @@ describe('StatuspageApprovalGate — SECURITY CRITICAL', () => {
     it('GATE-003 [CRITICAL]: Statuspage API failure → PUBLISHED event NOT written', async () => {
       ddbMock.on(GetCommand).resolves({ Item: mockDraftItem });
       mockStatuspageClient.createIncident.mockRejectedValue(new Error('Statuspage.io 503'));
-      await expect(gate.approveAndPublish(INCIDENT_ID, DRAFT_ID, USER_ID)).rejects.toThrow(/Statuspage\.io publish failed/);
+      await expect(gate.approveAndPublish(INCIDENT_ID, DRAFT_ID, USER_ID)).rejects.toThrow(
+        /Statuspage\.io publish failed/,
+      );
       expect(mockAuditWriter.write).not.toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
@@ -116,7 +123,9 @@ describe('StatuspageApprovalGate — SECURITY CRITICAL', () => {
     it('GATE-003b: non-Error publish exception stringifies into error message', async () => {
       ddbMock.on(GetCommand).resolves({ Item: mockDraftItem });
       mockStatuspageClient.createIncident.mockRejectedValue('not an Error instance');
-      await expect(gate.approveAndPublish(INCIDENT_ID, DRAFT_ID, USER_ID)).rejects.toThrow(/not an Error instance/);
+      await expect(gate.approveAndPublish(INCIDENT_ID, DRAFT_ID, USER_ID)).rejects.toThrow(
+        /not an Error instance/,
+      );
       expect(mockAuditWriter.write).not.toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
@@ -134,20 +143,28 @@ describe('StatuspageApprovalGate — SECURITY CRITICAL', () => {
 
     it('GATE-004b [CRITICAL]: verifyApproval failure → Statuspage NEVER called', async () => {
       ddbMock.on(GetCommand).resolves({ Item: mockDraftItem });
-      mockAuditWriter.verifyApprovalBeforePublish.mockRejectedValue(new AutoPublishNotPermittedError(INCIDENT_ID));
-      await expect(gate.approveAndPublish(INCIDENT_ID, DRAFT_ID, USER_ID)).rejects.toThrow(AutoPublishNotPermittedError);
+      mockAuditWriter.verifyApprovalBeforePublish.mockRejectedValue(
+        new AutoPublishNotPermittedError(INCIDENT_ID),
+      );
+      await expect(gate.approveAndPublish(INCIDENT_ID, DRAFT_ID, USER_ID)).rejects.toThrow(
+        AutoPublishNotPermittedError,
+      );
       expect(mockStatuspageClient.createIncident).not.toHaveBeenCalled();
     });
 
     it('GATE-005: throws if draft does not exist', async () => {
       ddbMock.on(GetCommand).resolves({ Item: undefined });
-      await expect(gate.approveAndPublish(INCIDENT_ID, DRAFT_ID, USER_ID)).rejects.toThrow(`Draft ${DRAFT_ID} not found`);
+      await expect(gate.approveAndPublish(INCIDENT_ID, DRAFT_ID, USER_ID)).rejects.toThrow(
+        `Draft ${DRAFT_ID} not found`,
+      );
       expect(mockStatuspageClient.createIncident).not.toHaveBeenCalled();
     });
 
     it('GATE-006: throws if draft is already PUBLISHED', async () => {
       ddbMock.on(GetCommand).resolves({ Item: { ...mockDraftItem, status: 'PUBLISHED' } });
-      await expect(gate.approveAndPublish(INCIDENT_ID, DRAFT_ID, USER_ID)).rejects.toThrow(/not in PENDING_APPROVAL/);
+      await expect(gate.approveAndPublish(INCIDENT_ID, DRAFT_ID, USER_ID)).rejects.toThrow(
+        /not in PENDING_APPROVAL/,
+      );
       expect(mockStatuspageClient.createIncident).not.toHaveBeenCalled();
     });
   });
@@ -158,7 +175,9 @@ describe('StatuspageApprovalGate — SECURITY CRITICAL', () => {
       await gate.rejectDraft(INCIDENT_ID, DRAFT_ID, USER_ID);
       const updates = ddbMock.commandCalls(UpdateCommand);
       expect(updates).toHaveLength(1);
-      expect(updates[0]!.args[0]!.input.ExpressionAttributeValues).toMatchObject({ ':status': 'REJECTED' });
+      expect(updates[0]!.args[0]!.input.ExpressionAttributeValues).toMatchObject({
+        ':status': 'REJECTED',
+      });
       expect(mockAuditWriter.write).toHaveBeenCalledWith(
         INCIDENT_ID,
         USER_ID,

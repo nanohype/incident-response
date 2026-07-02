@@ -7,7 +7,11 @@
 import type { MockInstance } from 'vitest';
 import { context, trace } from '@opentelemetry/api';
 import { AsyncHooksContextManager } from '@opentelemetry/context-async-hooks';
-import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import {
+  BasicTracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-base';
 
 import { logger } from '../../src/utils/logger.js';
 
@@ -19,7 +23,9 @@ describe('logger trace correlation', () => {
   beforeAll(() => {
     ctxMgr = new AsyncHooksContextManager().enable();
     context.setGlobalContextManager(ctxMgr);
-    provider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(new InMemorySpanExporter())] });
+    provider = new BasicTracerProvider({
+      spanProcessors: [new SimpleSpanProcessor(new InMemorySpanExporter())],
+    });
     trace.setGlobalTracerProvider(provider);
   });
 

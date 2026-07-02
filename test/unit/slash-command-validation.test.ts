@@ -3,7 +3,10 @@
  * Protects the downstream audit write from an oversized-payload DOS.
  */
 
-import { SlashCommandTextSchema, SlashCommandArgsSchema } from '../../src/services/command-registry.js';
+import {
+  SlashCommandTextSchema,
+  SlashCommandArgsSchema,
+} from '../../src/services/command-registry.js';
 
 describe('SlashCommandTextSchema', () => {
   it('SLASH-001: accepts empty text', () => {
@@ -30,7 +33,9 @@ describe('SlashCommandArgsSchema', () => {
   });
 
   it('SLASH-ARGS-002: accepts up to 10 tokens', () => {
-    expect(SlashCommandArgsSchema.safeParse(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']).success).toBe(true);
+    expect(
+      SlashCommandArgsSchema.safeParse(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']).success,
+    ).toBe(true);
   });
 
   it('SLASH-ARGS-003: rejects more than 10 tokens', () => {

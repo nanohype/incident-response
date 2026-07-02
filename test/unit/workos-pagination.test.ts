@@ -25,10 +25,19 @@ function mkResponse(status: number, body: unknown): Response {
   } as unknown as Response;
 }
 
-function mkUser(id: string, overrides: Partial<{ state: string; email: string; primary: boolean }> = {}) {
+function mkUser(
+  id: string,
+  overrides: Partial<{ state: string; email: string; primary: boolean }> = {},
+) {
   return {
     id,
-    emails: [{ primary: overrides.primary ?? true, type: 'work', value: overrides.email ?? `${id}@example.com` }],
+    emails: [
+      {
+        primary: overrides.primary ?? true,
+        type: 'work',
+        value: overrides.email ?? `${id}@example.com`,
+      },
+    ],
     first_name: id,
     last_name: 'Test',
     state: overrides.state ?? 'active',
@@ -73,14 +82,24 @@ describe('WorkOSClient', () => {
 
   it('WORKOS-PAGE-003: filters non-active users across pages', async () => {
     mockFetch
-      .mockResolvedValueOnce(mkResponse(200, mkPage([mkUser('u1'), mkUser('sus', { state: 'suspended' })], 'X')))
-      .mockResolvedValueOnce(mkResponse(200, mkPage([mkUser('u2'), mkUser('inactive', { state: 'inactive' })])));
+      .mockResolvedValueOnce(
+        mkResponse(200, mkPage([mkUser('u1'), mkUser('sus', { state: 'suspended' })], 'X')),
+      )
+      .mockResolvedValueOnce(
+        mkResponse(200, mkPage([mkUser('u2'), mkUser('inactive', { state: 'inactive' })])),
+      );
     const users = await client.getUsersInGroup(`filter-${Date.now()}`, 'inc-1');
     expect(users.map((u) => u.id).sort()).toEqual(['u1', 'u2']);
   });
 
   it('WORKOS-PAGE-004: skips users with no email', async () => {
-    const noEmailUser = { id: 'noemail', emails: [], first_name: 'No', last_name: 'Email', state: 'active' };
+    const noEmailUser = {
+      id: 'noemail',
+      emails: [],
+      first_name: 'No',
+      last_name: 'Email',
+      state: 'active',
+    };
     mockFetch.mockResolvedValueOnce(mkResponse(200, mkPage([mkUser('u1'), noEmailUser])));
     const users = await client.getUsersInGroup(`noemail-${Date.now()}`, 'inc-1');
     expect(users.map((u) => u.id)).toEqual(['u1']);
@@ -92,7 +111,9 @@ describe('WorkOSClient', () => {
       .mockResolvedValueOnce(mkResponse(500, {}))
       .mockResolvedValueOnce(mkResponse(500, {}))
       .mockResolvedValueOnce(mkResponse(500, {}));
-    await expect(client.getUsersInGroup(`err-${Date.now()}`, 'inc-1')).rejects.toBeInstanceOf(DirectoryLookupFailedError);
+    await expect(client.getUsersInGroup(`err-${Date.now()}`, 'inc-1')).rejects.toBeInstanceOf(
+      DirectoryLookupFailedError,
+    );
   });
 
   it('WORKOS-PAGE-009: 2nd call within TTL hits cache — no fetch', async () => {
@@ -104,10 +125,14 @@ describe('WorkOSClient', () => {
   });
 
   it('WORKOS-PAGE-010: stale cache fallback on live fetch failure after TTL expiry', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
     vi.setSystemTime(new Date('2026-04-15T00:00:00Z'));
     try {
-      mockFetch.mockResolvedValueOnce(mkResponse(200, mkPage([mkUser('u1')]))).mockResolvedValue(mkResponse(500, {}));
+      mockFetch
+        .mockResolvedValueOnce(mkResponse(200, mkPage([mkUser('u1')])))
+        .mockResolvedValue(mkResponse(500, {}));
       const groupId = `stale-${Date.now()}`;
       const first = await client.getUsersInGroup(groupId, 'inc-1');
       expect(first.map((u) => u.id)).toEqual(['u1']);
@@ -122,6 +147,8 @@ describe('WorkOSClient', () => {
 
   it('WORKOS-PAGE-011: no-cache + failure → throws DirectoryLookupFailedError', async () => {
     mockFetch.mockResolvedValue(mkResponse(500, {}));
-    await expect(client.getUsersInGroup(`fail-${Date.now()}`, 'inc-1')).rejects.toBeInstanceOf(DirectoryLookupFailedError);
+    await expect(client.getUsersInGroup(`fail-${Date.now()}`, 'inc-1')).rejects.toBeInstanceOf(
+      DirectoryLookupFailedError,
+    );
   });
 });

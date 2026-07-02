@@ -50,7 +50,10 @@ export function createCircuitBreaker(opts: CircuitBreakerOpts): CircuitBreaker {
     halfOpenAfterMs: opts.halfOpenAfterMs,
     ...(opts.now ? { now: opts.now } : {}),
     onOpen: (name) => {
-      logger.warn({ circuit: name, failure_threshold: opts.failureThreshold, window_ms: opts.windowMs }, 'Circuit opened');
+      logger.warn(
+        { circuit: name, failure_threshold: opts.failureThreshold, window_ms: opts.windowMs },
+        'Circuit opened',
+      );
       opts.metrics?.increment(MetricNames.CircuitOpenCount, [{ name: 'circuit', value: name }]);
     },
   });
@@ -63,7 +66,9 @@ export function createCircuitBreaker(opts: CircuitBreakerOpts): CircuitBreaker {
         return await breaker.exec(fn);
       } catch (err) {
         if (err instanceof CircuitOpenError) {
-          opts.metrics?.increment(MetricNames.CircuitOpenRejectCount, [{ name: 'circuit', value: opts.name }]);
+          opts.metrics?.increment(MetricNames.CircuitOpenRejectCount, [
+            { name: 'circuit', value: opts.name },
+          ]);
         }
         throw err;
       }

@@ -48,7 +48,11 @@ export class NudgeScheduler {
           Target: {
             Arn: this.nudgeQueueArn,
             RoleArn: this.schedulerRoleArn,
-            Input: JSON.stringify({ type: 'STATUS_UPDATE_NUDGE', incident_id: incidentId, channel_id: channelId }),
+            Input: JSON.stringify({
+              type: 'STATUS_UPDATE_NUDGE',
+              incident_id: incidentId,
+              channel_id: channelId,
+            }),
           },
           Description: `IncidentResponse 15-min status nudge for incident ${incidentId}`,
         }),
@@ -64,17 +68,24 @@ export class NudgeScheduler {
 
   async deleteNudge(incidentId: string): Promise<void> {
     try {
-      await this.scheduler.send(new DeleteScheduleCommand({ Name: this.name(incidentId), GroupName: this.groupName }));
+      await this.scheduler.send(
+        new DeleteScheduleCommand({ Name: this.name(incidentId), GroupName: this.groupName }),
+      );
       logger.info({ incident_id: incidentId, group: this.groupName }, 'Nudge schedule deleted');
     } catch (err) {
       if (err instanceof ResourceNotFoundException) return;
-      logger.warn({ incident_id: incidentId, error: stringifyError(err) }, 'Failed to delete nudge schedule');
+      logger.warn(
+        { incident_id: incidentId, error: stringifyError(err) },
+        'Failed to delete nudge schedule',
+      );
     }
   }
 
   async pauseNudge(incidentId: string): Promise<void> {
     try {
-      const ex = await this.scheduler.send(new GetScheduleCommand({ Name: this.name(incidentId), GroupName: this.groupName }));
+      const ex = await this.scheduler.send(
+        new GetScheduleCommand({ Name: this.name(incidentId), GroupName: this.groupName }),
+      );
       await this.scheduler.send(
         new UpdateScheduleCommand({
           Name: this.name(incidentId),
@@ -85,9 +96,15 @@ export class NudgeScheduler {
           Target: ex.Target!,
         }),
       );
-      logger.info({ incident_id: incidentId, group: this.groupName }, 'Nudge schedule paused (IC silenced)');
+      logger.info(
+        { incident_id: incidentId, group: this.groupName },
+        'Nudge schedule paused (IC silenced)',
+      );
     } catch (err) {
-      logger.warn({ incident_id: incidentId, error: stringifyError(err) }, 'Failed to pause nudge schedule');
+      logger.warn(
+        { incident_id: incidentId, error: stringifyError(err) },
+        'Failed to pause nudge schedule',
+      );
     }
   }
 

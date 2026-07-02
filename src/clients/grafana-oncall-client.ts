@@ -36,13 +36,18 @@ export class GrafanaOnCallClient {
     });
   }
 
-  async getEscalationChainForIntegration(integrationId: string): Promise<GrafanaOnCallEscalationChain | null> {
+  async getEscalationChainForIntegration(
+    integrationId: string,
+  ): Promise<GrafanaOnCallEscalationChain | null> {
     logger.debug({ integration_id: integrationId }, 'Querying Grafana OnCall escalation chain');
     const resp = await this.http.get<{ results?: GrafanaOnCallEscalationChain[] }>(
       `/oncall/api/v1/escalation_chains/?integration_id=${encodeURIComponent(integrationId)}`,
     );
     if (!resp.ok) {
-      logger.warn({ integration_id: integrationId, status: resp.status }, 'Escalation chain query failed');
+      logger.warn(
+        { integration_id: integrationId, status: resp.status },
+        'Escalation chain query failed',
+      );
       return null;
     }
     return resp.data.results?.[0] ?? null;
@@ -57,12 +62,20 @@ export class GrafanaOnCallClient {
   }
 
   async acknowledgeAlertGroup(alertGroupId: string): Promise<boolean> {
-    const resp = await this.http.post(`/oncall/api/v1/alert_groups/${encodeURIComponent(alertGroupId)}/acknowledge/`, {}, undefined);
+    const resp = await this.http.post(
+      `/oncall/api/v1/alert_groups/${encodeURIComponent(alertGroupId)}/acknowledge/`,
+      {},
+      undefined,
+    );
     return resp.ok;
   }
 
   async resolveAlertGroup(alertGroupId: string): Promise<boolean> {
-    const resp = await this.http.post(`/oncall/api/v1/alert_groups/${encodeURIComponent(alertGroupId)}/resolve/`, {}, undefined);
+    const resp = await this.http.post(
+      `/oncall/api/v1/alert_groups/${encodeURIComponent(alertGroupId)}/resolve/`,
+      {},
+      undefined,
+    );
     return resp.ok;
   }
 

@@ -49,8 +49,16 @@ export class StatuspageClient {
     return resp.data;
   }
 
-  async createIncident(name: string, body: string, componentIds: string[], incidentId: string): Promise<StatuspageIncident> {
-    logger.info({ incident_id: incidentId, page_id: this.pageId }, 'Creating Statuspage.io incident');
+  async createIncident(
+    name: string,
+    body: string,
+    componentIds: string[],
+    incidentId: string,
+  ): Promise<StatuspageIncident> {
+    logger.info(
+      { incident_id: incidentId, page_id: this.pageId },
+      'Creating Statuspage.io incident',
+    );
     const resp = await this.http.post<StatuspageIncident>(
       `/v1/pages/${this.pageId}/incidents`,
       {
@@ -76,7 +84,10 @@ export class StatuspageClient {
     status: 'investigating' | 'identified' | 'monitoring' | 'resolved',
     incidentId: string,
   ): Promise<StatuspageIncident> {
-    logger.info({ incident_id: incidentId, statuspage_incident_id: spIncidentId, status }, 'Updating Statuspage.io incident');
+    logger.info(
+      { incident_id: incidentId, statuspage_incident_id: spIncidentId, status },
+      'Updating Statuspage.io incident',
+    );
     const resp = await this.http.put<StatuspageIncident>(
       `/v1/pages/${this.pageId}/incidents/${spIncidentId}`,
       { incident: { status, body, deliver_notifications: true } },

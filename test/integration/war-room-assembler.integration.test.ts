@@ -15,7 +15,13 @@ import { WarRoomAssembler } from '../../src/services/war-room-assembler.js';
 import { AuditWriter } from '../../src/utils/audit.js';
 import { GrafanaOnCallAlertPayload, GrafanaContextSnapshot } from '../../src/types/index.js';
 import { createSlackAdapter } from '../../src/adapters/slack-adapter.js';
-import { ddbLocalDoc, createAuditTable, deleteAuditTable, createIncidentsTable, deleteIncidentsTable } from './setup.js';
+import {
+  ddbLocalDoc,
+  createAuditTable,
+  deleteAuditTable,
+  createIncidentsTable,
+  deleteIncidentsTable,
+} from './setup.js';
 
 const AUDIT_TABLE = 'incident-response-audit-war-room-int';
 const INCIDENTS_TABLE = 'incident-response-incidents-war-room-int';
@@ -46,23 +52,37 @@ function makeSlackStub(
       create: vi
         .fn()
         .mockResolvedValue(
-          overrides.createOk === false ? { ok: false, error: 'name_taken' } : { ok: true, channel: { id: channelId, name: channelName } },
+          overrides.createOk === false
+            ? { ok: false, error: 'name_taken' }
+            : { ok: true, channel: { id: channelId, name: channelName } },
         ),
       invite: vi.fn().mockResolvedValue({ ok: true }),
     },
     chat: {
-      postMessage: vi.fn().mockResolvedValue({ ok: true, ts: overrides.postMessageTs ?? '1734567890.123' }),
+      postMessage: vi
+        .fn()
+        .mockResolvedValue({ ok: true, ts: overrides.postMessageTs ?? '1734567890.123' }),
     },
     pins: { add: vi.fn().mockResolvedValue({ ok: true }) },
     users: {
       lookupByEmail: vi
         .fn()
-        .mockImplementation(({ email }: { email: string }) => Promise.resolve({ ok: true, user: { id: `U-${email.split('@')[0]}` } })),
+        .mockImplementation(({ email }: { email: string }) =>
+          Promise.resolve({ ok: true, user: { id: `U-${email.split('@')[0]}` } }),
+        ),
     },
   };
 }
 
-function makeWorkOSStub(users: Array<{ id: string; email: string; first_name: string; last_name: string; state: 'active' }> = []) {
+function makeWorkOSStub(
+  users: Array<{
+    id: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+    state: 'active';
+  }> = [],
+) {
   return {
     getUsersInGroup: vi.fn().mockResolvedValue(users),
   };
@@ -80,15 +100,20 @@ function makeGrafanaCloudStub(snapshot?: GrafanaContextSnapshot | null) {
     getContextSnapshot: vi
       .fn()
       .mockImplementation(() =>
-        snapshot === null ? Promise.reject(new Error('Mimir unreachable')) : Promise.resolve(snapshot ?? undefined),
+        snapshot === null
+          ? Promise.reject(new Error('Mimir unreachable'))
+          : Promise.resolve(snapshot ?? undefined),
       ),
   };
 }
 
 const nudgeStub = { scheduleNudge: vi.fn().mockResolvedValue(undefined) };
 
-function alertPayload(overrides: Partial<GrafanaOnCallAlertPayload> = {}): GrafanaOnCallAlertPayload {
-  const id = overrides.alert_group_id ?? `int-alert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+function alertPayload(
+  overrides: Partial<GrafanaOnCallAlertPayload> = {},
+): GrafanaOnCallAlertPayload {
+  const id =
+    overrides.alert_group_id ?? `int-alert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   return {
     alert_group_id: id,
     alert_group: { id, title: 'P1 checkout service 500s', state: 'firing' },
@@ -185,7 +210,9 @@ describe('WarRoomAssembler — integration vs dynamodb-local', () => {
   });
 
   beforeEach(() => {
-    process.env['WORKOS_TEAM_GROUP_MAP'] = JSON.stringify({ 'team-platform': 'directory_group_01abc' });
+    process.env['WORKOS_TEAM_GROUP_MAP'] = JSON.stringify({
+      'team-platform': 'directory_group_01abc',
+    });
     nudgeStub.scheduleNudge.mockClear();
   });
 
@@ -200,7 +227,13 @@ describe('WarRoomAssembler — integration vs dynamodb-local', () => {
 
     const slack = makeSlackStub();
     const workos = makeWorkOSStub([
-      { id: 'u1', email: 'alice@example.com', first_name: 'Alice', last_name: 'A', state: 'active' },
+      {
+        id: 'u1',
+        email: 'alice@example.com',
+        first_name: 'Alice',
+        last_name: 'A',
+        state: 'active',
+      },
       { id: 'u2', email: 'bob@example.com', first_name: 'Bob', last_name: 'B', state: 'active' },
     ]);
     const oncall = makeGrafanaOnCallStub({ id: 'chain-1' }, ['carol@example.com']);
@@ -220,7 +253,9 @@ describe('WarRoomAssembler — integration vs dynamodb-local', () => {
     });
 
     const audit = await readAuditActions(alert.alert_group_id);
-    expect(audit).toEqual(expect.arrayContaining(['WAR_ROOM_CREATED', 'RESPONDER_INVITED', 'CHECKLIST_PINNED']));
+    expect(audit).toEqual(
+      expect.arrayContaining(['WAR_ROOM_CREATED', 'RESPONDER_INVITED', 'CHECKLIST_PINNED']),
+    );
     expect(audit).not.toContain('DIRECTORY_LOOKUP_FAILED');
 
     expect(slack.conversations.create).toHaveBeenCalledTimes(1);
@@ -243,9 +278,17 @@ describe('WarRoomAssembler — integration vs dynamodb-local', () => {
     expect(record.responders).toEqual([]);
 
     const audit = await readAuditActions(alert.alert_group_id);
-    expect(audit).toEqual(expect.arrayContaining(['WAR_ROOM_CREATED', 'DIRECTORY_LOOKUP_FAILED', 'ASSEMBLY_FALLBACK_INITIATED']));
+    expect(audit).toEqual(
+      expect.arrayContaining([
+        'WAR_ROOM_CREATED',
+        'DIRECTORY_LOOKUP_FAILED',
+        'ASSEMBLY_FALLBACK_INITIATED',
+      ]),
+    );
     // Fallback warning was posted to Slack
-    const fallbackCall = slack.chat.postMessage.mock.calls.find((c) => (c[0].text as string).includes('Responder auto-invite failed'));
+    const fallbackCall = slack.chat.postMessage.mock.calls.find((c) =>
+      (c[0].text as string).includes('Responder auto-invite failed'),
+    );
     expect(fallbackCall).toBeDefined();
   });
 
@@ -258,7 +301,9 @@ describe('WarRoomAssembler — integration vs dynamodb-local', () => {
     const oncall = makeGrafanaOnCallStub(null, []);
     const cloud = makeGrafanaCloudStub(undefined);
 
-    await expect(buildAssembler(slack, workos, oncall, cloud).assemble(alert)).rejects.toThrow(/Failed to create Slack channel/);
+    await expect(buildAssembler(slack, workos, oncall, cloud).assemble(alert)).rejects.toThrow(
+      /Failed to create Slack channel/,
+    );
 
     const persisted = await readIncident(alert.alert_group_id);
     // Status reached ROOM_ASSEMBLING but did not advance to ROOM_ASSEMBLED; there is no slack_channel_id.
@@ -271,7 +316,9 @@ describe('WarRoomAssembler — integration vs dynamodb-local', () => {
     await seedIncident(alert.alert_group_id);
 
     const slack = makeSlackStub();
-    const workos = makeWorkOSStub([{ id: 'u1', email: 'alice@example.com', first_name: 'A', last_name: 'A', state: 'active' }]);
+    const workos = makeWorkOSStub([
+      { id: 'u1', email: 'alice@example.com', first_name: 'A', last_name: 'A', state: 'active' },
+    ]);
     const oncall = makeGrafanaOnCallStub(null, []);
     const cloud = makeGrafanaCloudStub(null); // reject — Mimir unreachable
 
@@ -290,7 +337,10 @@ describe('WarRoomAssembler — integration vs dynamodb-local', () => {
       new QueryCommand({
         TableName: AUDIT_TABLE,
         KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk_prefix)',
-        ExpressionAttributeValues: { ':pk': `INCIDENT#${alert.alert_group_id}`, ':sk_prefix': 'AUDIT#' },
+        ExpressionAttributeValues: {
+          ':pk': `INCIDENT#${alert.alert_group_id}`,
+          ':sk_prefix': 'AUDIT#',
+        },
         ConsistentRead: true,
       }),
     );

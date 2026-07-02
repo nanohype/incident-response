@@ -34,8 +34,12 @@ function mkDeps(): ResolveDeps {
       sla_deadline: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
     }),
   } as unknown as LinearIncidentResponseClient;
-  const githubClient = { getRecentCommits: vi.fn().mockResolvedValue([]) } as unknown as GitHubClient;
-  const nudgeScheduler = { deleteNudge: vi.fn().mockResolvedValue(undefined) } as unknown as NudgeScheduler;
+  const githubClient = {
+    getRecentCommits: vi.fn().mockResolvedValue([]),
+  } as unknown as GitHubClient;
+  const nudgeScheduler = {
+    deleteNudge: vi.fn().mockResolvedValue(undefined),
+  } as unknown as NudgeScheduler;
   const auditWriter = { write: vi.fn().mockResolvedValue(undefined) } as unknown as AuditWriter;
   return {
     docClient,
@@ -89,13 +93,17 @@ describe('/incident-response resolve', () => {
     const deps = mkDeps();
     const ctx = mkCtx();
     await makeResolveHandler(deps)(ctx);
-    expect(ctx.respond).toHaveBeenCalledWith({ text: expect.stringContaining('No active incident') });
+    expect(ctx.respond).toHaveBeenCalledWith({
+      text: expect.stringContaining('No active incident'),
+    });
     expect(deps.linearClient.createPostmortemDraft).not.toHaveBeenCalled();
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
   });
 
   it('RESOLVE-002: already-resolved incident → informational reply, no side effects', async () => {
-    ddbMock.on(GetCommand).resolves({ Item: { ...ACTIVE_INCIDENT, status: 'RESOLVED', linear_postmortem_id: 'LIN-42' } });
+    ddbMock.on(GetCommand).resolves({
+      Item: { ...ACTIVE_INCIDENT, status: 'RESOLVED', linear_postmortem_id: 'LIN-42' },
+    });
     const deps = mkDeps();
     const ctx = mkCtx();
     await makeResolveHandler(deps)(ctx);
@@ -130,19 +138,28 @@ describe('/incident-response resolve', () => {
     const updates = ddbMock.commandCalls(UpdateCommand);
     expect(updates).toHaveLength(1);
     expect(updates[0]!.args[0]!.input.ExpressionAttributeValues![':status']).toBe('RESOLVED');
-    expect(ctx.slack.chat.postMessage as Mock).toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining('resolved') }));
+    expect(ctx.slack.chat.postMessage as Mock).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining('resolved') }),
+    );
   });
 
   it('RESOLVE-004: Linear failure → still marks resolved, emits had_postmortem:false', async () => {
     ddbMock.on(GetCommand).resolves({ Item: ACTIVE_INCIDENT });
     ddbMock.on(UpdateCommand).resolves({});
     const deps = mkDeps();
-    (deps.linearClient.createPostmortemDraft as Mock).mockRejectedValueOnce(new Error('Linear down'));
+    (deps.linearClient.createPostmortemDraft as Mock).mockRejectedValueOnce(
+      new Error('Linear down'),
+    );
     const ctx = mkCtx();
 
     await makeResolveHandler(deps)(ctx);
 
-    expect(deps.auditWriter.write).not.toHaveBeenCalledWith('inc-1', 'U-ic', 'POSTMORTEM_CREATED', expect.anything());
+    expect(deps.auditWriter.write).not.toHaveBeenCalledWith(
+      'inc-1',
+      'U-ic',
+      'POSTMORTEM_CREATED',
+      expect.anything(),
+    );
     expect(deps.auditWriter.write).toHaveBeenCalledWith(
       'inc-1',
       'U-ic',
@@ -150,7 +167,9 @@ describe('/incident-response resolve', () => {
       expect.objectContaining({ had_postmortem: false }),
     );
     expect(ctx.respond).toHaveBeenCalledWith(
-      expect.objectContaining({ text: expect.stringContaining('Linear postmortem creation failed') }),
+      expect.objectContaining({
+        text: expect.stringContaining('Linear postmortem creation failed'),
+      }),
     );
   });
 

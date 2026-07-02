@@ -56,7 +56,11 @@ function firingPayload(alertGroupId = 'alert-group-001') {
 }
 
 function invokeHandler(event: ReturnType<typeof signedEvent>) {
-  return (handler as unknown as (event: ReturnType<typeof signedEvent>) => Promise<{ statusCode: number; body: string }>)(event);
+  return (
+    handler as unknown as (
+      event: ReturnType<typeof signedEvent>,
+    ) => Promise<{ statusCode: number; body: string }>
+  )(event);
 }
 
 describe('webhook-ingress atomic-create', () => {
@@ -67,9 +71,11 @@ describe('webhook-ingress atomic-create', () => {
     ddbMock.reset();
     sqsMock.reset();
     __resetHmacCacheForTests();
-    process.env['GRAFANA_ONCALL_HMAC_SECRET_ID'] = 'arn:aws:secretsmanager:us-west-2:000000000000:secret:test';
+    process.env['GRAFANA_ONCALL_HMAC_SECRET_ID'] =
+      'arn:aws:secretsmanager:us-west-2:000000000000:secret:test';
     process.env['INCIDENTS_TABLE_NAME'] = 'incident-response-incidents-test';
-    process.env['INCIDENT_EVENTS_QUEUE_URL'] = 'https://sqs.us-west-2.amazonaws.com/000000000000/incident-response-events.fifo';
+    process.env['INCIDENT_EVENTS_QUEUE_URL'] =
+      'https://sqs.us-west-2.amazonaws.com/000000000000/incident-response-events.fifo';
     smMock.on(GetSecretValueCommand).resolves({ SecretString: HMAC_SECRET, VersionId: 'v1' });
   });
 
@@ -85,7 +91,10 @@ describe('webhook-ingress atomic-create', () => {
     const result = await invokeHandler(signedEvent(body));
 
     expect(result.statusCode).toBe(200);
-    expect(JSON.parse(result.body)).toMatchObject({ message: 'Alert accepted', incident_id: 'alert-group-001' });
+    expect(JSON.parse(result.body)).toMatchObject({
+      message: 'Alert accepted',
+      incident_id: 'alert-group-001',
+    });
     expect(ddbMock).toHaveReceivedCommandWith(PutCommand, {
       TableName: 'incident-response-incidents-test',
       ConditionExpression: 'attribute_not_exists(PK)',
@@ -108,12 +117,18 @@ describe('webhook-ingress atomic-create', () => {
     const result = await invokeHandler(signedEvent(body));
 
     expect(result.statusCode).toBe(200);
-    expect(JSON.parse(result.body)).toMatchObject({ message: 'Duplicate event ignored', incident_id: 'alert-group-001' });
+    expect(JSON.parse(result.body)).toMatchObject({
+      message: 'Duplicate event ignored',
+      incident_id: 'alert-group-001',
+    });
     expect(sqsMock).toHaveReceivedCommandTimes(SendMessageCommand, 0);
   });
 
   it('WEBHOOK-003: silenced alert → 200 no-op, no DDB / SQS', async () => {
-    const payload = { ...firingPayload(), alert_group: { ...firingPayload().alert_group, state: 'silenced' as const } };
+    const payload = {
+      ...firingPayload(),
+      alert_group: { ...firingPayload().alert_group, state: 'silenced' as const },
+    };
     const result = await invokeHandler(signedEvent(JSON.stringify(payload)));
 
     expect(result.statusCode).toBe(200);
@@ -124,7 +139,10 @@ describe('webhook-ingress atomic-create', () => {
 
   it('WEBHOOK-004: resolved alert → enqueue ALERT_RESOLVED → 200, no DDB', async () => {
     sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm2' });
-    const payload = { ...firingPayload(), alert_group: { ...firingPayload().alert_group, state: 'resolved' as const } };
+    const payload = {
+      ...firingPayload(),
+      alert_group: { ...firingPayload().alert_group, state: 'resolved' as const },
+    };
     const result = await invokeHandler(signedEvent(JSON.stringify(payload)));
 
     expect(result.statusCode).toBe(200);
@@ -158,7 +176,9 @@ describe('webhook-ingress atomic-create', () => {
     ddbMock.on(PutCommand).rejects(new Error('ProvisionedThroughputExceededException'));
 
     const body = JSON.stringify(firingPayload());
-    await expect(invokeHandler(signedEvent(body))).rejects.toThrow('ProvisionedThroughputExceededException');
+    await expect(invokeHandler(signedEvent(body))).rejects.toThrow(
+      'ProvisionedThroughputExceededException',
+    );
     expect(sqsMock).toHaveReceivedCommandTimes(SendMessageCommand, 0);
   });
 });

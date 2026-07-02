@@ -6,21 +6,38 @@
 import type { Block, KnownBlock } from '@slack/types';
 import { GrafanaOnCallAlertPayload, GrafanaContextSnapshot } from '../types/index.js';
 
-export function buildChecklistBlocks(incidentId: string, items: string[], completedItems: Set<string> = new Set()): (KnownBlock | Block)[] {
-  const checklistText = items.map((item) => `${completedItems.has(item) ? '✅' : '⬜'} ${item}`).join('\n');
+export function buildChecklistBlocks(
+  incidentId: string,
+  items: string[],
+  completedItems: Set<string> = new Set(),
+): (KnownBlock | Block)[] {
+  const checklistText = items
+    .map((item) => `${completedItems.has(item) ? '✅' : '⬜'} ${item}`)
+    .join('\n');
   return [
     { type: 'header', text: { type: 'plain_text', text: '📋 Incident Checklist', emoji: true } },
     { type: 'section', text: { type: 'mrkdwn', text: checklistText } },
     {
       type: 'context',
-      elements: [{ type: 'mrkdwn', text: `Incident ID: \`${incidentId}\` | Use \`/incident-response checklist\` to refresh` }],
+      elements: [
+        {
+          type: 'mrkdwn',
+          text: `Incident ID: \`${incidentId}\` | Use \`/incident-response checklist\` to refresh`,
+        },
+      ],
     },
   ];
 }
 
-export function buildContextSnapshotBlocks(alert: GrafanaOnCallAlertPayload, snapshot?: GrafanaContextSnapshot): (KnownBlock | Block)[] {
+export function buildContextSnapshotBlocks(
+  alert: GrafanaOnCallAlertPayload,
+  snapshot?: GrafanaContextSnapshot,
+): (KnownBlock | Block)[] {
   const blocks: (KnownBlock | Block)[] = [
-    { type: 'header', text: { type: 'plain_text', text: `🚨 P1: ${alert.alert_group.title}`, emoji: true } },
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: `🚨 P1: ${alert.alert_group.title}`, emoji: true },
+    },
     {
       type: 'section',
       fields: [
@@ -33,7 +50,13 @@ export function buildContextSnapshotBlocks(alert: GrafanaOnCallAlertPayload, sna
   ];
 
   if (alert.alerts[0])
-    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*Alert Message:*\n${alert.alerts[0].message.substring(0, 300)}` } });
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Alert Message:*\n${alert.alerts[0].message.substring(0, 300)}`,
+      },
+    });
 
   if (snapshot) {
     blocks.push(
@@ -50,7 +73,10 @@ export function buildContextSnapshotBlocks(alert: GrafanaOnCallAlertPayload, sna
             type: 'mrkdwn',
             text: `*p99 Latency:*\n${snapshot.p99_latency_ms.current.toFixed(0)}ms (baseline: ${snapshot.p99_latency_ms.baseline.toFixed(0)}ms)`,
           },
-          { type: 'mrkdwn', text: `*Error Budget Burn Rate:*\n${snapshot.error_budget_burn_rate.toFixed(1)}x` },
+          {
+            type: 'mrkdwn',
+            text: `*Error Budget Burn Rate:*\n${snapshot.error_budget_burn_rate.toFixed(1)}x`,
+          },
           {
             type: 'mrkdwn',
             text: snapshot.error_rate_2h.series_url
@@ -71,17 +97,28 @@ export function buildContextSnapshotBlocks(alert: GrafanaOnCallAlertPayload, sna
     if (snapshot.sample_trace_ids.length > 0)
       blocks.push({
         type: 'section',
-        text: { type: 'mrkdwn', text: `*Sample Trace IDs:*\n${snapshot.sample_trace_ids.map((id) => `\`${id}\``).join(' ')}` },
+        text: {
+          type: 'mrkdwn',
+          text: `*Sample Trace IDs:*\n${snapshot.sample_trace_ids.map((id) => `\`${id}\``).join(' ')}`,
+        },
       });
     if (snapshot.datasource_errors?.length)
       blocks.push({
         type: 'context',
-        elements: [{ type: 'mrkdwn', text: `⚠️ Some Grafana queries failed: ${snapshot.datasource_errors.join('; ')}` }],
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: `⚠️ Some Grafana queries failed: ${snapshot.datasource_errors.join('; ')}`,
+          },
+        ],
       });
   } else {
     blocks.push({
       type: 'section',
-      text: { type: 'mrkdwn', text: '⚠️ _Grafana Cloud context unavailable — queries failed or timed out. Check Grafana manually._' },
+      text: {
+        type: 'mrkdwn',
+        text: '⚠️ _Grafana Cloud context unavailable — queries failed or timed out. Check Grafana manually._',
+      },
     });
   }
 
@@ -98,9 +135,16 @@ export function buildContextSnapshotBlocks(alert: GrafanaOnCallAlertPayload, sna
   return blocks;
 }
 
-export function buildStatusPageApprovalBlocks(incidentId: string, draftId: string, draftBody: string): (KnownBlock | Block)[] {
+export function buildStatusPageApprovalBlocks(
+  incidentId: string,
+  draftId: string,
+  draftBody: string,
+): (KnownBlock | Block)[] {
   return [
-    { type: 'header', text: { type: 'plain_text', text: '📡 Status Page Draft — Pending IC Approval', emoji: true } },
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: '📡 Status Page Draft — Pending IC Approval', emoji: true },
+    },
     {
       type: 'section',
       text: {
@@ -120,7 +164,10 @@ export function buildStatusPageApprovalBlocks(incidentId: string, draftId: strin
           value: JSON.stringify({ incident_id: incidentId, draft_id: draftId }),
           confirm: {
             title: { type: 'plain_text', text: 'Publish to Status Page?' },
-            text: { type: 'mrkdwn', text: 'This will publish the message to the customer-facing status page. Are you sure?' },
+            text: {
+              type: 'mrkdwn',
+              text: 'This will publish the message to the customer-facing status page. Are you sure?',
+            },
             confirm: { type: 'plain_text', text: 'Yes, Publish' },
             deny: { type: 'plain_text', text: 'Cancel' },
           },
@@ -133,7 +180,15 @@ export function buildStatusPageApprovalBlocks(incidentId: string, draftId: strin
         },
       ],
     },
-    { type: 'context', elements: [{ type: 'mrkdwn', text: '🔒 All approval actions are audit-logged with your user ID and timestamp.' }] },
+    {
+      type: 'context',
+      elements: [
+        {
+          type: 'mrkdwn',
+          text: '🔒 All approval actions are audit-logged with your user ID and timestamp.',
+        },
+      ],
+    },
   ];
 }
 
@@ -163,7 +218,13 @@ export function buildNudgeBlocks(lastUpdateTime?: string): (KnownBlock | Block)[
 
 export function buildPulseRatingBlocks(incidentId: string): (KnownBlock | Block)[] {
   return [
-    { type: 'section', text: { type: 'mrkdwn', text: '🎉 *Incident resolved.* How well did IncidentResponse help you think clearly?' } },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: '🎉 *Incident resolved.* How well did IncidentResponse help you think clearly?',
+      },
+    },
     {
       type: 'actions',
       block_id: `pulse_rating:${incidentId}`,

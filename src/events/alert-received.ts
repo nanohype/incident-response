@@ -8,14 +8,22 @@ import type { EventHandler } from '../services/event-registry.js';
 import { logger } from '../utils/logger.js';
 import { stringifyError } from '../utils/errors.js';
 
-export function makeAlertReceivedHandler(warRoomAssembler: WarRoomAssembler): EventHandler<IncidentQueueMessage> {
+export function makeAlertReceivedHandler(
+  warRoomAssembler: WarRoomAssembler,
+): EventHandler<IncidentQueueMessage> {
   return async (message) => {
     const incidentId = message.payload.alert_group_id;
     try {
       const incident = await warRoomAssembler.assemble(message.payload);
-      logger.info({ incident_id: incidentId, channel_id: incident.slack_channel_id }, 'War room assembly complete');
+      logger.info(
+        { incident_id: incidentId, channel_id: incident.slack_channel_id },
+        'War room assembly complete',
+      );
     } catch (err) {
-      logger.error({ incident_id: incidentId, error: stringifyError(err) }, 'War room assembly failed');
+      logger.error(
+        { incident_id: incidentId, error: stringifyError(err) },
+        'War room assembly failed',
+      );
       throw err;
     }
   };

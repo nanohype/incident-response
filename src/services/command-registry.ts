@@ -46,7 +46,9 @@ export class CommandRegistry {
   async dispatch(ctx: CommandContext): Promise<void> {
     const handler = this.handlers.get(ctx.subCommand.toLowerCase());
     if (!handler) {
-      await ctx.respond({ text: `Unknown command: \`${ctx.subCommand}\`. Try \`/incident-response help\`.` });
+      await ctx.respond({
+        text: `Unknown command: \`${ctx.subCommand}\`. Try \`/incident-response help\`.`,
+      });
       return;
     }
     await handler(ctx);

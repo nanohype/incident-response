@@ -13,7 +13,10 @@ import type { Dependencies } from './dependencies.js';
 export function buildCommandRegistry(deps: Dependencies): CommandRegistry {
   return new CommandRegistry()
     .register('help', makeHelpHandler())
-    .register('silence', makeSilenceHandler({ nudgeScheduler: deps.nudgeScheduler, auditWriter: deps.auditWriter }))
+    .register(
+      'silence',
+      makeSilenceHandler({ nudgeScheduler: deps.nudgeScheduler, auditWriter: deps.auditWriter }),
+    )
     .register('checklist', makeChecklistHandler())
     .register(
       'status',

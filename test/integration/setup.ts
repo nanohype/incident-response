@@ -3,7 +3,13 @@
  * Tables mirror the CDK stack's audit table schema.
  */
 
-import { DynamoDBClient, CreateTableCommand, DeleteTableCommand, DescribeTableCommand, ListTablesCommand } from '@aws-sdk/client-dynamodb';
+import {
+  DynamoDBClient,
+  CreateTableCommand,
+  DeleteTableCommand,
+  DescribeTableCommand,
+  ListTablesCommand,
+} from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 
 const ENDPOINT = process.env['DDB_LOCAL_ENDPOINT'] ?? 'http://localhost:8000';

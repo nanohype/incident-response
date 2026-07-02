@@ -10,10 +10,16 @@ import { buildNudgeBlocks } from '../services/slack-blocks.js';
 import { withTimeoutOrDefault } from '../utils/with-timeout.js';
 import { logger } from '../utils/logger.js';
 
-export function makeStatusUpdateNudgeHandler(deps: { slack: WebClient; auditWriter: AuditWriter }): EventHandler<NudgeQueueMessage> {
+export function makeStatusUpdateNudgeHandler(deps: {
+  slack: WebClient;
+  auditWriter: AuditWriter;
+}): EventHandler<NudgeQueueMessage> {
   return async (message) => {
     if (!message.channel_id) {
-      logger.warn({ incident_id: message.incident_id }, 'Nudge event missing channel_id — dropping');
+      logger.warn(
+        { incident_id: message.incident_id },
+        'Nudge event missing channel_id — dropping',
+      );
       return;
     }
     await withTimeoutOrDefault(

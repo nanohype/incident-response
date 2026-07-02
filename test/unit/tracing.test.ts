@@ -6,9 +6,17 @@
 import { context, propagation, trace } from '@opentelemetry/api';
 import { AsyncHooksContextManager } from '@opentelemetry/context-async-hooks';
 import { W3CTraceContextPropagator } from '@opentelemetry/core';
-import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import {
+  BasicTracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-base';
 
-import { extractSqsTraceContext, injectSqsTraceAttributes, withSpan } from '../../src/utils/tracing.js';
+import {
+  extractSqsTraceContext,
+  injectSqsTraceAttributes,
+  withSpan,
+} from '../../src/utils/tracing.js';
 
 describe('tracing helpers', () => {
   const exporter = new InMemorySpanExporter();
@@ -69,19 +77,25 @@ describe('tracing helpers', () => {
     it('SQS-PROP-001: inject produces traceparent in MessageAttributes', async () => {
       const tracer = trace.getTracer('test');
       const span = tracer.startSpan('producer');
-      const attrs = context.with(trace.setSpan(context.active(), span), () => injectSqsTraceAttributes());
+      const attrs = context.with(trace.setSpan(context.active(), span), () =>
+        injectSqsTraceAttributes(),
+      );
       span.end();
 
       expect(attrs['traceparent']).toBeDefined();
       expect(attrs['traceparent']!.DataType).toBe('String');
-      expect(attrs['traceparent']!.StringValue).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/);
+      expect(attrs['traceparent']!.StringValue).toMatch(
+        /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/,
+      );
     });
 
     it('SQS-PROP-002: extract returns context that child spans parent to', async () => {
       const tracer = trace.getTracer('test');
       const producerSpan = tracer.startSpan('producer');
       const producerSpanCtx = producerSpan.spanContext();
-      const attrs = context.with(trace.setSpan(context.active(), producerSpan), () => injectSqsTraceAttributes());
+      const attrs = context.with(trace.setSpan(context.active(), producerSpan), () =>
+        injectSqsTraceAttributes(),
+      );
       producerSpan.end();
 
       const parentCtx = extractSqsTraceContext(attrs);

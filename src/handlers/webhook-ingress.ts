@@ -19,7 +19,9 @@ import { stringifyError } from '../utils/errors.js';
 const sqsClient = new SQSClient({ region: process.env['AWS_REGION'] ?? 'us-west-2' });
 const dynamoClient = new DynamoDBClient({ region: process.env['AWS_REGION'] ?? 'us-west-2' });
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
-const secretsClient = new SecretsManagerClient({ region: process.env['AWS_REGION'] ?? 'us-west-2' });
+const secretsClient = new SecretsManagerClient({
+  region: process.env['AWS_REGION'] ?? 'us-west-2',
+});
 
 interface HmacSecretCacheEntry {
   value: string;
@@ -38,7 +40,11 @@ async function fetchHmacSecret(): Promise<HmacSecretCacheEntry> {
   if (!secretId) throw new Error('GRAFANA_ONCALL_HMAC_SECRET_ID not set');
   const result = await secretsClient.send(new GetSecretValueCommand({ SecretId: secretId }));
   if (!result.SecretString) throw new Error('HMAC secret is empty');
-  return { value: result.SecretString, versionId: result.VersionId, expiresAt: Date.now() + HMAC_SECRET_TTL_MS };
+  return {
+    value: result.SecretString,
+    versionId: result.VersionId,
+    expiresAt: Date.now() + HMAC_SECRET_TTL_MS,
+  };
 }
 
 export async function getHmacSecret(forceRefresh = false): Promise<string> {
@@ -56,7 +62,9 @@ function verifyHmacSignature(body: string, signature: string, secret: string): b
   }
 }
 
-export const handler: APIGatewayProxyHandlerV2 = async (event): Promise<APIGatewayProxyResultV2> => {
+export const handler: APIGatewayProxyHandlerV2 = async (
+  event,
+): Promise<APIGatewayProxyResultV2> => {
   // Best-effort OTel init on cold start. Memoized inside `initOtelIfNeeded`.
   // Tracing failure must not block webhook processing.
   await initOtelIfNeeded();
@@ -69,7 +77,8 @@ export const handler: APIGatewayProxyHandlerV2 = async (event): Promise<APIGatew
     if (!verifyHmacSignature(body, signature, secret)) {
       // Possible rotation race: refetch once and retry before rejecting.
       secret = await getHmacSecret(true);
-      if (!verifyHmacSignature(body, signature, secret)) return { statusCode: 401, body: JSON.stringify({ error: 'Invalid signature' }) };
+      if (!verifyHmacSignature(body, signature, secret))
+        return { statusCode: 401, body: JSON.stringify({ error: 'Invalid signature' }) };
     }
   } catch (err) {
     logger.error({ error: stringifyError(err) }, 'HMAC secret fetch failed');
@@ -84,12 +93,17 @@ export const handler: APIGatewayProxyHandlerV2 = async (event): Promise<APIGatew
   }
 
   const parsed = GrafanaOnCallPayloadSchema.safeParse(parsedBody);
-  if (!parsed.success) return { statusCode: 400, body: JSON.stringify({ error: 'Invalid payload', details: parsed.error.message }) };
+  if (!parsed.success)
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ error: 'Invalid payload', details: parsed.error.message }),
+    };
 
   const payload = parsed.data;
   const alertGroupId = payload.alert_group_id;
 
-  if (payload.alert_group.state === 'silenced') return { statusCode: 200, body: JSON.stringify({ message: 'Silenced alert ignored' }) };
+  if (payload.alert_group.state === 'silenced')
+    return { statusCode: 200, body: JSON.stringify({ message: 'Silenced alert ignored' }) };
 
   if (payload.alert_group.state === 'resolved') {
     await sqsClient.send(
@@ -129,7 +143,10 @@ export const handler: APIGatewayProxyHandlerV2 = async (event): Promise<APIGatew
     );
   } catch (err) {
     if (err instanceof ConditionalCheckFailedException)
-      return { statusCode: 200, body: JSON.stringify({ message: 'Duplicate event ignored', incident_id: alertGroupId }) };
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ message: 'Duplicate event ignored', incident_id: alertGroupId }),
+      };
     throw err;
   }
 
@@ -143,5 +160,8 @@ export const handler: APIGatewayProxyHandlerV2 = async (event): Promise<APIGatew
     }),
   );
 
-  return { statusCode: 200, body: JSON.stringify({ message: 'Alert accepted', incident_id: alertGroupId }) };
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ message: 'Alert accepted', incident_id: alertGroupId }),
+  };
 };

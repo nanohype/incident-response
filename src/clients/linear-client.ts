@@ -36,10 +36,16 @@ export class LinearIncidentResponseClient {
     incidentDate: Date,
   ): Promise<PostmortemDraft> {
     const issueTitle = `[P1 Postmortem] ${title} — ${incidentDate.toISOString().slice(0, 10)}`;
-    logger.info({ incident_id: incidentId, title: issueTitle }, 'Creating postmortem draft in Linear');
+    logger.info(
+      { incident_id: incidentId, title: issueTitle },
+      'Creating postmortem draft in Linear',
+    );
 
     try {
-      const labelsResult = await Promise.allSettled([this.findOrCreateLabel('postmortem'), this.findOrCreateLabel('p1')]);
+      const labelsResult = await Promise.allSettled([
+        this.findOrCreateLabel('postmortem'),
+        this.findOrCreateLabel('p1'),
+      ]);
       const labelIds: string[] = [];
       for (const r of labelsResult) {
         if (r.status === 'fulfilled' && r.value) labelIds.push(r.value);
@@ -47,7 +53,11 @@ export class LinearIncidentResponseClient {
 
       let assigneeId: string | undefined;
       if (icUserId) {
-        const viewer = await withTimeout(this.client.viewer, LINEAR_CALL_TIMEOUT_MS, 'linear.viewer');
+        const viewer = await withTimeout(
+          this.client.viewer,
+          LINEAR_CALL_TIMEOUT_MS,
+          'linear.viewer',
+        );
         assigneeId = viewer.id;
       }
 
@@ -65,7 +75,11 @@ export class LinearIncidentResponseClient {
       );
 
       if (!issuePayload.issue) throw new Error('Linear createIssue returned no issue field');
-      const issue = await withTimeout(issuePayload.issue, LINEAR_CALL_TIMEOUT_MS, 'linear.issueField');
+      const issue = await withTimeout(
+        issuePayload.issue,
+        LINEAR_CALL_TIMEOUT_MS,
+        'linear.issueField',
+      );
       if (!issue) throw new Error('Linear createIssue returned no issue');
 
       logger.info(
@@ -82,7 +96,10 @@ export class LinearIncidentResponseClient {
         sla_deadline: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
       };
     } catch (err) {
-      logger.error({ incident_id: incidentId, error: stringifyError(err) }, 'Failed to create postmortem draft in Linear');
+      logger.error(
+        { incident_id: incidentId, error: stringifyError(err) },
+        'Failed to create postmortem draft in Linear',
+      );
       throw err;
     }
   }
@@ -96,9 +113,17 @@ export class LinearIncidentResponseClient {
       );
       const existing = labels.nodes[0];
       if (existing) return existing.id;
-      const created = await withTimeout(this.client.createIssueLabel({ name }), LINEAR_CALL_TIMEOUT_MS, 'linear.createIssueLabel');
+      const created = await withTimeout(
+        this.client.createIssueLabel({ name }),
+        LINEAR_CALL_TIMEOUT_MS,
+        'linear.createIssueLabel',
+      );
       if (!created.issueLabel) return null;
-      const label = await withTimeout(created.issueLabel, LINEAR_CALL_TIMEOUT_MS, 'linear.issueLabelField');
+      const label = await withTimeout(
+        created.issueLabel,
+        LINEAR_CALL_TIMEOUT_MS,
+        'linear.issueLabelField',
+      );
       return label?.id ?? null;
     } catch {
       return null;

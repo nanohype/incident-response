@@ -13,17 +13,30 @@ interface MimirQueryResult {
   status: string;
   data: {
     resultType: string;
-    result: Array<{ metric: Record<string, string>; values?: [number, string][]; value?: [number, string] }>;
+    result: Array<{
+      metric: Record<string, string>;
+      values?: [number, string][];
+      value?: [number, string];
+    }>;
   };
 }
 
 interface LokiQueryResult {
   status: string;
-  data: { resultType: string; result: Array<{ stream: Record<string, string>; values: [string, string][] }> };
+  data: {
+    resultType: string;
+    result: Array<{ stream: Record<string, string>; values: [string, string][] }>;
+  };
 }
 
 interface TempoSearchResult {
-  traces: Array<{ traceID: string; rootServiceName: string; rootTraceName: string; startTimeUnixNano: string; durationMs: number }>;
+  traces: Array<{
+    traceID: string;
+    rootServiceName: string;
+    rootTraceName: string;
+    startTimeUnixNano: string;
+    durationMs: number;
+  }>;
 }
 
 export class GrafanaCloudClient {
@@ -33,17 +46,39 @@ export class GrafanaCloudClient {
 
   constructor(grafanaBaseUrl: string, orgId: string, apiToken: string) {
     const common = {
-      defaultHeaders: { Authorization: `Bearer ${apiToken}`, 'X-Scope-OrgID': orgId, Accept: 'application/json' },
+      defaultHeaders: {
+        Authorization: `Bearer ${apiToken}`,
+        'X-Scope-OrgID': orgId,
+        Accept: 'application/json',
+      },
       timeoutMs: 5000 as const,
       maxRetries: 2 as const,
     };
-    this.mimirClient = new HttpClient({ clientName: 'grafana-cloud-mimir', baseUrl: `${grafanaBaseUrl}/api/prom`, ...common });
-    this.lokiClient = new HttpClient({ clientName: 'grafana-cloud-loki', baseUrl: `${grafanaBaseUrl}/loki/api/v1`, ...common });
-    this.tempoClient = new HttpClient({ clientName: 'grafana-cloud-tempo', baseUrl: `${grafanaBaseUrl}/tempo/api`, ...common });
+    this.mimirClient = new HttpClient({
+      clientName: 'grafana-cloud-mimir',
+      baseUrl: `${grafanaBaseUrl}/api/prom`,
+      ...common,
+    });
+    this.lokiClient = new HttpClient({
+      clientName: 'grafana-cloud-loki',
+      baseUrl: `${grafanaBaseUrl}/loki/api/v1`,
+      ...common,
+    });
+    this.tempoClient = new HttpClient({
+      clientName: 'grafana-cloud-tempo',
+      baseUrl: `${grafanaBaseUrl}/tempo/api`,
+      ...common,
+    });
   }
 
-  async getContextSnapshot(serviceLabel: string, incidentId: string): Promise<GrafanaContextSnapshot> {
-    logger.info({ incident_id: incidentId, service_label: serviceLabel }, 'Querying Grafana Cloud for incident context snapshot');
+  async getContextSnapshot(
+    serviceLabel: string,
+    incidentId: string,
+  ): Promise<GrafanaContextSnapshot> {
+    logger.info(
+      { incident_id: incidentId, service_label: serviceLabel },
+      'Querying Grafana Cloud for incident context snapshot',
+    );
     const now = Math.floor(Date.now() / 1000);
     const twoHoursAgo = now - 7200;
     const datasourceErrors: string[] = [];
@@ -72,7 +107,9 @@ export class GrafanaCloudClient {
     else datasourceErrors.push(`Tempo: ${stringifyError(traceResult.reason)}`);
 
     const errorBudgetBurnRate =
-      errorRate.current > 0 && errorRate.baseline > 0 ? errorRate.current / Math.max(errorRate.baseline, 0.001) : 0;
+      errorRate.current > 0 && errorRate.baseline > 0
+        ? errorRate.current / Math.max(errorRate.baseline, 0.001)
+        : 0;
 
     return {
       queried_at: new Date().toISOString(),
@@ -98,10 +135,17 @@ export class GrafanaCloudClient {
         `/query?query=${encodeURIComponent(`sum(rate(http_requests_total{service="${svc}",status=~"5.."}[2h]))/sum(rate(http_requests_total{service="${svc}"}[2h]))`)}&time=${end}`,
       ),
     ]);
-    return { current: this.val(cur.ok ? cur.data : null), baseline: this.val(base.ok ? base.data : null), series_url: '' };
+    return {
+      current: this.val(cur.ok ? cur.data : null),
+      baseline: this.val(base.ok ? base.data : null),
+      series_url: '',
+    };
   }
 
-  private async queryP99Latency(svc: string, end: number): Promise<{ current: number; baseline: number }> {
+  private async queryP99Latency(
+    svc: string,
+    end: number,
+  ): Promise<{ current: number; baseline: number }> {
     const [cur, base] = await Promise.all([
       this.mimirClient.get<MimirQueryResult>(
         `/query?query=${encodeURIComponent(`histogram_quantile(0.99,sum by(le)(rate(http_request_duration_seconds_bucket{service="${svc}"}[5m])))*1000`)}&time=${end}`,
@@ -110,7 +154,10 @@ export class GrafanaCloudClient {
         `/query?query=${encodeURIComponent(`histogram_quantile(0.99,sum by(le)(rate(http_request_duration_seconds_bucket{service="${svc}"}[2h])))*1000`)}&time=${end}`,
       ),
     ]);
-    return { current: this.val(cur.ok ? cur.data : null), baseline: this.val(base.ok ? base.data : null) };
+    return {
+      current: this.val(cur.ok ? cur.data : null),
+      baseline: this.val(base.ok ? base.data : null),
+    };
   }
 
   private async queryRecentErrors(svc: string, start: number, end: number): Promise<string[]> {

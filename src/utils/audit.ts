@@ -17,7 +17,12 @@
  */
 
 import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
-import { AuditEvent, AuditEventType, AuditDetailsByType, AutoPublishNotPermittedError } from '../types/index.js';
+import {
+  AuditEvent,
+  AuditEventType,
+  AuditDetailsByType,
+  AutoPublishNotPermittedError,
+} from '../types/index.js';
 import { stringifyError } from './errors.js';
 import { logger } from './logger.js';
 import * as crypto from 'crypto';
@@ -104,10 +109,16 @@ export class AuditWriter {
       )
       .catch((err) => {
         if (err instanceof Error && err.name === 'ConditionalCheckFailedException') {
-          logger.debug({ incident_id, action_type }, 'Audit event already exists (idempotent write)');
+          logger.debug(
+            { incident_id, action_type },
+            'Audit event already exists (idempotent write)',
+          );
           return;
         }
-        logger.error({ incident_id, action_type, error: stringifyError(err) }, 'CRITICAL: Audit write failed');
+        logger.error(
+          { incident_id, action_type, error: stringifyError(err) },
+          'CRITICAL: Audit write failed',
+        );
         throw err;
       });
     logger.info({ incident_id, action_type, actor_user_id }, 'Audit event written');
@@ -150,10 +161,16 @@ export class AuditWriter {
       }),
     );
     if (!result.Items || result.Items.length === 0) {
-      logger.error({ incident_id }, 'CRITICAL SECURITY VIOLATION: Statuspage publish without approval in audit log');
+      logger.error(
+        { incident_id },
+        'CRITICAL SECURITY VIOLATION: Statuspage publish without approval in audit log',
+      );
       throw new AutoPublishNotPermittedError(incident_id);
     }
-    logger.info({ incident_id }, 'Approval verified in audit log — proceeding with Statuspage publish');
+    logger.info(
+      { incident_id },
+      'Approval verified in audit log — proceeding with Statuspage publish',
+    );
   }
 
   async auditApprovalGateViolations(): Promise<AuditEvent[]> {

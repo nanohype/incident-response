@@ -69,7 +69,11 @@ export class HttpClient {
   async request<T>(opts: HttpRequestOptions): Promise<HttpResponse<T>> {
     const url = `${this.baseUrl}${opts.path}`;
     const method = opts.method ?? 'GET';
-    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...this.defaultHeaders, ...opts.headers };
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...this.defaultHeaders,
+      ...opts.headers,
+    };
     let attempt = 0,
       lastError: Error | null = null;
 
@@ -91,7 +95,14 @@ export class HttpClient {
 
         const latency_ms = Date.now() - start;
         logger.debug(
-          { client: this.clientName, method, path: opts.path, status: response.status, latency_ms, attempt },
+          {
+            client: this.clientName,
+            method,
+            path: opts.path,
+            status: response.status,
+            latency_ms,
+            attempt,
+          },
           'HTTP request completed',
         );
 
@@ -107,7 +118,12 @@ export class HttpClient {
           data = (await response.text()) as unknown as T;
         }
 
-        if (!response.ok && isRetryableStatus(response.status) && !opts.noRetry && attempt < this.maxRetries) {
+        if (
+          !response.ok &&
+          isRetryableStatus(response.status) &&
+          !opts.noRetry &&
+          attempt < this.maxRetries
+        ) {
           attempt++;
           lastError = new Error(`${this.clientName} HTTP ${response.status}`);
           continue;
@@ -117,14 +133,27 @@ export class HttpClient {
         response.headers.forEach((value, key) => {
           responseHeaders[key.toLowerCase()] = value;
         });
-        return { ok: response.ok, status: response.status, data, latency_ms, headers: responseHeaders };
+        return {
+          ok: response.ok,
+          status: response.status,
+          data,
+          latency_ms,
+          headers: responseHeaders,
+        };
       } catch (err: unknown) {
         const latency_ms = Date.now() - start;
         const isTimeout = err instanceof Error && err.name === 'AbortError';
         if (isTimeout) {
           lastError = new ExternalClientTimeoutError(this.clientName, this.timeoutMs);
           logger.warn(
-            { client: this.clientName, method, path: opts.path, timeout_ms: this.timeoutMs, attempt, latency_ms },
+            {
+              client: this.clientName,
+              method,
+              path: opts.path,
+              timeout_ms: this.timeoutMs,
+              attempt,
+              latency_ms,
+            },
             'External client timeout',
           );
           metricsSink?.increment(MetricNames.HttpTimeoutCount, [
@@ -134,7 +163,14 @@ export class HttpClient {
         } else {
           lastError = err instanceof Error ? err : new Error(String(err));
           logger.warn(
-            { client: this.clientName, method, path: opts.path, error: lastError.message, attempt, latency_ms },
+            {
+              client: this.clientName,
+              method,
+              path: opts.path,
+              error: lastError.message,
+              attempt,
+              latency_ms,
+            },
             'External client error',
           );
           metricsSink?.increment(MetricNames.HttpErrorCount, [
@@ -146,7 +182,9 @@ export class HttpClient {
         attempt++;
       }
     }
-    throw lastError ?? new Error(`${this.clientName}: request failed after ${this.maxRetries} attempts`);
+    throw (
+      lastError ?? new Error(`${this.clientName}: request failed after ${this.maxRetries} attempts`)
+    );
   }
 
   async get<T>(path: string, headers?: Record<string, string>): Promise<HttpResponse<T>> {
@@ -154,12 +192,20 @@ export class HttpClient {
     if (headers) opts.headers = headers;
     return this.request<T>(opts);
   }
-  async post<T>(path: string, body: unknown, headers?: Record<string, string>): Promise<HttpResponse<T>> {
+  async post<T>(
+    path: string,
+    body: unknown,
+    headers?: Record<string, string>,
+  ): Promise<HttpResponse<T>> {
     const opts: HttpRequestOptions = { method: 'POST', path, body };
     if (headers) opts.headers = headers;
     return this.request<T>(opts);
   }
-  async put<T>(path: string, body: unknown, headers?: Record<string, string>): Promise<HttpResponse<T>> {
+  async put<T>(
+    path: string,
+    body: unknown,
+    headers?: Record<string, string>,
+  ): Promise<HttpResponse<T>> {
     const opts: HttpRequestOptions = { method: 'PUT', path, body };
     if (headers) opts.headers = headers;
     return this.request<T>(opts);

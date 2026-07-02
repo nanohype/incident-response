@@ -60,11 +60,15 @@ describe('createCircuitBreaker (instrumented wrapper)', () => {
     });
     await expect(cb.exec(FAIL)).rejects.toThrow();
     await expect(cb.exec(FAIL)).rejects.toThrow();
-    expect(increment).toHaveBeenCalledWith('circuit_open_count', [{ name: 'circuit', value: 'test' }]);
+    expect(increment).toHaveBeenCalledWith('circuit_open_count', [
+      { name: 'circuit', value: 'test' },
+    ]);
     expect(increment).toHaveBeenCalledTimes(1);
     await expect(cb.exec(OK)).rejects.toBeInstanceOf(CircuitOpenError);
     await expect(cb.exec(OK)).rejects.toBeInstanceOf(CircuitOpenError);
-    expect(increment).toHaveBeenCalledWith('circuit_open_reject_count', [{ name: 'circuit', value: 'test' }]);
+    expect(increment).toHaveBeenCalledWith('circuit_open_reject_count', [
+      { name: 'circuit', value: 'test' },
+    ]);
     expect(increment).toHaveBeenCalledTimes(3); // 1 trip + 2 rejects
   });
 

@@ -10,7 +10,12 @@
  */
 
 import * as crypto from 'crypto';
-import { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  PutCommand,
+  GetCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { StatuspageClient } from '../clients/statuspage-client.js';
 import { AuditWriter } from '../utils/audit.js';
 import { StatusPageDraft } from '../types/index.js';
@@ -27,7 +32,12 @@ export class StatuspageApprovalGate {
     private readonly metrics?: MetricsEmitter,
   ) {}
 
-  async createDraft(incidentId: string, draftBody: string, affectedComponentIds: string[], createdBy: string): Promise<StatusPageDraft> {
+  async createDraft(
+    incidentId: string,
+    draftBody: string,
+    affectedComponentIds: string[],
+    createdBy: string,
+  ): Promise<StatusPageDraft> {
     const draftId = `draft-${incidentId}-${Date.now()}`;
     const body_sha256 = crypto.createHash('sha256').update(draftBody, 'utf8').digest('hex');
     const draft: StatusPageDraft = {
@@ -66,7 +76,10 @@ export class StatuspageApprovalGate {
     approvingUserId: string,
   ): Promise<{ statuspage_incident_id: string; shortlink: string }> {
     const start = Date.now();
-    logger.info({ incident_id: incidentId, draft_id: draftId, approving_user: approvingUserId }, 'IC approving status page draft');
+    logger.info(
+      { incident_id: incidentId, draft_id: draftId, approving_user: approvingUserId },
+      'IC approving status page draft',
+    );
 
     // Step 1: Load + validate draft
     const draftResult = await this.docClient.send(
@@ -78,10 +91,17 @@ export class StatuspageApprovalGate {
     const draft = draftResult.Item as StatusPageDraft | undefined;
     if (!draft) throw new Error(`Draft ${draftId} not found for incident ${incidentId}`);
     if (draft.status !== 'PENDING_APPROVAL')
-      throw new Error(`Draft ${draftId} is not in PENDING_APPROVAL status (current: ${draft.status})`);
+      throw new Error(
+        `Draft ${draftId} is not in PENDING_APPROVAL status (current: ${draft.status})`,
+      );
 
     // Step 2: Write approval to audit log — AWAITED
-    const { body_sha256 } = await this.auditWriter.writeStatuspageApproval(incidentId, approvingUserId, draft.body, draftId);
+    const { body_sha256 } = await this.auditWriter.writeStatuspageApproval(
+      incidentId,
+      approvingUserId,
+      draft.body,
+      draftId,
+    );
 
     // Step 3: Verify approval record (ConsistentRead:true) — AWAITED
     await this.auditWriter.verifyApprovalBeforePublish(incidentId);
@@ -100,7 +120,9 @@ export class StatuspageApprovalGate {
         { incident_id: incidentId, draft_id: draftId, error: stringifyError(publishError) },
         'Statuspage.io publish failed after approval',
       );
-      this.metrics?.increment(MetricNames.StatuspagePublishCount, [{ name: 'outcome', value: 'failed' }]);
+      this.metrics?.increment(MetricNames.StatuspagePublishCount, [
+        { name: 'outcome', value: 'failed' },
+      ]);
       throw new Error(
         `Statuspage.io publish failed after IC approval. Retry by clicking Approve & Publish again. Error: ${stringifyError(publishError)}`,
       );
@@ -120,7 +142,8 @@ export class StatuspageApprovalGate {
       new UpdateCommand({
         TableName: this.tableName,
         Key: { PK: `INCIDENT#${incidentId}`, SK: `STATUSPAGE_DRAFT#${draftId}` },
-        UpdateExpression: 'SET #status = :status, approved_at = :approved_at, approved_by = :approved_by, published_at = :published_at',
+        UpdateExpression:
+          'SET #status = :status, approved_at = :approved_at, approved_by = :approved_by, published_at = :published_at',
         ExpressionAttributeNames: { '#status': 'status' },
         ExpressionAttributeValues: {
           ':status': 'PUBLISHED',
@@ -131,13 +154,23 @@ export class StatuspageApprovalGate {
       }),
     );
 
-    this.metrics?.increment(MetricNames.StatuspagePublishCount, [{ name: 'outcome', value: 'published' }]);
+    this.metrics?.increment(MetricNames.StatuspagePublishCount, [
+      { name: 'outcome', value: 'published' },
+    ]);
     this.metrics?.durationMs(MetricNames.ApprovalGateLatencyMs, Date.now() - start);
     logger.info(
-      { incident_id: incidentId, draft_id: draftId, statuspage_incident_id: statuspageIncident.id, approving_user: approvingUserId },
+      {
+        incident_id: incidentId,
+        draft_id: draftId,
+        statuspage_incident_id: statuspageIncident.id,
+        approving_user: approvingUserId,
+      },
       'Status page published with IC approval',
     );
-    return { statuspage_incident_id: statuspageIncident.id, shortlink: statuspageIncident.shortlink };
+    return {
+      statuspage_incident_id: statuspageIncident.id,
+      shortlink: statuspageIncident.shortlink,
+    };
   }
 
   async rejectDraft(incidentId: string, draftId: string, rejectingUserId: string): Promise<void> {
@@ -150,6 +183,8 @@ export class StatuspageApprovalGate {
         ExpressionAttributeValues: { ':status': 'REJECTED' },
       }),
     );
-    await this.auditWriter.write(incidentId, rejectingUserId, 'STATUSPAGE_APPROVAL_REJECTED', { draft_id: draftId });
+    await this.auditWriter.write(incidentId, rejectingUserId, 'STATUSPAGE_APPROVAL_REJECTED', {
+      draft_id: draftId,
+    });
   }
 }

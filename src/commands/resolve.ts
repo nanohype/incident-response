@@ -72,7 +72,9 @@ export function makeResolveHandler(deps: ResolveDeps): CommandHandler {
       return;
     }
 
-    await ctx.respond({ text: `🔔 Resolution started by <@${ctx.userId}>. Generating postmortem and closing the room...` });
+    await ctx.respond({
+      text: `🔔 Resolution started by <@${ctx.userId}>. Generating postmortem and closing the room...`,
+    });
 
     // Step 2: fetch recent commits for the postmortem deploy timeline (best-effort)
     const recentDeploys: string[] = [];
@@ -84,7 +86,8 @@ export function makeResolveHandler(deps: ResolveDeps): CommandHandler {
         [],
         ctx.incidentId,
       );
-      for (const c of commits) recentDeploys.push(`${c.timestamp} • ${c.sha} • ${c.author} • ${c.message} (${repo})`);
+      for (const c of commits)
+        recentDeploys.push(`${c.timestamp} • ${c.sha} • ${c.author} • ${c.message} (${repo})`);
     }
 
     // Step 3: generate postmortem sections via Bedrock (IncidentResponseAI has its own fallback template)
@@ -101,10 +104,15 @@ export function makeResolveHandler(deps: ResolveDeps): CommandHandler {
       recent_deploys: recentDeploys,
       statuspage_updates: [],
     };
-    const postmortemBody = await deps.incidentResponseAI.generatePostmortemSections(pmInput, ctx.incidentId);
+    const postmortemBody = await deps.incidentResponseAI.generatePostmortemSections(
+      pmInput,
+      ctx.incidentId,
+    );
 
     // Step 4: create Linear postmortem draft
-    let linearDraft: Awaited<ReturnType<LinearIncidentResponseClient['createPostmortemDraft']>> | undefined;
+    let linearDraft:
+      | Awaited<ReturnType<LinearIncidentResponseClient['createPostmortemDraft']>>
+      | undefined;
     try {
       linearDraft = await deps.linearClient.createPostmortemDraft(
         incident.incident_id,
@@ -121,7 +129,10 @@ export function makeResolveHandler(deps: ResolveDeps): CommandHandler {
       });
       deps.metrics?.increment(MetricNames.PostmortemCreatedCount);
     } catch (err) {
-      log.error({ error: stringifyError(err) }, 'Linear postmortem creation failed — IC must create manually');
+      log.error(
+        { error: stringifyError(err) },
+        'Linear postmortem creation failed — IC must create manually',
+      );
     }
 
     // Step 5: stop pinging the IC
@@ -162,7 +173,9 @@ export function makeResolveHandler(deps: ResolveDeps): CommandHandler {
       linear_issue_id: linearDraft?.linear_issue_id,
       had_postmortem: Boolean(linearDraft),
     });
-    deps.metrics?.increment(MetricNames.IncidentResolvedCount, [{ name: 'had_postmortem', value: String(Boolean(linearDraft)) }]);
+    deps.metrics?.increment(MetricNames.IncidentResolvedCount, [
+      { name: 'had_postmortem', value: String(Boolean(linearDraft)) },
+    ]);
 
     // Step 8: final public announcement in the channel BEFORE archive so
     // members have a visible record of the postmortem link. The ephemeral

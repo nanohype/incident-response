@@ -70,7 +70,9 @@ app.command('/incident-response', async ({ command, ack, respond, client }) => {
   const tokens = textParse.data.trim().split(/\s+/);
   const argsParse = SlashCommandArgsSchema.safeParse(tokens.slice(1));
   if (!argsParse.success) {
-    await respond({ text: '❌ Too many or oversized arguments. Keep it to 10 tokens, 100 chars each.' });
+    await respond({
+      text: '❌ Too many or oversized arguments. Keep it to 10 tokens, 100 chars each.',
+    });
     return;
   }
   const subCommand = tokens[0] ?? '';
@@ -88,15 +90,24 @@ app.command('/incident-response', async ({ command, ack, respond, client }) => {
   let resolvedIncidentId = command.channel_id;
   if (CHANNEL_SCOPED_COMMANDS.has(subCommand.toLowerCase())) {
     try {
-      const incident = await resolveIncidentByChannel(deps.dynamoDb, deps.incidentsTableName, command.channel_id);
+      const incident = await resolveIncidentByChannel(
+        deps.dynamoDb,
+        deps.incidentsTableName,
+        command.channel_id,
+      );
       if (incident) {
         resolvedIncidentId = incident.incident_id;
       } else {
-        await respond({ text: 'No active incident found for this channel. Start one via Grafana OnCall.' });
+        await respond({
+          text: 'No active incident found for this channel. Start one via Grafana OnCall.',
+        });
         return;
       }
     } catch (err) {
-      logger.error({ channel_id: command.channel_id, error: stringifyError(err) }, 'Failed to resolve incident by channel');
+      logger.error(
+        { channel_id: command.channel_id, error: stringifyError(err) },
+        'Failed to resolve incident by channel',
+      );
       await respond({ text: '❌ Internal error resolving incident for this channel. Check logs.' });
       return;
     }

@@ -104,9 +104,9 @@ const server = http.createServer((req, res) => {
         // The Lambda type allows handler to return void / null when invoked
         // with a callback; here we use the promise form, so the result is
         // always defined.
-        const result = (await (handler as (e: APIGatewayProxyEventV2) => Promise<APIGatewayProxyResultV2>)(
-          event,
-        )) as APIGatewayProxyResultV2;
+        const result = (await (
+          handler as (e: APIGatewayProxyEventV2) => Promise<APIGatewayProxyResultV2>
+        )(event)) as APIGatewayProxyResultV2;
         writeResult(res, result);
       } catch (err) {
         logger.error({ err }, 'webhook handler error');

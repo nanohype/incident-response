@@ -22,7 +22,12 @@ describe('HttpClient', () => {
 
   beforeEach(() => {
     mockFetch.mockReset();
-    client = new HttpClient({ clientName: 'test-client', baseUrl: 'https://api.example.com', timeoutMs: 5000, maxRetries: 2 });
+    client = new HttpClient({
+      clientName: 'test-client',
+      baseUrl: 'https://api.example.com',
+      timeoutMs: 5000,
+      maxRetries: 2,
+    });
   });
 
   it('HTTP-001: succeeds on first attempt', async () => {
@@ -67,12 +72,20 @@ describe('HttpClient', () => {
   });
 
   it('HTTP-006: timeout hard-capped at 5000ms even if constructor says higher', () => {
-    const capClient = new HttpClient({ clientName: 'test', baseUrl: 'https://api.example.com', timeoutMs: 99999 });
+    const capClient = new HttpClient({
+      clientName: 'test',
+      baseUrl: 'https://api.example.com',
+      timeoutMs: 99999,
+    });
     expect(capClient).toBeDefined();
   });
 
   it('HTTP-007: max retries hard-capped at 2 even if constructor says higher', async () => {
-    const capClient = new HttpClient({ clientName: 'test', baseUrl: 'https://api.example.com', maxRetries: 10 });
+    const capClient = new HttpClient({
+      clientName: 'test',
+      baseUrl: 'https://api.example.com',
+      maxRetries: 10,
+    });
     mockFetch.mockResolvedValue(mockJsonResponse(503, {}));
     const result = await capClient.get('/test');
     expect(result.ok).toBe(false);
@@ -93,7 +106,10 @@ describe('HttpClient', () => {
     await client.put('/test', { x: 1 }, { 'X-Custom': 'value' });
     expect(mockFetch).toHaveBeenCalledWith(
       'https://api.example.com/test',
-      expect.objectContaining({ method: 'PUT', headers: expect.objectContaining({ 'X-Custom': 'value' }) }),
+      expect.objectContaining({
+        method: 'PUT',
+        headers: expect.objectContaining({ 'X-Custom': 'value' }),
+      }),
     );
   });
 
