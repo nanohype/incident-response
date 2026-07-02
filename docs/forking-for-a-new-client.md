@@ -85,7 +85,7 @@ Two secrets:
 
 - `workos/api-key` — Dashboard → API Keys → Staging key
 
-You'll need to configure Directory Sync for whichever IdP feeds your on-call rotation (Okta, Google, OneLogin, etc.). The app reads directory groups via `WORKOS_TEAM_GROUP_MAP` env JSON, set under the chart's `env.*` block in `chart/values-<env>.yaml`.
+You'll need to configure Directory Sync for whichever IdP feeds your on-call rotation (Okta, Google, OneLogin, etc.). The app scopes lookups to one directory via `WORKOS_DIRECTORY_ID` (required) and reads directory groups via `WORKOS_TEAM_GROUP_MAP` env JSON — both set under the chart's `env.*` block in `chart/values-<env>.yaml`.
 
 ### GitHub
 

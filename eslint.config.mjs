@@ -2,6 +2,11 @@ import tseslint from 'typescript-eslint';
 
 export default [
   {
+    // Vendored byte-identical copies from nanohype (library/runtime) — linted
+    // upstream; a local lint fix would be drift by definition.
+    ignores: ['src/vendor/**'],
+  },
+  {
     files: ['src/**/*.ts', 'test/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,

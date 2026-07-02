@@ -82,12 +82,12 @@ describe('IncidentResponseAI', () => {
   });
 
   describe('generateStatusDraft', () => {
-    it('AI-DRAFT-001: returns the Bedrock draft with PII stripped, using the Sonnet model ID from the env config', async () => {
+    it('AI-DRAFT-001: returns the Bedrock draft with PII redacted (vendored typed tokens), using the Sonnet model ID from the env config', async () => {
       bedrockMock
         .on(InvokeModelCommand)
         .resolves(bedrockTextResponse('Some customers may see errors. Contact ops@example.com for updates.'));
       const draft = await ai.generateStatusDraft(alert, undefined, undefined, 'inc-1');
-      expect(draft).toBe('Some customers may see errors. Contact [REDACTED] for updates.');
+      expect(draft).toBe('Some customers may see errors. Contact [EMAIL] for updates.');
       expect(bedrockMock).toHaveReceivedCommandWith(InvokeModelCommand, { modelId: config.BEDROCK_SONNET_MODEL_ID });
     });
 
