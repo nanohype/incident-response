@@ -125,6 +125,7 @@ export class StatuspageApprovalGate {
       ]);
       throw new Error(
         `Statuspage.io publish failed after IC approval. Retry by clicking Approve & Publish again. Error: ${stringifyError(publishError)}`,
+        { cause: publishError },
       );
     }
 

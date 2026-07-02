@@ -1,40 +1,37 @@
 #!/usr/bin/env node
 /**
- * Sync the vendored copies this repo carries from the nanohype repo — the
- * single source of truth. Same consumption model as nanohype's
- * scripts/sync-library.mjs: copies are byte-identical to their source, fixes
- * propagate outward (land in nanohype first, then re-copy), and a copy that
- * drifts from the source is the defect.
+ * Sync the vendored copies this repo carries from a nanohype checkout — the
+ * single source of truth for runtime modules, org tooling config, the
+ * tenant-chart-base library chart, and this script itself.
  *
- * Vendored surfaces:
- *   - chart/charts/tenant-chart-base   ← templates/tenant-chart-base/skeleton/chart
- *   - src/vendor/runtime/*.ts          ← library/runtime/src/<module>.ts
+ * Driven by the manifest next to this file (`scripts/vendored.json`): each
+ * entry declares a source path relative to the nanohype checkout and a
+ * destination path relative to the repo root; `"dir": true` entries sync a
+ * whole directory tree. Directories listed in `exclusiveDirs` may contain
+ * only manifest-listed files — anything else is drift, so unconsumed modules
+ * can't accumulate.
  *
- * Usage:
- *   node scripts/sync-vendored.mjs            # re-copy from the nanohype checkout
+ * The script is itself a manifest entry (`library/scripts/sync-vendored.mjs`
+ * upstream), so fixes to the sync machinery propagate outward like every
+ * other vendored surface.
+ *
+ *   node scripts/sync-vendored.mjs            # (re)write the vendored copies
  *   node scripts/sync-vendored.mjs --check    # CI gate: exit 1 if any copy drifted
  *
  * The nanohype checkout is resolved from $NANOHYPE_DIR, defaulting to a
  * sibling checkout at ../nanohype (CI checks out nanohype/nanohype and points
- * NANOHYPE_DIR at it).
+ * NANOHYPE_DIR at it). Copies are byte-identical to their source — behavior
+ * changes land upstream with their tests, then re-sync; a copy that drifts
+ * from the source is the defect.
  */
-import { readdir, readFile, rm, cp, mkdir, copyFile, stat } from 'node:fs/promises';
-import { join, dirname, relative } from 'node:path';
+import { cp, copyFile, mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
+import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const NANOHYPE_DIR = process.env['NANOHYPE_DIR'] ?? join(ROOT, '..', 'nanohype');
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(SCRIPT_DIR, '..');
+const NANOHYPE_DIR = process.env.NANOHYPE_DIR ?? join(ROOT, '..', 'nanohype');
 const CHECK = process.argv.includes('--check');
-
-/** Runtime modules this app consumes. Tests stay upstream (library/runtime/src/*.test.ts). */
-const RUNTIME_MODULES = [
-  'circuit-breaker.ts',
-  'logger.ts',
-  'metrics.ts',
-  'pii.ts',
-  'resilience.ts',
-  'workos-directory.ts',
-];
 
 /** Recursively list files under a dir, relative to it (sorted). */
 async function listFiles(dir, base = dir) {
@@ -55,7 +52,25 @@ async function readOrNull(path) {
   }
 }
 
-/** @returns {Promise<number>} count of drifted files (check mode) or 0 after copying. */
+/** @returns {Promise<number>} drift count for one file entry. */
+async function syncFile(srcPath, destPath) {
+  const rel = relative(ROOT, destPath);
+  if (CHECK) {
+    const src = await readFile(srcPath, 'utf8');
+    if (src === (await readOrNull(destPath))) {
+      console.log(`ok  ${rel}`);
+      return 0;
+    }
+    console.error(`DRIFT  ${rel} — run \`npm run sync:vendored\``);
+    return 1;
+  }
+  await mkdir(dirname(destPath), { recursive: true });
+  await copyFile(srcPath, destPath);
+  console.log(`vendored ${rel}`);
+  return 0;
+}
+
+/** @returns {Promise<number>} drift count for one directory entry. */
 async function syncDir(srcDir, destDir) {
   const rel = relative(ROOT, destDir);
   if (CHECK) {
@@ -90,45 +105,24 @@ async function syncDir(srcDir, destDir) {
   return 0;
 }
 
-/** @returns {Promise<number>} count of drifted files (check mode) or 0 after copying. */
-async function syncFiles(srcDir, destDir, files) {
+/** @returns {Promise<number>} drift count for unlisted files in an exclusive dir. */
+async function checkExclusive(dir, allowedDests) {
+  const abs = join(ROOT, dir);
+  let present = [];
+  try {
+    present = await listFiles(abs);
+  } catch {
+    present = [];
+  }
   let drift = 0;
-  if (!CHECK) await mkdir(destDir, { recursive: true });
-  for (const f of files) {
-    const rel = relative(ROOT, join(destDir, f));
-    if (CHECK) {
-      const src = await readFile(join(srcDir, f), 'utf8');
-      const copy = await readOrNull(join(destDir, f));
-      if (src === copy) {
-        console.log(`ok  ${rel}`);
-      } else {
-        console.error(`DRIFT  ${rel} — run \`npm run sync:vendored\``);
-        drift++;
-      }
-    } else {
-      await copyFile(join(srcDir, f), join(destDir, f));
-      console.log(`vendored ${rel}`);
+  for (const f of present) {
+    const rel = [dir, f].join(sep);
+    if (!allowedDests.has(rel)) {
+      console.error(`DRIFT  ${rel} — not in the vendored manifest (scripts/vendored.json)`);
+      drift++;
     }
   }
   return drift;
-}
-
-/** @returns {Promise<number>} drift count for one renamed file (org-canonical configs). */
-async function syncFile(srcPath, destPath) {
-  const rel = relative(ROOT, destPath);
-  if (CHECK) {
-    const src = await readFile(srcPath, 'utf8');
-    const copy = await readOrNull(destPath);
-    if (src === copy) {
-      console.log(`ok  ${rel}`);
-      return 0;
-    }
-    console.error(`DRIFT  ${rel} — run \`npm run sync:vendored\``);
-    return 1;
-  }
-  await copyFile(srcPath, destPath);
-  console.log(`vendored ${rel}`);
-  return 0;
 }
 
 async function main() {
@@ -138,21 +132,32 @@ async function main() {
     console.error(`nanohype checkout not found at ${NANOHYPE_DIR} — set NANOHYPE_DIR`);
     process.exit(2);
   }
+
+  const manifest = JSON.parse(await readFile(join(SCRIPT_DIR, 'vendored.json'), 'utf8'));
+  const entries = manifest.entries ?? [];
+  const exclusiveDirs = manifest.exclusiveDirs ?? [];
+
   let drift = 0;
-  drift += await syncDir(
-    join(NANOHYPE_DIR, 'templates', 'tenant-chart-base', 'skeleton', 'chart'),
-    join(ROOT, 'chart', 'charts', 'tenant-chart-base'),
-  );
-  drift += await syncFiles(
-    join(NANOHYPE_DIR, 'library', 'runtime', 'src'),
-    join(ROOT, 'src', 'vendor', 'runtime'),
-    RUNTIME_MODULES,
-  );
-  drift += await syncFile(
-    join(NANOHYPE_DIR, 'library', 'config', 'prettierrc.json'),
-    join(ROOT, '.prettierrc.json'),
-  );
-  if (CHECK && drift > 0) process.exit(1);
+
+  if (!CHECK) {
+    for (const dir of exclusiveDirs) {
+      await rm(join(ROOT, dir), { recursive: true, force: true });
+    }
+  }
+
+  for (const entry of entries) {
+    const src = join(NANOHYPE_DIR, entry.src);
+    const dest = join(ROOT, entry.dest);
+    drift += entry.dir ? await syncDir(src, dest) : await syncFile(src, dest);
+  }
+
+  if (CHECK) {
+    const allowedDests = new Set(entries.map((e) => e.dest.split('/').join(sep)));
+    for (const dir of exclusiveDirs) {
+      drift += await checkExclusive(dir, allowedDests);
+    }
+    if (drift > 0) process.exit(1);
+  }
 }
 
 main().catch((e) => {

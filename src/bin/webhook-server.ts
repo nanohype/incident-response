@@ -1,11 +1,11 @@
 /**
  * Webhook server — HTTP wrapper around the Lambda-shaped webhook handler.
  *
- * On AWS, src/handlers/webhook-ingress.ts ran behind API Gateway as
- * APIGatewayProxyHandlerV2. On k8s, this thin wrapper invokes the same
- * handler module over a node:http listener on PORT (default 3001). Same
- * HMAC verification, same idempotency check, same SQS enqueue — only the
- * transport layer changes.
+ * src/handlers/webhook-ingress.ts is written against the API Gateway
+ * event shape (APIGatewayProxyHandlerV2), which keeps it transport-neutral.
+ * This thin wrapper invokes that handler module over a node:http listener
+ * on PORT (default 3001). Same HMAC verification, same idempotency check,
+ * same SQS enqueue — the wrapper owns only the transport.
  */
 
 import * as http from 'http';

@@ -70,7 +70,7 @@ export class SqsConsumer {
     handler: MessageHandler<T>,
     queueName: string,
   ): Promise<void> {
-    let messages: Message[] = [];
+    let messages: Message[];
     try {
       const result = await this.sqs.send(
         new ReceiveMessageCommand({
