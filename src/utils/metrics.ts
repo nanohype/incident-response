@@ -1,33 +1,25 @@
 /**
  * MetricsEmitter — IncidentResponse metrics via the OTel Metrics API.
  *
- * Exports via OTLP to the ADOT collector sidecar (ECS) or the in-handler
- * NodeSDK started by `src/handlers/webhook-otel-init.ts` (Lambda), both of
- * which forward to Grafana Cloud Mimir. The ECS-side meter provider is
- * bootstrapped by `@opentelemetry/auto-instrumentations-node/register` (see
- * Dockerfile NODE_OPTIONS) plus the OTEL_METRICS_EXPORTER=otlp env var wired
- * in the CDK stack; the Lambda-side provider is started programmatically so
- * the Grafana Cloud basic-auth credential stays inside Secrets Manager
- * instead of being baked into the function's environment map.
+ * Exports via OTLP to the grafana-agent receiver, which forwards metrics to
+ * Amazon Managed Prometheus; the meter provider is bootstrapped by
+ * `@opentelemetry/auto-instrumentations-node/register` (NODE_OPTIONS in the
+ * Dockerfile) plus OTEL_METRICS_EXPORTER=otlp wired into the pod env by the
+ * chart.
  *
- * Counters → monotonic counts (e.g. directory_lookup_failure_count).
- * Histograms → distributions (e.g. assembly_duration_ms) so Mimir/Grafana can
- * surface p50/p99 without pre-aggregating in the app.
+ * The lazy-instrument core (namespace qualification to `incident_response.*`
+ * series, per-name caching, no-op degradation without a provider) is the
+ * vendored `@nanohype/runtime` metrics module; this class is the app's
+ * emitter surface over it. Counters → monotonic counts (e.g.
+ * directory_lookup_failure_count). Histograms → distributions (e.g.
+ * assembly_duration_ms) so Mimir/Grafana can surface p50/p99 without
+ * pre-aggregating in the app.
  *
  * All emission is non-blocking by design; the OTel SDK buffers and batches.
  * Errors surface via the SDK's own diag logger rather than blocking callers.
  */
 
-import { Counter, Histogram, metrics as otelMetrics } from '@opentelemetry/api';
-
-const METER_NAME = 'incident-response';
-
-// Self-prefix every instrument with the service namespace so the Prometheus
-// series are deterministic — `assembly_duration_ms` becomes
-// `incident_response_assembly_duration_ms` purely from the instrument name, with
-// no dependency on a collector-side namespace rewrite.
-const NAMESPACE = 'incident_response';
-const qualify = (name: string): string => `${NAMESPACE}.${name}`;
+import { createMetrics, type Metrics } from '../vendor/runtime/metrics.js';
 
 export type MetricDimension = { name: string; value: string };
 
@@ -38,13 +30,16 @@ function toAttributes(dimensions: MetricDimension[]): Record<string, string> {
 }
 
 export class MetricsEmitter {
-  private readonly counters = new Map<string, Counter>();
-  private readonly histograms = new Map<string, Histogram>();
+  private readonly metrics: Metrics;
 
   // awsRegion kept in the signature for call-site compatibility with the prior
   // CloudWatch implementation; ignored here since OTLP export target is set via env.
   constructor(_awsRegion?: string) {
     void _awsRegion;
+    this.metrics = createMetrics({
+      meterName: 'incident-response',
+      namespace: 'incident_response',
+    });
   }
 
   /** Emit a distribution sample (duration, rate, etc.). Routes to a histogram. */
@@ -55,35 +50,19 @@ export class MetricsEmitter {
     dimensions: MetricDimension[] = [],
   ): void {
     void _unit;
-    this.getHistogram(metricName).record(value, toAttributes(dimensions));
+    this.metrics
+      .histogramInstrument(metricName, { unit: 'ms' })
+      .record(value, toAttributes(dimensions));
   }
 
   /** Increment a counter by 1. */
   increment(metricName: string, dimensions: MetricDimension[] = []): void {
-    this.getCounter(metricName).add(1, toAttributes(dimensions));
+    this.metrics.counter(metricName, 1, toAttributes(dimensions));
   }
 
   /** Record a duration in milliseconds. Routes to a histogram. */
   durationMs(metricName: string, ms: number, dimensions: MetricDimension[] = []): void {
-    this.getHistogram(metricName).record(ms, toAttributes(dimensions));
-  }
-
-  private getCounter(name: string): Counter {
-    let c = this.counters.get(name);
-    if (!c) {
-      c = otelMetrics.getMeter(METER_NAME).createCounter(qualify(name));
-      this.counters.set(name, c);
-    }
-    return c;
-  }
-
-  private getHistogram(name: string): Histogram {
-    let h = this.histograms.get(name);
-    if (!h) {
-      h = otelMetrics.getMeter(METER_NAME).createHistogram(qualify(name), { unit: 'ms' });
-      this.histograms.set(name, h);
-    }
-    return h;
+    this.metrics.timing(metricName, ms, toAttributes(dimensions));
   }
 }
 

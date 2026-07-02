@@ -27,7 +27,14 @@ const NANOHYPE_DIR = process.env['NANOHYPE_DIR'] ?? join(ROOT, '..', 'nanohype')
 const CHECK = process.argv.includes('--check');
 
 /** Runtime modules this app consumes. Tests stay upstream (library/runtime/src/*.test.ts). */
-const RUNTIME_MODULES = ['circuit-breaker.ts', 'resilience.ts', 'pii.ts', 'workos-directory.ts'];
+const RUNTIME_MODULES = [
+  'circuit-breaker.ts',
+  'logger.ts',
+  'metrics.ts',
+  'pii.ts',
+  'resilience.ts',
+  'workos-directory.ts',
+];
 
 /** Recursively list files under a dir, relative to it (sorted). */
 async function listFiles(dir, base = dir) {
@@ -64,7 +71,10 @@ async function syncDir(srcDir, destDir) {
       sameList &&
       (
         await Promise.all(
-          srcFiles.map(async (f) => (await readFile(join(srcDir, f), 'utf8')) === (await readOrNull(join(destDir, f)))),
+          srcFiles.map(
+            async (f) =>
+              (await readFile(join(srcDir, f), 'utf8')) === (await readOrNull(join(destDir, f))),
+          ),
         )
       ).every(Boolean);
     if (sameBytes) {
@@ -103,6 +113,24 @@ async function syncFiles(srcDir, destDir, files) {
   return drift;
 }
 
+/** @returns {Promise<number>} drift count for one renamed file (org-canonical configs). */
+async function syncFile(srcPath, destPath) {
+  const rel = relative(ROOT, destPath);
+  if (CHECK) {
+    const src = await readFile(srcPath, 'utf8');
+    const copy = await readOrNull(destPath);
+    if (src === copy) {
+      console.log(`ok  ${rel}`);
+      return 0;
+    }
+    console.error(`DRIFT  ${rel} — run \`npm run sync:vendored\``);
+    return 1;
+  }
+  await copyFile(srcPath, destPath);
+  console.log(`vendored ${rel}`);
+  return 0;
+}
+
 async function main() {
   try {
     await stat(NANOHYPE_DIR);
@@ -115,7 +143,15 @@ async function main() {
     join(NANOHYPE_DIR, 'templates', 'tenant-chart-base', 'skeleton', 'chart'),
     join(ROOT, 'chart', 'charts', 'tenant-chart-base'),
   );
-  drift += await syncFiles(join(NANOHYPE_DIR, 'library', 'runtime', 'src'), join(ROOT, 'src', 'vendor', 'runtime'), RUNTIME_MODULES);
+  drift += await syncFiles(
+    join(NANOHYPE_DIR, 'library', 'runtime', 'src'),
+    join(ROOT, 'src', 'vendor', 'runtime'),
+    RUNTIME_MODULES,
+  );
+  drift += await syncFile(
+    join(NANOHYPE_DIR, 'library', 'config', 'prettierrc.json'),
+    join(ROOT, '.prettierrc.json'),
+  );
   if (CHECK && drift > 0) process.exit(1);
 }
 
