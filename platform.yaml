@@ -11,22 +11,25 @@
 #   - ResourceQuota + LimitRange
 #   - Default-deny NetworkPolicy (the chart layers app-specific rules on top)
 #   - ArgoCD AppProject scoped to this Platform
-#   - Per-Platform IRSA role with baseline policy + spec.identity.extraPolicyArns
-#     attached. Trust policy permits the `tenant-runtime` ServiceAccount in
-#     the tenant namespace
+#   - Per-Platform IAM role (`<env>-incident-response-tenant`) with the baseline
+#     policy + spec.identity.extraPolicyArns attached and Bedrock invoke
+#     clamped to spec.identity.allowedModels (bedrock-model-scoping inline
+#     policy). Trust is the EKS Pod Identity service principal; SAs bind via
+#     Pod Identity associations (`tenant-runtime` by the operator, the app
+#     SA by landing-zone)
 #
 # What incident-response's chart owns separately (NOT operator-reconciled):
 #   - The chart's own ServiceAccount (`incident-response`) — used by both webhook and
-#     processor Deployments. It is bound to landing-zone's
-#     incident-response-platform IAM role by an EKS Pod Identity association that
-#     component creates — no role-arn annotation. The
-#     operator's `<env>-incident-response-tenant` role trusts the `tenant-runtime`
-#     SA, not incident-response's `incident-response` SA — different SA, different trust, two
-#     roles serving two workload classes (AgentFleet pods vs incident-response's
-#     app pods)
+#     processor Deployments. It is bound to the operator-reconciled
+#     `<env>-incident-response-tenant` role by an EKS Pod Identity association the
+#     landing-zone incident-response-platform component creates — no role-arn
+#     annotation. App pods and AgentFleet pods (`tenant-runtime` SA) share that
+#     role: one Platform, one privilege domain. Bedrock access on the role is
+#     the agent-iam baseline clamped to spec.identity below; the app's
+#     substrate grants arrive via spec.identity.extraPolicyArns.
 #
-# Tenant-shared infra (DDB, SQS, EventBridge Scheduler, Bedrock invoke
-# policy, Secrets Manager seeding) — see landing-zone's
+# Tenant-shared infra (DDB, SQS, EventBridge Scheduler, Secrets Manager
+# seeding, the app-access managed policy) — see landing-zone's
 # components/aws/incident-response-platform/. Once that component's per-env entry
 # applies, the outputs are wired into the chart's per-env values
 # (`tenantInfra.*`).
@@ -58,18 +61,21 @@ spec:
   budget:
     name: incident-response
   identity:
-    # Bedrock model access for AgentFleet pods (tenant-runtime SA on the
-    # operator-reconciled IAM role). incident-response's own app pods don't use this
-    # role; they assume the landing-zone-owned `incident-response-platform` IAM role
-    # (via the Pod Identity association). The operator's role still
-    # exists for AgentFleet workloads in this namespace if/when they land.
-    allowedModelFamilies:
-      - anthropic
-    # ARN(s) of additional managed policies the operator attaches on top of
-    # the per-tenant baseline. Populate once landing-zone's incident-response-platform
-    # component is refactored to emit `irsa_managed_policy_arn` as an
-    # output. Leave empty until then — the chart's app pods don't need this
-    # since they assume the landing-zone-owned role directly.
+    # Bedrock model access for every pod in this Platform — app pods and
+    # AgentFleet pods share the operator-reconciled `<env>-incident-response-tenant`
+    # role. The operator clamps Bedrock invoke on that role to exactly these
+    # IDs (bedrock-model-scoping inline policy over the baseline grant); the
+    # entries match what the app's config invokes. Undated IDs cover the
+    # dated snapshots the config pins (the expansion wildcards the suffix).
+    allowedModels:
+      - anthropic.claude-sonnet-4-6 # BEDROCK_SONNET_MODEL_ID — status drafts, postmortems
+      - anthropic.claude-haiku-4-5 # BEDROCK_HAIKU_MODEL_ID — classification, checklist routing
+    # The app's substrate grants (DDB, SQS, S3, EventBridge Scheduler,
+    # Secrets Manager, CloudWatch) — landing-zone's incident-response-platform
+    # component emits the policy as `app_access_policy_arn`. Account-scoped,
+    # so it is filled per environment at apply time (landing-zone
+    # docs/runbooks/model-access-cutover.md):
+    #   arn:aws:iam::<account>:policy/eks-agent-platform/incident-response-<env>-app-access
     extraPolicyArns: []
   compliance:
     soc2: true
