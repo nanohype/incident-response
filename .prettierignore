@@ -7,6 +7,9 @@ package-lock.json
 *.md
 chart/templates/
 chart/dashboards/
-# Vendored byte-identical copies from nanohype (library/runtime) — formatted
-# and linted upstream; reformatting here would be drift by definition.
+# Vendored byte-identical copies from nanohype (runtime modules, the sync
+# script, the ESLint base) — formatted and linted upstream; reformatting here
+# would be drift by definition.
 src/vendor/
+scripts/sync-vendored.mjs
+eslint.base.mjs

@@ -24,9 +24,9 @@ Plus:
   - `prometheusrule.yaml` — three alert rules (assembly SLO / directory failures / Statuspage publish failures)
   - `grafana-dashboard.yaml` — GrafanaDashboard CR with the dashboard JSON
 
-## App-source addition
+## Webhook server entrypoint
 
-The CDK era had a Lambda for the webhook ingress (`src/handlers/webhook-ingress.ts`, exporting an `APIGatewayProxyHandlerV2`). The k8s migration adds `src/bin/webhook-server.ts` — a thin `node:http` wrapper that mounts the same handler on a POST endpoint at the configured port. No new runtime dependencies; the handler module itself is unchanged. The chart's webhook Deployment runs `node dist/bin/webhook-server.js`.
+The webhook ingress handler (`src/handlers/webhook-ingress.ts`) is written against the API Gateway event shape — it exports an `APIGatewayProxyHandlerV2`, keeping the handler transport-neutral. `src/bin/webhook-server.ts` is a thin `node:http` wrapper that mounts that same handler on a POST endpoint at the configured port; the wrapper owns only the transport, with no additional runtime dependencies. The chart's webhook Deployment runs `node dist/bin/webhook-server.js`.
 
 ## Per-tenant infra (from landing-zone)
 

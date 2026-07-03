@@ -209,9 +209,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # The single source of truth for the vendored copies (the
-      # tenant-chart-base library chart + the runtime modules under
-      # src/vendor/runtime). Copies must stay byte-identical — fixes land
-      # upstream and are re-copied, never patched here.
+      # tenant-chart-base library chart, the runtime modules under
+      # src/vendor/runtime, .prettierrc.json, eslint.base.mjs, and the sync
+      # script itself — declared in scripts/vendored.json). Copies must stay
+      # byte-identical — fixes land upstream and are re-copied, never patched
+      # here.
       - uses: actions/checkout@v4
         with:
           repository: nanohype/nanohype
@@ -219,7 +221,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: sync-vendored --check (chart + runtime modules)
+      - name: sync-vendored --check (chart + runtime + config)
         run: node scripts/sync-vendored.mjs --check
         env:
           NANOHYPE_DIR: .nanohype-src
@@ -274,4 +276,4 @@ jobs:
           echo "✅ Slack adapter discipline verified"
           echo "✅ HTTP-client discipline verified"
           echo "✅ Secret inventory lists agree"
-          echo "✅ Vendored copies byte-identical to nanohype (chart + runtime modules)"
+          echo "✅ Vendored copies byte-identical to nanohype (chart + runtime + config)"
