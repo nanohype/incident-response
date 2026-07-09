@@ -19,3 +19,4 @@ export * from './statuspage.js';
 export * from './postmortem.js';
 export * from './directory.js';
 export * from './errors.js';
+export * from './slack.js';

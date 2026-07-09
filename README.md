@@ -11,28 +11,32 @@ Ceremonial incident commander assistant for mid-enterprise SaaS. Cuts median P1 
 
 ## What This Is
 
-A protohype project composing nanohype templates (ts-service, infra-aws, agentic-loop, prompt-library, module-llm) into a long-running Slack-socket-mode daemon. A webhook Deployment behind ingress-nginx ingests Grafana OnCall alerts; a processor Deployment runs the Slack socket-mode singleton.
+A protohype project composing nanohype templates (ts-service, infra-aws, agentic-loop, prompt-library, module-llm) into two Kubernetes Deployments. A stateless webhook Deployment behind ingress-nginx serves signature-verified HTTP for Grafana OnCall (HMAC) and the Slack slash-command + interactivity Request URLs (Slack signing secret). A singleton processor Deployment runs the SQS consumer + war-room assembler + nudge scheduler and hosts the streamable-HTTP MCP server — the read + draft pull surface Claude Tag reaches over the mcp-tunnel. No Slack socket mode, no Bolt.
 
 **Not a template** — this is a standalone service. Helm chart in `chart/`, app code in `src/`, test suites in `test/`, and the authoritative artifact set in `artifacts/`.
 
 ## How It Works
 
 ```
-Grafana OnCall webhook ──► ingress-nginx ──► webhook Deployment (HMAC verify, idempotent DDB write)
+Grafana OnCall webhook ─┐
+Slack slash + interactivity ─┤─► ingress-nginx ──► webhook Deployment (signed HTTP: HMAC / Slack signing secret)
+                             │        ├── Grafana: idempotent DDB write → SQS
+                             │        └── Slack: CommandRegistry dispatch + approve/edit/silence/pulse
+                             ▼                        (statuspage_approve → 2-phase gate, human-attributed)
+                     SQS FIFO (incident-events)
                                                 │
                                                 ▼
-                                     SQS FIFO (incident-events)
-                                                │
-                                                ▼
-                      processor Deployment ── Slack socket-mode (singleton, Recreate)
-                     │   ├── WarRoomAssembler (WorkOS + Grafana OnCall + Grafana Cloud, parallel)
-                     │   ├── StatuspageApprovalGate (two-phase commit, ConsistentRead:true)
+                      processor Deployment (single-writer singleton, Recreate)
+                     │   ├── SqsConsumer → WarRoomAssembler (WorkOS + Grafana OnCall + Grafana Cloud, parallel)
+                     │   ├── StatuspageApprovalGate.createDraft (two-phase commit gate; publish stays human)
                      │   ├── NudgeScheduler (EventBridge Scheduler, 15-min)
-                     │   └── CommandRegistry (/incident-response status|resolve|silence|checklist|help)
+                     │   └── MCP server (streamable-HTTP, MCP_PORT) ── read + draft ── ◄── mcp-tunnel ── Claude Tag
                      │
                      ▼
                 DynamoDB (incident-response-incidents + incident-response-audit; PITR on, 366-day TTL)
 ```
+
+The agent drafts and reads over MCP; a **human approves** customer-facing publishes with a deterministic, fully-attributed Slack button. `draft_statuspage_update` (MCP) writes a PENDING_APPROVAL draft and publishes nothing; only `statuspage_approve` (a human Slack click, `body.user.id` = approver) runs the publish gate. Approve/publish/resolve are never MCP tools.
 
 **Core invariant:** `StatuspageApprovalGate.approveAndPublish()` is the ONLY code path that may call `StatuspageClient.createIncident()`. Enforced at three layers:
 1. **Application** — IC must click "Approve & Publish" in Slack Block Kit (with confirmation dialog).
@@ -58,20 +62,22 @@ Grafana OnCall webhook ──► ingress-nginx ──► webhook Deployment (HMA
 - **src/utils/audit.ts** — Audit log writer. All writes AWAITED. ConditionExpression `attribute_not_exists(SK)` for idempotency. Ships with `auditApprovalGateViolations()` for compliance sweeps.
 - **src/utils/with-timeout.ts** — `withTimeout` (re-exported from the vendored resilience module) + the app-side `withTimeoutOrDefault`. Used around non-critical Slack calls.
 - **src/vendor/runtime/** — vendored `@nanohype/runtime` modules (`circuit-breaker`, `resilience`, `pii`, `workos-directory`). Byte-identical copies of `nanohype/library/runtime/src/*` — same consumption model as the vendored `chart/charts/tenant-chart-base`. `npm run sync:vendored` re-copies from a nanohype checkout; CI runs the `--check` mode so a drifted copy fails the build. Behavior changes land upstream first, with their tests.
-- **chart/** — Helm chart: webhook Deployment + Service + public Ingress (the `node:http` wrapper at `src/bin/webhook-server.ts`), processor Deployment (Slack socket-mode singleton, Recreate strategy), shared ServiceAccount named `incident-response`, bound to the landing-zone `incident-response-platform` IAM role by an EKS Pod Identity association (no role-arn annotation), NetworkPolicy (ingress-nginx → webhook + egress DNS + HTTPS), ExternalSecret aggregating `grafana-oncall-hmac` + `app-secrets` + `grafana-cloud`, PrometheusRule with three SLO alerts, Grafana dashboard ConfigMap. See [`chart/README.md`](chart/README.md) for the full template-by-template description.
+- **chart/** — Helm chart: webhook Deployment + Service + public Ingress (the `node:http` wrapper at `src/bin/webhook-server.ts`, serving the Grafana HMAC POSTs plus the Slack `/slack` Request URLs), processor Deployment (single-writer singleton hosting the SQS consumer + in-process MCP server, Recreate strategy) + MCP Service, shared ServiceAccount named `incident-response`, bound to the landing-zone `incident-response-platform` IAM role by an EKS Pod Identity association (no role-arn annotation), NetworkPolicy (ingress-nginx → webhook; mcp-tunnel → processor MCP port; egress DNS + HTTPS + OTLP), ExternalSecret aggregating `grafana-oncall-hmac` + `app-secrets` + `grafana-cloud`, PrometheusRule with three SLO alerts, Grafana dashboard ConfigMap. See [`chart/README.md`](chart/README.md) for the full template-by-template description.
 - **platform.yaml** — Platform CR (`platform.nanohype.dev/v1alpha1`) declaring incident-response as a tenant of the `protohype` team, with a co-declared BudgetPolicy (`governance.nanohype.dev/v1alpha1`; $2500/mo soft cap, kill-switch on, alerts at 50/80/100%). `identity.allowedModelFamilies: ["anthropic"]` for Bedrock access on the operator-reconciled IAM role (used by AgentFleet pods if/when any land); incident-response's own app pods assume the landing-zone-owned role directly via the EKS Pod Identity association.
 - **gitops/applicationset-entry.yaml** — ApplicationSet entry for `nanohype/eks-gitops` ArgoCD reconciliation.
-- **src/bin/webhook-server.ts** — `node:http` wrapper that mounts the `APIGatewayProxyHandlerV2` from `src/handlers/webhook-ingress.ts` on a POST endpoint plus `/health` for k8s probes. This is the entrypoint the webhook Deployment runs. No new runtime dependencies.
+- **src/bin/webhook-server.ts** — `node:http` server the webhook Deployment runs. Routes the Grafana `APIGatewayProxyHandlerV2` from `src/handlers/webhook-ingress.ts`, the Slack slash-command endpoint (`POST /slack/commands`), and the Slack interactivity endpoint (`POST /slack/interactivity`) — the Slack routes verify the signing secret (`src/handlers/slack-signature.ts`), ack immediately, and defer the reply to `response_url`. Plus `/health` for k8s probes.
+- **src/handlers/slack-signature.ts** / **src/handlers/slack-interactions.ts** — Slack signing-secret verification (v0 HMAC, timing-safe, 5-min replay window) and the slash + Block Kit dispatch. `statuspage_approve` runs the 2-phase gate inline with the clicking human's id as approver.
+- **src/mcp/** — the read + draft MCP server (`server.ts`, streamable-HTTP on `MCP_PORT`) and tools (`tools.ts`: `get_incident`, `list_open`, `draft_statuspage_update`, `draft_postmortem`). READ + DRAFT ONLY; the mcp-tunnel is the only ingress.
 
 ## Run locally
 
 ```bash
 npm install
 cp .env.example .env   # fill in values — see "Configuration" below
-npm run dev            # ts-node-dev against local Slack socket-mode
+npm run dev            # ts-node-dev against the processor entrypoint (SQS consumer + MCP server)
 ```
 
-`npm run dev` expects live Slack socket-mode credentials (use a test workspace + bot app during development). DynamoDB + SQS URLs can point at staging resources; there is no local-only mode for the production integrations.
+`npm run dev` runs the processor (SQS consumer + MCP server) and expects live AWS credentials + a Slack bot token for outbound posts. The signed-HTTP Slack surface (slash + interactivity) is served by the webhook Deployment; to exercise it locally, run `npm run start:webhook` behind a tunnel and point the Slack app's Request URLs at `/slack/commands` and `/slack/interactivity`. DynamoDB + SQS URLs can point at staging resources; there is no local-only mode for the production integrations.
 
 ## Test
 
@@ -96,7 +102,7 @@ npm run build                      # tsc → dist/
 
 ## Deploy
 
-Renders as a Platform tenant on the [`eks-agent-platform`](https://github.com/nanohype/eks-agent-platform) operator. The chart produces two workloads (webhook Deployment with public ingress for the Grafana OnCall HMAC POSTs, processor Deployment in Recreate strategy for the Slack socket-mode singleton) plus a PrometheusRule for the three SLO alerts and a Grafana dashboard ConfigMap. Telemetry ships to Grafana Cloud via the cluster-level OTel Collector + log forwarder installed by `eks-gitops` — no per-pod sidecars.
+Renders as a Platform tenant on the [`eks-agent-platform`](https://github.com/nanohype/eks-agent-platform) operator. The chart produces two workloads (webhook Deployment with public ingress for the Grafana OnCall HMAC POSTs + the Slack signed-HTTP Request URLs, processor Deployment in Recreate strategy — the single-writer singleton hosting the SQS consumer + MCP server, fronted by an MCP ClusterIP Service the mcp-tunnel dials) plus a PrometheusRule for the three SLO alerts and a Grafana dashboard ConfigMap. Telemetry ships to Grafana Cloud via the cluster-level OTel Collector + log forwarder installed by `eks-gitops` — no per-pod sidecars.
 
 Secrets Manager entries are operator-provisioned via `npm run seed:{env}` and consumed at runtime via the External Secrets Operator — no secrets bake into images or manifests; the ExternalSecret projects `incident-response/<env>/*` into one k8s Secret consumed via `envFrom`. Resource names, secret paths, IAM policies, and the OTel `deployment.environment` attribute are all env-scoped (`incident-response/staging/*` vs `incident-response/production/*`). The staging IAM role cannot read production secrets and vice versa.
 
@@ -128,8 +134,7 @@ All configuration via env vars. Required vars are asserted by `src/utils/env.ts`
 | Variable | Source | Purpose |
 |----------|--------|---------|
 | `SLACK_BOT_TOKEN` | secret `incident-response/slack/bot-token` | Slack bot OAuth (chat:write, channels:manage, etc.) |
-| `SLACK_SIGNING_SECRET` | secret `incident-response/slack/signing-secret` | Slack request signature verification |
-| `SLACK_APP_TOKEN` | secret `incident-response/{env}/slack/app-token` | Slack app-level socket-mode token (`xapp-…`) |
+| `SLACK_SIGNING_SECRET` | secret `incident-response/slack/signing-secret` | Verifies inbound Slack slash-command + interactivity POSTs (v0 signature scheme) |
 | `GRAFANA_ONCALL_TOKEN` | secret `incident-response/grafana/oncall-token` | Grafana OnCall REST API (read-only) |
 | `GRAFANA_CLOUD_TOKEN`, `GRAFANA_CLOUD_ORG_ID` | secrets `incident-response/grafana/cloud-token`, `.../cloud-org-id` | Mimir/Loki/Tempo (read-only) |
 | `STATUSPAGE_API_KEY`, `STATUSPAGE_PAGE_ID` | secrets `incident-response/statuspage/api-key`, `.../page-id` | Statuspage.io |
@@ -141,6 +146,8 @@ All configuration via env vars. Required vars are asserted by `src/utils/env.ts`
 | `SCHEDULER_ROLE_ARN`, `AWS_REGION` | from chart `tenantInfra.*` (landing-zone output) | EventBridge Scheduler |
 | `GRAFANA_ONCALL_HMAC_SECRET_ID` | from chart `externalSecret.hmacSecret` | name of `incident-response/<env>/grafana-oncall-hmac` — the handler fetches the value dynamically so rotation doesn't require a pod restart |
 | `BEDROCK_SONNET_MODEL_ID`, `BEDROCK_HAIKU_MODEL_ID` | optional; defaults in `src/config/` | Bedrock model IDs (Sonnet drafts, Haiku classifies) — override to pin a snapshot or cross-region inference profile |
+| `MCP_PORT` | optional; default `3002` (chart `env.MCP_PORT`) | Port the streamable-HTTP MCP server binds (processor); the mcp-tunnel routes here, locked by NetworkPolicy |
+| `MCP_ACTOR_ID` | optional; default `claude-tag-mcp` | Identity recorded as the creator of an MCP-drafted Statuspage update — never the approver (the human Slack click is attributed at publish) |
 
 The JSON-shaped secret `incident-response/{env}/grafana-cloud/otlp-auth` carries the Grafana Cloud telemetry credentials in one payload. Operator-provisioned like every other secret — the seeder auto-computes `basic_auth` from `instance_id` + `api_token` if you omit it from the JSON. The cluster OTel Collector + log forwarder (eks-gitops) own the export path; the app just emits OTLP + JSON. See [`docs/secrets.md`](docs/secrets.md) § "The `incident-response/{env}/grafana-cloud/otlp-auth` secret".
 
@@ -183,7 +190,8 @@ Thresholds that never fail are ceremonial. To prove the 100% gate actually block
 
 ## Dependencies
 
-- `@slack/bolt` + `@slack/web-api` — Slack socket mode + Web API.
+- `@slack/web-api` — outbound Slack (war-room assembly, approval message + buttons). Inbound Slack is signature-verified HTTP, no framework.
+- `@modelcontextprotocol/sdk` — the streamable-HTTP MCP server (read + draft pull surface).
 - `@aws-sdk/client-*` — DynamoDB, SQS, Secrets Manager, Scheduler, Bedrock, Bedrock Runtime.
 - `@opentelemetry/api` + `@opentelemetry/auto-instrumentations-node` + `@opentelemetry/sdk-node` — tracing + metrics via OTLP. Traces land in Grafana Cloud Tempo; metrics in Mimir.
 - `@linear/sdk` — postmortem issue creation.

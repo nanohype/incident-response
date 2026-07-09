@@ -1,20 +1,58 @@
 /**
- * Webhook server — HTTP wrapper around the Lambda-shaped webhook handler.
+ * Webhook server — the stateless ingress Deployment's entrypoint.
  *
- * src/handlers/webhook-ingress.ts is written against the API Gateway
- * event shape (APIGatewayProxyHandlerV2), which keeps it transport-neutral.
- * This thin wrapper invokes that handler module over a node:http listener
- * on PORT (default 3001). Same HMAC verification, same idempotency check,
- * same SQS enqueue — the wrapper owns only the transport.
+ * Serves three signature-verified HTTP surfaces behind ingress-nginx, all on
+ * PORT (default 3001):
+ *   - Grafana OnCall webhook (HMAC-SHA256) → the Lambda-shaped
+ *     src/handlers/webhook-ingress.ts handler → SQS enqueue.
+ *   - Slack slash commands (`POST /slack/commands`, Slack signing secret) →
+ *     the CommandRegistry dispatch.
+ *   - Slack Block Kit interactivity (`POST /slack/interactivity`, Slack signing
+ *     secret) → approve / edit / silence / pulse. `statuspage_approve` runs the
+ *     2-phase approval gate inline with the clicking human's id — a button click
+ *     needs a synchronous ack, no reason to round-trip SQS.
+ *
+ * Slack posts interactions to a Request URL over signed HTTP, alongside the
+ * Grafana OnCall HMAC path this Deployment already serves.
  */
 
 import * as http from 'http';
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 
 import { handler } from '../handlers/webhook-ingress.js';
+import { verifySlackSignature } from '../handlers/slack-signature.js';
+import {
+  handleSlashCommand,
+  handleInteraction,
+  parseSlashCommand,
+  parseInteraction,
+  postToResponseUrl,
+  type SlackInteractionDeps,
+} from '../handlers/slack-interactions.js';
+import { buildDependencies } from '../wiring/dependencies.js';
+import { buildCommandRegistry } from '../wiring/commands.js';
 import { logger } from '../utils/logger.js';
+import { stringifyError } from '../utils/errors.js';
 
 const PORT = Number.parseInt(process.env['PORT'] ?? '3001', 10);
+const SLACK_SIGNING_SECRET = process.env['SLACK_SIGNING_SECRET'] ?? '';
+
+// Slack Request URLs served by this Deployment.
+const SLACK_COMMANDS_PATH = '/slack/commands';
+const SLACK_INTERACTIVITY_PATH = '/slack/interactivity';
+
+// Dependencies for the Slack surface — built once. The gate runs inline here on
+// approve; drafting happens via MCP, but a human approves in Slack.
+const deps = buildDependencies();
+const slackDeps: SlackInteractionDeps = {
+  commandRegistry: buildCommandRegistry(deps),
+  approvalGate: deps.approvalGate,
+  auditWriter: deps.auditWriter,
+  dynamoDb: deps.dynamoDb,
+  incidentsTableName: deps.incidentsTableName,
+  slack: deps.slackWebClient,
+  respondTo: postToResponseUrl,
+};
 
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -81,6 +119,37 @@ function writeResult(res: http.ServerResponse, result: APIGatewayProxyResultV2):
   res.end(result.body ?? '');
 }
 
+/**
+ * Verify a Slack signing-secret signature over the raw body. Returns true if
+ * the request is authentic and fresh; on failure writes a 401 and returns
+ * false so the caller stops.
+ */
+function verifiedSlackRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  rawBody: string,
+): boolean {
+  const ok = verifySlackSignature({
+    signingSecret: SLACK_SIGNING_SECRET,
+    signature: req.headers['x-slack-signature'] as string | undefined,
+    timestamp: req.headers['x-slack-request-timestamp'] as string | undefined,
+    rawBody,
+  });
+  if (!ok) {
+    res.statusCode = 401;
+    res.end('invalid signature');
+  }
+  return ok;
+}
+
+/** Ack Slack immediately (200), then run the work and post to `response_url`. */
+function ackAndDefer(res: http.ServerResponse, work: () => Promise<void>): void {
+  res.statusCode = 200;
+  res.setHeader('content-type', 'application/json');
+  res.end('');
+  void work().catch((err) => logger.error({ error: stringifyError(err) }, 'slack handler error'));
+}
+
 const server = http.createServer((req, res) => {
   if (req.url === '/health' || req.url === '/healthz' || req.url === '/readyz') {
     res.statusCode = 200;
@@ -89,33 +158,49 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Only POST to the webhook endpoint is meaningful — Grafana OnCall
-  // ships the payload there. Reject everything else cheaply.
+  // Only POST is meaningful — Grafana OnCall and Slack both POST. Reject
+  // everything else cheaply.
   if (req.method !== 'POST') {
     res.statusCode = 405;
     res.end('method not allowed');
     return;
   }
 
+  const url = req.url ?? '';
+
   readBody(req)
     .then(async (body) => {
+      // Slack slash commands.
+      if (url.startsWith(SLACK_COMMANDS_PATH)) {
+        if (!verifiedSlackRequest(req, res, body)) return;
+        const command = parseSlashCommand(body);
+        ackAndDefer(res, () => handleSlashCommand(slackDeps, command));
+        return;
+      }
+
+      // Slack Block Kit interactivity.
+      if (url.startsWith(SLACK_INTERACTIVITY_PATH)) {
+        if (!verifiedSlackRequest(req, res, body)) return;
+        const payload = parseInteraction(body);
+        ackAndDefer(res, () => handleInteraction(slackDeps, payload));
+        return;
+      }
+
+      // Grafana OnCall webhook (HMAC verified inside the handler).
       const event = buildLambdaEvent(req, body);
       try {
-        // The Lambda type allows handler to return void / null when invoked
-        // with a callback; here we use the promise form, so the result is
-        // always defined.
         const result = (await (
           handler as (e: APIGatewayProxyEventV2) => Promise<APIGatewayProxyResultV2>
         )(event)) as APIGatewayProxyResultV2;
         writeResult(res, result);
       } catch (err) {
-        logger.error({ err }, 'webhook handler error');
+        logger.error({ error: stringifyError(err) }, 'webhook handler error');
         res.statusCode = 500;
         res.end('internal error');
       }
     })
     .catch((err: unknown) => {
-      logger.error({ err }, 'webhook body read error');
+      logger.error({ error: stringifyError(err) }, 'webhook body read error');
       res.statusCode = 400;
       res.end('bad request');
     });

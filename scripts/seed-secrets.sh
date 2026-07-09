@@ -72,7 +72,6 @@ ok()   { printf '[seed] OK  : %s\n' "$*"; }
 REQUIRED_KEYS=(
   "slack/bot-token"
   "slack/signing-secret"
-  "slack/app-token"
   "grafana/oncall-token"
   "grafana/cloud-token"
   "grafana/cloud-org-id"
@@ -154,7 +153,7 @@ put_or_create() {
   fi
 }
 
-# Plain-string secrets (12 of them).
+# Plain-string secrets (all REQUIRED_KEYS except the JSON otlp-auth blob).
 for k in "${REQUIRED_KEYS[@]}"; do
   [[ "$k" == "grafana-cloud/otlp-auth" ]] && continue
   id="incident-response/${ENVIRONMENT}/${k}"

@@ -39,9 +39,8 @@ Follow [`docs/slack-app-setup.md`](slack-app-setup.md) verbatim. You'll end up w
 
 - Bot token (`xoxb-…`)
 - Signing secret
-- App-level token (`xapp-…`) with `connections:write`
 
-Register `/incident-response` as a slash command pointing at your workspace (no URL — socket mode handles it).
+Register `/incident-response` as a slash command and point Interactivity + the slash-command Request URLs at your webhook host (`https://<webhook-host>/slack/{commands,interactivity}`). Socket Mode stays off.
 
 ### Grafana OnCall + Cloud
 

@@ -15,8 +15,7 @@ The canonical list is `secrets.template.json`. The seeder's `REQUIRED_KEYS` and 
 | Secret name (staging / production) | What it is |
 |---|---|
 | `incident-response/{env}/slack/bot-token` | Slack Bot OAuth token (`xoxb-…`). Scopes: `chat:write`, `channels:manage`, `channels:read`, `groups:read`, `groups:write`, `users:read`. |
-| `incident-response/{env}/slack/signing-secret` | Slack App signing secret — Bolt uses it to verify inbound slash-command / interactive-action signatures. |
-| `incident-response/{env}/slack/app-token` | Slack app-level token (`xapp-…`) with `connections:write` — the socket-mode connection token Bolt uses to stream events. |
+| `incident-response/{env}/slack/signing-secret` | Slack App signing secret — the webhook Deployment verifies inbound slash-command / interactive-action signatures with it (`src/handlers/slack-signature.ts`, v0 HMAC scheme). |
 | `incident-response/{env}/grafana/oncall-token` | Grafana **service-account token** (`glsa_…`) for the OnCall REST API (escalation-chain + on-call rotation reads). **Not** a Cloud Access Policy. See "Grafana credentials — which is which" below. |
 | `incident-response/{env}/grafana/cloud-token` | Grafana **Cloud Access Policy** token (`glc_…`) scoped `metrics:read`, `logs:read`, `traces:read` — queries Mimir/Loki/Tempo for the war-room context snapshot. Never write. |
 | `incident-response/{env}/grafana/cloud-org-id` | Grafana Cloud org ID (numeric — not a credential; visible in the portal URL). Stored here for operational convenience; could equally be a plain env var. |
@@ -178,11 +177,6 @@ aws secretsmanager put-secret-value \
   --region us-west-2 \
   --secret-id incident-response/${ENV}/slack/signing-secret \
   --secret-string '...'
-
-aws secretsmanager put-secret-value \
-  --region us-west-2 \
-  --secret-id incident-response/${ENV}/slack/app-token \
-  --secret-string 'xapp-...'
 
 aws secretsmanager put-secret-value \
   --region us-west-2 \

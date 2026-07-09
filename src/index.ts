@@ -1,30 +1,31 @@
 /**
- * IncidentResponse incident processor — long-running ECS Fargate entrypoint.
- * Wires dependencies, registers command + event handlers, starts Slack socket-mode + SQS consumer.
+ * incident-response processor — the singleton worker Deployment's entrypoint.
+ *
+ * Runs as a single-replica Kubernetes Deployment (Recreate strategy): the SQS
+ * consumer + war-room assembler + nudge scheduler are stateful single-writer
+ * work, and the streamable-HTTP MCP server (the tunnel target) rides alongside
+ * them. It wires dependencies, registers the SQS event handlers, starts the SQS
+ * consumer, the MCP server, and a health server for k8s probes.
+ *
+ * The Slack surface lives elsewhere: slash commands + Block Kit interactivity
+ * are signature-verified HTTP on the webhook Deployment (see
+ * src/handlers/slack-interactions.ts).
  */
 
 import * as http from 'http';
-import { App, LogLevel } from '@slack/bolt';
 
 import { logger } from './utils/logger.js';
 import { requireEnv } from './utils/env.js';
+import { config } from './config/index.js';
 import { buildDependencies } from './wiring/dependencies.js';
-import { buildCommandRegistry } from './wiring/commands.js';
 import { buildIncidentEventRegistry, buildNudgeEventRegistry } from './wiring/events.js';
-import { registerSlackActions } from './actions/register-slack-actions.js';
 import { SqsConsumer } from './services/sqs-consumer.js';
-import { SlashCommandTextSchema, SlashCommandArgsSchema } from './services/command-registry.js';
-import { resolveIncidentByChannel } from './utils/incident-lookup.js';
+import { createMcpHttpServer } from './mcp/server.js';
 import { stringifyError } from './utils/errors.js';
-
-// Subcommands that require an active war-room context. `help` does not — it
-// should work anywhere in the workspace.
-const CHANNEL_SCOPED_COMMANDS = new Set(['status', 'checklist', 'silence', 'resolve']);
 
 requireEnv([
   'SLACK_BOT_TOKEN',
   'SLACK_SIGNING_SECRET',
-  'SLACK_APP_TOKEN',
   'GRAFANA_ONCALL_TOKEN',
   'GRAFANA_CLOUD_TOKEN',
   'GRAFANA_CLOUD_ORG_ID',
@@ -47,85 +48,8 @@ requireEnv([
 ]);
 
 const deps = buildDependencies();
-const commandRegistry = buildCommandRegistry(deps);
 const incidentEvents = buildIncidentEventRegistry(deps);
 const nudgeEvents = buildNudgeEventRegistry(deps);
-
-const app = new App({
-  token: process.env['SLACK_BOT_TOKEN']!,
-  signingSecret: process.env['SLACK_SIGNING_SECRET']!,
-  socketMode: true,
-  appToken: process.env['SLACK_APP_TOKEN']!,
-  logLevel: LogLevel.WARN,
-  port: 3001,
-});
-
-app.command('/incident-response', async ({ command, ack, respond, client }) => {
-  await ack();
-  const textParse = SlashCommandTextSchema.safeParse(command.text);
-  if (!textParse.success) {
-    await respond({ text: '❌ Command text too long. Keep it under 500 characters.' });
-    return;
-  }
-  const tokens = textParse.data.trim().split(/\s+/);
-  const argsParse = SlashCommandArgsSchema.safeParse(tokens.slice(1));
-  if (!argsParse.success) {
-    await respond({
-      text: '❌ Too many or oversized arguments. Keep it to 10 tokens, 100 chars each.',
-    });
-    return;
-  }
-  const subCommand = tokens[0] ?? '';
-  const args = argsParse.data;
-  await deps.auditWriter.write(command.channel_id, command.user_id, 'SLASH_COMMAND_RECEIVED', {
-    command: subCommand,
-    args,
-    channel_id: command.channel_id,
-  });
-
-  // Resolve the Slack channel back to the canonical incident_id via the
-  // slack-channel-index GSI. Channel-scoped commands require this; `help`
-  // and anything unknown can run with the channel_id fallback so the
-  // dispatcher still reaches the handler and produces the right reply.
-  let resolvedIncidentId = command.channel_id;
-  if (CHANNEL_SCOPED_COMMANDS.has(subCommand.toLowerCase())) {
-    try {
-      const incident = await resolveIncidentByChannel(
-        deps.dynamoDb,
-        deps.incidentsTableName,
-        command.channel_id,
-      );
-      if (incident) {
-        resolvedIncidentId = incident.incident_id;
-      } else {
-        await respond({
-          text: 'No active incident found for this channel. Start one via Grafana OnCall.',
-        });
-        return;
-      }
-    } catch (err) {
-      logger.error(
-        { channel_id: command.channel_id, error: stringifyError(err) },
-        'Failed to resolve incident by channel',
-      );
-      await respond({ text: '❌ Internal error resolving incident for this channel. Check logs.' });
-      return;
-    }
-  }
-
-  await commandRegistry.dispatch({
-    subCommand,
-    args,
-    incidentId: resolvedIncidentId,
-    userId: command.user_id,
-    channelId: command.channel_id,
-    rawCommand: command,
-    slack: client,
-    respond,
-  });
-});
-
-registerSlackActions(app, { approvalGate: deps.approvalGate, auditWriter: deps.auditWriter });
 
 const sqsConsumer = new SqsConsumer(
   process.env['INCIDENT_EVENTS_QUEUE_URL']!,
@@ -133,6 +57,18 @@ const sqsConsumer = new SqsConsumer(
   (m) => incidentEvents.dispatch(m),
   (m) => nudgeEvents.dispatch(m),
 );
+
+// The read + draft MCP pull surface. Draft-only: `createDraft` is reachable,
+// approve/publish/resolve are not — those stay human-attributed on the Slack
+// signed-HTTP surface (see src/handlers/slack-interactions.ts).
+const mcpServer = createMcpHttpServer({
+  docClient: deps.dynamoDb,
+  incidentsTableName: deps.incidentsTableName,
+  auditTableName: process.env['AUDIT_TABLE_NAME']!,
+  approvalGate: deps.approvalGate,
+  incidentResponseAI: deps.incidentResponseAI,
+  draftActorId: config.MCP_ACTOR_ID,
+});
 
 const healthServer = http.createServer((req, res) => {
   if (req.url === '/health') {
@@ -148,16 +84,15 @@ healthServer.listen(3001, () => {
 });
 
 async function main(): Promise<void> {
-  await app.start();
+  await mcpServer.listen(config.MCP_PORT);
   sqsConsumer.start();
   logger.info(
     {
-      mode: 'socket',
-      commands: commandRegistry.registeredCommands(),
+      mcp_port: config.MCP_PORT,
       incident_events: incidentEvents.registeredTypes(),
       nudge_events: nudgeEvents.registeredTypes(),
     },
-    'IncidentResponse processor started',
+    'incident-response processor started',
   );
 }
 
@@ -166,12 +101,12 @@ main().catch((err) => {
   process.exit(1);
 });
 
-// Graceful shutdown with a bounded drain. ECS waits `stopTimeout` (default
-// 30s, see infra/lib/incident-response-stack.ts) after SIGTERM before SIGKILL. We give
-// ourselves 25s inside that window to stop the SQS poll loop, finish the
-// in-flight handler, and tell Bolt goodbye. A single wedged handler must not
-// block a rolling deploy — the hard timeout ensures process.exit(0) fires no
-// matter what.
+// Graceful shutdown with a bounded drain. Kubernetes sends SIGTERM, waits
+// `terminationGracePeriodSeconds` (60s on the processor Deployment), then
+// SIGKILLs. We give ourselves 25s inside that window to stop the SQS poll loop,
+// finish the in-flight handler, and close the MCP + health servers. A single
+// wedged handler must not block a rolling deploy — the hard timeout ensures
+// process.exit fires no matter what.
 const SHUTDOWN_DRAIN_MS = 25_000;
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received — draining');
@@ -186,7 +121,7 @@ process.on('SIGTERM', () => {
   void (async () => {
     try {
       sqsConsumer.stop();
-      await app.stop();
+      await mcpServer.close();
       healthServer.close();
       logger.info('Drain complete');
       process.exit(0);

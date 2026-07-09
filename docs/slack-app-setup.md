@@ -1,6 +1,6 @@
 # Slack app setup
 
-IncidentResponse talks to Slack via a custom Slack app running in **socket mode** (no inbound HTTPS endpoint needed — Slack pushes events to the app over a long-lived WebSocket). You need one Slack app per environment (staging + production should have separate apps pointing at separate workspaces).
+IncidentResponse talks to Slack via a custom Slack app using **signed-HTTP Request URLs** — Slack POSTs slash commands and Block Kit interactions to endpoints on the webhook Deployment (behind ingress-nginx), and each request is verified against the Slack **signing secret**. There is no socket mode and no app-level token. You need one Slack app per environment (staging + production should have separate apps pointing at separate workspaces).
 
 This doc is a single-pass walkthrough from "blank account at api.slack.com" to "`/incident-response help` works in your workspace". Estimated time: 15 minutes.
 
@@ -37,26 +37,25 @@ Add each of these. Missing any one of them causes a specific silent failure at r
 
 **Don't add scopes IncidentResponse doesn't use.** Every extra scope broadens what a leaked bot token could do. If you're tempted to add `admin`, `channels:history`, or anything Slack flags as "special" — don't.
 
-## 3. Socket Mode + app-level token
+## 3. The webhook host (Request URL base)
 
-Left nav → **Socket Mode** → toggle **Enable Socket Mode** on.
+Both the slash command and interactivity Request URLs point at the webhook Deployment's public ingress host. That is the same host Grafana OnCall POSTs to — set per environment in the chart (`ingress.host`), e.g. `incident-response-webhook-staging.example.com`. The Slack endpoints live under the `/slack` path prefix (the chart's `ingress.slackPath`):
 
-Slack will prompt to generate an **app-level token** (starts with `xapp-`). Give it a descriptive name (`incident-response-staging-socket`) and grant exactly one scope: `connections:write`. No other scopes on the app-level token.
+- Slash commands → `https://<webhook-host>/slack/commands`
+- Interactivity  → `https://<webhook-host>/slack/interactivity`
 
-This token is distinct from the bot token (`xoxb-`) — the app-level token establishes the WebSocket connection; the bot token authenticates API calls. You'll seed both separately. Copy the `xapp-…` value now (Slack won't show it again).
-
-**Why socket mode:** the processor Deployment has no public HTTP surface. Socket mode lets Slack push events via an outbound-initiated WebSocket — no ingress, no certificate management for the Slack-side traffic. The webhook Deployment for Grafana OnCall is a separate path (public ingress behind ingress-nginx) and doesn't use socket mode.
+There is no app-level token and no Socket Mode toggle — leave Socket Mode **off**. The webhook Deployment already terminates public HTTPS (ingress-nginx + cert-manager) for the Grafana path; the Slack endpoints ride the same ingress, verified with the signing secret instead of the Grafana HMAC.
 
 ## 4. Interactivity & Shortcuts
 
 Left nav → **Interactivity & Shortcuts** → toggle **Interactivity** on.
 
-Slack requires this toggle ON for Block Kit button clicks to flow back to the app. IncidentResponse uses Block Kit buttons for:
-- Statuspage draft **Approve & Publish** / **Reject** (the approval gate — *this is critical*)
+This toggle must be ON for Block Kit button clicks to flow back to the app. IncidentResponse uses Block Kit buttons for:
+- Statuspage draft **Approve & Publish** / **Edit** (the approval gate — *this is critical*; the clicking human is recorded as the approver)
 - Pulse-rating 1–5 stars on `/incident-response resolve`
 - Nudge **Silence** action
 
-**Request URL:** leave blank. Socket mode handles the transport; Slack's UI requires the toggle to be ON but ignores the URL when socket mode is active.
+**Request URL:** `https://<webhook-host>/slack/interactivity`. Slack POSTs each interaction here; the webhook Deployment verifies the signing secret, acks immediately, and posts the result to the interaction's `response_url`.
 
 Save.
 
@@ -65,7 +64,7 @@ Save.
 Left nav → **Slash Commands** → **Create New Command**.
 
 - **Command:** `/incident-response`
-- **Request URL:** required by the UI, unused in socket mode. Put any valid HTTPS URL — `https://example.com/slack/commands` is fine. Slack ignores it when socket mode delivers the event.
+- **Request URL:** `https://<webhook-host>/slack/commands`
 - **Short Description:** `IncidentResponse incident commander`
 - **Usage Hint:** `help | status | resolve | silence | checklist`
 - **Escape channels, users, and links:** leave unchecked.
@@ -78,7 +77,7 @@ Repeat for any other top-level slash commands you add later. Subcommands (`/inci
 
 Left nav → **Basic Information** → **App Credentials** → **Signing Secret**. Click **Show** → copy.
 
-Slack signs every inbound request (socket-mode events, slash commands, interactivity) with HMAC-SHA256 using this secret. Bolt verifies the signature before invoking handlers. Without a matching signing secret in IncidentResponse's config, Bolt rejects every event as forged.
+Slack signs every inbound request (slash commands, interactivity) with HMAC-SHA256 using this secret (the v0 scheme: `v0=HMAC(v0:{timestamp}:{rawBody})`). `src/handlers/slack-signature.ts` verifies it — timing-safe compare, 5-minute replay window — before any handler runs. Without a matching `SLACK_SIGNING_SECRET`, the webhook returns 401 for every Slack request.
 
 ## 7. Install to Workspace
 
@@ -89,12 +88,11 @@ Slack returns:
 
 Copy it.
 
-## 8. Seed all three tokens + restart the processor
+## 8. Seed both tokens + restart the deployments
 
-You now have three secrets to place:
+You now have two secrets to place:
 
 - `xoxb-…` → `incident-response/{env}/slack/bot-token`
-- `xapp-…` → `incident-response/{env}/slack/app-token`
 - signing secret (opaque string, no prefix) → `incident-response/{env}/slack/signing-secret`
 
 Edit your populated seed file (`incident-response-secrets.{env}.json`):
@@ -103,16 +101,15 @@ Edit your populated seed file (`incident-response-secrets.{env}.json`):
 {
   "slack/bot-token":      "xoxb-...",
   "slack/signing-secret": "...",
-  "slack/app-token":      "xapp-...",
   ...
 }
 ```
 
-Seed + restart the processor so it picks up the new values:
+Seed + restart both deployments so they pick up the new values (the webhook serves the signed Slack endpoints; the processor holds the outbound bot token):
 
 ```bash
 npm run seed:{env}
-kubectl rollout restart deploy/incident-response-processor -n tenants-protohype
+kubectl rollout restart deploy/incident-response-webhook deploy/incident-response-processor -n tenants-protohype
 ```
 
 ## 9. Verify
@@ -123,15 +120,15 @@ In any channel the bot has been added to (add it manually via channel settings �
 /incident-response help
 ```
 
-If it responds, the full path is working: Slack ↔ socket-mode tunnel ↔ Bolt ↔ `CommandRegistry` ↔ the help handler. Any error means one of the eight prior steps has a gap.
+If it responds, the full path is working: Slack → ingress-nginx → webhook (`/slack/commands`, signature verified) → `CommandRegistry` → the help handler → `response_url` reply. Any error means one of the eight prior steps has a gap.
 
 Common verify failures:
 
 | You see | Means | Fix |
 |---|---|---|
 | `/incident-response is not a valid command` | Step 5 wasn't done, or the app wasn't reinstalled after step 5 | Go back to Install App → **Reinstall** after adding slash commands |
+| Slack shows a dispatch/timeout error | The Request URL is wrong or unreachable, or the signing secret doesn't match (webhook returns 401) | Confirm the URL is `https://<webhook-host>/slack/commands` and reseed `slack/signing-secret`, then `kubectl rollout restart deploy/incident-response-webhook -n tenants-protohype` |
 | Command runs but replies with "Unknown command" | Slash command fired but the subcommand isn't registered in `CommandRegistry` | Type `/incident-response help` — the `help` handler is always registered; if that works, the issue is your subcommand arg |
-| Nothing happens (no reply, no error) | Bot token was rotated (step 7 re-install) but the running pod still has the old token | Reseed + `kubectl rollout restart deploy/incident-response-processor -n tenants-protohype` |
 | `cannot_post_to_channel` in processor logs | Bot isn't in the channel | Add the bot: channel settings → Integrations → Add apps |
 
 ## Rotation
@@ -143,7 +140,7 @@ Whenever you change scopes or the slash-command definition, Slack requires a **r
 3. `npm run seed:{env}`.
 4. `kubectl rollout restart deploy/incident-response-processor -n tenants-protohype`.
 
-The signing secret and app-level token don't rotate on reinstall — you only re-seed `slack/bot-token`.
+The signing secret doesn't rotate on reinstall — you only re-seed `slack/bot-token`.
 
 ## Separate apps per environment
 
@@ -153,7 +150,7 @@ Create two apps: `IncidentResponse (staging)` and `IncidentResponse (production)
 - **Audit clarity.** Slack's audit log attributes actions to the app; separate apps mean staging drill activity is distinguishable from real production events.
 - **Per-workspace install.** If staging lives in a test Slack workspace and production lives in the main workspace, you *must* have separate apps anyway — Slack apps install per-workspace.
 
-Repeat this entire doc for each environment. The seed file for each env holds its own `xoxb-` / `xapp-` / signing-secret values.
+Repeat this entire doc for each environment. The seed file for each env holds its own `xoxb-` bot token + signing-secret values, and its own webhook host for the Request URLs.
 
 ## Troubleshooting catalogue
 

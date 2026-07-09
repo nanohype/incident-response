@@ -2,8 +2,9 @@
 
 Helm chart for the incident-response incident-commander assistant. Renders two workloads + supporting observability resources into a Platform tenant on the `eks-agent-platform` operator:
 
-- **webhook** — `Deployment` + `Service` + `Ingress` (public, cert-manager TLS). Receives Grafana OnCall HMAC-signed P1 events, verifies the signature, idempotently writes to DynamoDB, enqueues to SQS. Replaces the CDK Lambda + API Gateway pair.
-- **processor** — `Deployment` (`Recreate` strategy — Slack socket-mode is a singleton). Long-running daemon: Slack socket-mode client + SQS consumer + war-room assembler + Statuspage approval gate + Linear postmortem creator + EventBridge Scheduler nudge wrangler. Replaces the CDK ECS Fargate service.
+- **webhook** — `Deployment` + `Service` + `Ingress` (public, cert-manager TLS). Serves three signature-verified HTTP surfaces: Grafana OnCall HMAC-signed P1 events (verify → idempotent DynamoDB write → SQS enqueue), and the Slack slash-command + Block Kit interactivity Request URLs on the `/slack` path prefix (Slack signing-secret verified; `statuspage_approve` runs the 2-phase gate inline with the clicking human's id).
+- **processor** — `Deployment` (`Recreate` strategy — single-writer singleton). SQS consumer + war-room assembler + Statuspage approval-gate `createDraft` + Linear postmortem creator + EventBridge Scheduler nudge wrangler, and the in-process streamable-HTTP **MCP server** (the read + draft pull surface) on the `mcp` container port.
+- **mcp** — `Service` (ClusterIP) in front of the processor's MCP port. The mcp-tunnel (outbound-only cloudflared) is the only thing allowed to reach it; the NetworkPolicy locks the port to the `mcp-tunnel` namespace. No public ingress.
 
 Plus:
 
@@ -16,10 +17,11 @@ Plus:
 - `dashboards/incident-response.json` — Grafana dashboard JSON, materialized into the dashboard ConfigMap at render time
 - `templates/`
   - `_helpers.tpl` — name/label helpers + shared `incident-response.env` partial
-  - `webhook-deployment.yaml`, `webhook-service.yaml`, `webhook-ingress.yaml`
-  - `processor-deployment.yaml`
+  - `webhook-deployment.yaml`, `webhook-service.yaml`, `webhook-ingress.yaml` — the ingress routes both the Grafana webhook path and the `/slack` prefix to the webhook Service
+  - `processor-deployment.yaml` — exposes the `http` (health) and `mcp` (MCP server) container ports
+  - `mcp-service.yaml` — ClusterIP in front of the processor's MCP port (the mcp-tunnel target)
   - `serviceaccount.yaml` — single SA shared across both workloads
-  - `networkpolicy.yaml` — ingress: ingress-nginx → webhook only; egress: DNS + HTTPS
+  - `networkpolicy.yaml` — ingress: ingress-nginx → webhook, mcp-tunnel namespace → processor MCP port; egress: DNS + HTTPS + OTLP
   - `externalsecret.yaml` — pulls incident-response/<env>/grafana-oncall-hmac + app-secrets + grafana-cloud, composes one Secret consumed by envFrom; the HMAC secret is also referenced by its ARN in env for the handler's VersionId-keyed cache
   - `prometheusrule.yaml` — three alert rules (assembly SLO / directory failures / Statuspage publish failures)
   - `grafana-dashboard.yaml` — GrafanaDashboard CR with the dashboard JSON

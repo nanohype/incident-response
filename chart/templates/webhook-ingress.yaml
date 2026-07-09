@@ -29,4 +29,15 @@ spec:
                 name: {{ include "tenant-chart-base.fullname" . }}-webhook
                 port:
                   number: {{ .Values.webhook.port }}
+          {{- if .Values.ingress.slackPath }}
+          # Slack slash commands + interactivity Request URLs (signing-secret
+          # verified) — same webhook Deployment as the Grafana HMAC ingress.
+          - path: {{ .Values.ingress.slackPath }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tenant-chart-base.fullname" . }}-webhook
+                port:
+                  number: {{ .Values.webhook.port }}
+          {{- end }}
 {{- end }}

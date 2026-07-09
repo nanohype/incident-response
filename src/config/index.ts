@@ -17,6 +17,18 @@ const ConfigSchema = z.object({
   // dated snapshot or a cross-region inference profile).
   BEDROCK_SONNET_MODEL_ID: z.string().min(1).default('anthropic.claude-sonnet-4-6'),
   BEDROCK_HAIKU_MODEL_ID: z.string().min(1).default('anthropic.claude-haiku-4-5-20251001-v1:0'),
+  // MCP streamable-HTTP port — the read + draft pull surface the mcp-tunnel
+  // routes to. Default 3002 to avoid colliding with the processor health
+  // server and webhook server (both on 3001). Locked to the mcp-tunnel
+  // namespace by the chart NetworkPolicy.
+  MCP_PORT: z.coerce.number().int().min(1).max(65535).default(3002),
+  // Identity recorded as the CREATOR of an MCP-drafted Statuspage update. The
+  // draft is only ever PENDING_APPROVAL — the human who clicks Approve &
+  // Publish in Slack is the compliance-critical approver, and their id is what
+  // threads into the publish audit trail. Claude Tag does not (yet) forward the
+  // invoking human's identity to a custom-connector tool call, so the draft's
+  // `createdBy` is this fixed service actor, never an LLM-supplied value.
+  MCP_ACTOR_ID: z.string().min(1).default('claude-tag-mcp'),
 });
 
 function loadConfig(): z.infer<typeof ConfigSchema> {

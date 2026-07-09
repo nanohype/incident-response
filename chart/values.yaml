@@ -1,9 +1,10 @@
 # Base values for incident-response (all environments). Per-env deltas in values-{staging,production}.yaml.
 #
 # Two workloads in one chart:
-#   - webhook   (Deployment, public ingress) — Grafana OnCall HMAC verifier + SQS enqueue
-#   - processor (Deployment, no ingress)     — Slack socket-mode + SQS consumer + state machine
-# Plus a PrometheusRule and a Grafana dashboard ConfigMap.
+#   - webhook   (Deployment, public ingress) — Grafana OnCall HMAC verifier + SQS enqueue,
+#                                              and the signed-HTTP Slack slash + interactivity endpoints
+#   - processor (Deployment, MCP Service)    — SQS consumer + war-room assembler + in-process MCP server
+# Plus an MCP Service, a PrometheusRule, and a Grafana dashboard ConfigMap.
 
 image:
   repository: ghcr.io/nanohype/incident-response
@@ -57,8 +58,12 @@ webhook:
 
 processor:
   enabled: true
-  replicaCount: 1 # Slack socket-mode singleton (multiple sockets would dupe events)
+  replicaCount: 1 # single-writer singleton (SQS consumer + assembler + in-process MCP server)
   port: 3001
+  # MCP streamable-HTTP port — the read + draft pull surface the mcp-tunnel
+  # routes to. Distinct from `port` (health) to avoid a collision. Locked to the
+  # mcp-tunnel namespace by the NetworkPolicy.
+  mcpPort: 3002
   command: ['node', '--enable-source-maps', 'dist/index.js']
   resources:
     requests:
@@ -67,6 +72,14 @@ processor:
     limits:
       cpu: 1000m
       memory: 1Gi
+
+# MCP pull surface (read + draft). A ClusterIP Service in front of the processor
+# pod's MCP port; the mcp-tunnel is the only thing allowed to reach it (see
+# networkPolicy below). No public ingress, no LoadBalancer.
+mcp:
+  enabled: true
+  # Service port the mcp-tunnel dials; targets the processor's mcpPort.
+  port: 3002
 
 probes:
   webhook:
@@ -87,7 +100,7 @@ probes:
       httpGet:
         path: /health
         port: 3001
-      initialDelaySeconds: 30 # Bolt socket-mode connect takes a moment
+      initialDelaySeconds: 30 # allow the MCP server + SQS consumer to come up
       periodSeconds: 30
       failureThreshold: 5
     readiness:
@@ -105,6 +118,10 @@ ingress:
     issuer: letsencrypt-prod
   host: '' # set per-env
   path: /webhook # Grafana OnCall sends POST here
+  # Slack Request URL prefix — the slash-command (/slack/commands) and
+  # interactivity (/slack/interactivity) endpoints. Same webhook Deployment,
+  # verified with the Slack signing secret instead of the Grafana HMAC.
+  slackPath: /slack
 
 externalSecret:
   enabled: true
@@ -146,6 +163,9 @@ networkPolicy:
 env:
   AWS_REGION: us-east-1
   BEDROCK_MODEL_ID: anthropic.claude-sonnet-4-6
+  # MCP streamable-HTTP server port — the read + draft pull surface. Matches
+  # mcp.port / processor.mcpPort and the processor's mcp containerPort.
+  MCP_PORT: '3002'
   LOG_LEVEL: info
   NODE_ENV: production
   OTEL_EXPORTER_OTLP_ENDPOINT: http://grafana-agent.monitoring.svc.cluster.local:4318

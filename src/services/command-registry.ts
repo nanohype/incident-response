@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import type { RespondFn, SlashCommand } from '@slack/bolt';
+import type { RespondFn, SlashCommand } from '../types/slack.js';
 import type { WebClient } from '@slack/web-api';
 
 /**

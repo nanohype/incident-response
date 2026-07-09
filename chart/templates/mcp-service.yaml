@@ -1,0 +1,22 @@
+{{- if and .Values.mcp.enabled .Values.processor.enabled }}
+# ClusterIP Service in front of the processor pod's MCP streamable-HTTP port —
+# the read + draft pull surface. The mcp-tunnel (outbound-only cloudflared) is
+# the ONLY thing allowed to reach it; every other source is default-denied by
+# the NetworkPolicy. No public ingress, no LoadBalancer.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tenant-chart-base.fullname" . }}-mcp
+  labels:
+    {{- include "tenant-chart-base.labels" . | nindent 4 }}
+    incident-response.io/service: mcp
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.mcp.port }}
+      targetPort: mcp
+      protocol: TCP
+      name: mcp
+  selector:
+    {{- include "incident-response.selectorLabels" (dict "Values" .Values "Release" .Release "Chart" .Chart "service" "processor") | nindent 4 }}
+{{- end }}
