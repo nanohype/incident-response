@@ -2,7 +2,7 @@
 
 Every concrete error this app has surfaced during bring-up, with root cause and fix. Keyed on the exact error text where possible so you (or the next operator) can grep-find the answer instead of re-diagnosing.
 
-The app runs as a Platform tenant in namespace `tenants-protohype`: a `incident-response-webhook` Deployment (behind ingress-nginx) and a `incident-response-processor` Deployment (Slack socket-mode singleton). All `kubectl` examples assume `-n tenants-protohype`.
+The app runs as a Platform tenant in namespace `tenants-protohype`: a `incident-response-webhook` Deployment (behind ingress-nginx — Grafana HMAC + signed-HTTP Slack) and a `incident-response-processor` Deployment (single-writer singleton — SQS consumer + MCP server). All `kubectl` examples assume `-n tenants-protohype`.
 
 Sections:
 - [Rollout / sync errors](#rollout--sync-errors)
@@ -73,7 +73,7 @@ Commit the refreshed `package-lock.json`. CI uses `npm ci` which needs the lockf
 
 **Cause:** `src/utils/env.ts:requireEnv` throws when a required env var is absent. Either the var was added to `requireEnv` but not wired into the chart, or a seeded secret is missing a key.
 
-**Fix:** audit the gap between `src/index.ts:requireEnv([...])` and the chart's env sources — `tenantInfra.*` (landing-zone outputs), `env.*` (plain values), and the ExternalSecret keys. Every name in `requireEnv` must have a corresponding source. Past misses: `SLACK_APP_TOKEN`, `LINEAR_TEAM_ID`, `NUDGE_EVENTS_QUEUE_ARN`, `SCHEDULER_GROUP_NAME`.
+**Fix:** audit the gap between `src/index.ts:requireEnv([...])` and the chart's env sources — `tenantInfra.*` (landing-zone outputs), `env.*` (plain values), and the ExternalSecret keys. Every name in `requireEnv` must have a corresponding source. Past misses: `LINEAR_TEAM_ID`, `NUDGE_EVENTS_QUEUE_ARN`, `SCHEDULER_GROUP_NAME`.
 
 ```bash
 kubectl -n tenants-protohype logs deploy/incident-response-processor --previous --since=10m

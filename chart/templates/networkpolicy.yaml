@@ -14,10 +14,9 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Webhook accepts from ingress-nginx only. Processor accepts no ingress
-    # (Slack socket-mode is outbound) — the empty selector below means only
-    # webhook pods match, since selector.matchLabels above scopes to release
-    # but the ingress-nginx ports here are the webhook listening port.
+    # Webhook accepts from ingress-nginx only — Grafana OnCall (HMAC) plus the
+    # signed-HTTP Slack slash + interactivity Request URLs all land on the
+    # webhook listening port via ingress-nginx.
     - from:
         - namespaceSelector:
             matchLabels:
@@ -25,6 +24,19 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.webhook.port }}
+    {{- if .Values.mcp.enabled }}
+    # MCP pull surface: reachable ONLY from the mcp-tunnel namespace. The
+    # mcp-tunnel (outbound-only cloudflared) is the single ingress to the
+    # processor's MCP port — every other source stays default-deny. This is what
+    # makes the read + draft surface tunnel-ready without any public ingress.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: mcp-tunnel
+      ports:
+        - protocol: TCP
+          port: {{ .Values.processor.mcpPort }}
+    {{- end }}
   egress:
     # DNS
     - to:

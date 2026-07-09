@@ -1,6 +1,6 @@
 apiVersion: v2
 name: incident-response
-description: Incident commander assistant — webhook ingress + Slack-socket-mode processor.
+description: Incident commander assistant — signed-HTTP webhook ingress (Grafana + Slack) + single-writer processor hosting the MCP pull surface.
 type: application
 version: 0.1.0
 appVersion: '0.1.0'

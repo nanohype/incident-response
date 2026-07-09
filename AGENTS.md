@@ -17,7 +17,7 @@ It's built as a reusable subsystem. Every external-IO service is a constructor-i
 ```bash
 npm install                # root deps; no workspace or file: links
 cp .env.example .env       # fill in the required keys (see CLAUDE.md > Configuration)
-npm run dev                # ts-node-dev against a local Slack socket-mode connection
+npm run dev                # ts-node-dev against the processor entrypoint (SQS consumer + MCP server)
 ```
 
 In Slack: `/incident-response help` lists the subcommands; `/incident-response status` posts the current incident state.
@@ -74,9 +74,10 @@ Two workloads in one chart — the webhook ingress and the processor — plus ev
 
 | Template                                                | Owns                                                                                                                                                                  |
 | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `webhook-deployment.yaml` + `webhook-service.yaml`      | The public-ingress webhook (`dist/bin/webhook-server.js`) — Grafana OnCall HMAC verifier + SQS FIFO enqueue, ClusterIP :3001, 2 replicas for rolling restarts        |
-| `webhook-ingress.yaml`                                  | ingress-nginx + cert-manager TLS, `POST /webhook` for Grafana OnCall                                                                                                  |
-| `processor-deployment.yaml`                             | The Slack socket-mode singleton (`dist/index.js`) — SQS consumer + state machine. `Recreate` strategy + 60s `terminationGracePeriodSeconds` for in-flight SQS drain   |
+| `webhook-deployment.yaml` + `webhook-service.yaml`      | The public-ingress webhook (`dist/bin/webhook-server.js`) — Grafana OnCall HMAC verifier + SQS FIFO enqueue, and the signed-HTTP Slack slash + interactivity endpoints, ClusterIP :3001, 2 replicas for rolling restarts |
+| `webhook-ingress.yaml`                                  | ingress-nginx + cert-manager TLS, `POST /webhook` for Grafana OnCall + `/slack` prefix for the Slack Request URLs                                                     |
+| `processor-deployment.yaml`                             | The single-writer singleton (`dist/index.js`) — SQS consumer + war-room assembler + in-process MCP server (`http` + `mcp` container ports). `Recreate` strategy + 60s `terminationGracePeriodSeconds` for in-flight SQS drain |
+| `mcp-service.yaml`                                      | ClusterIP in front of the processor's MCP port — the mcp-tunnel target; NetworkPolicy locks the port to the `mcp-tunnel` namespace                                    |
 | `serviceaccount.yaml`                                   | Shared SA across both workloads, name pinned to the app; bound to the landing-zone IAM role by a Pod Identity association                                                                      |
 | `externalsecret.yaml`                                   | ESO syncs `incident-response/<env>/grafana-oncall-hmac` + `app-secrets` + `grafana-cloud` into one Secret consumed via `envFrom`; HMAC secret id also passed as env for the VersionId-keyed cache refresh |
 | `networkpolicy.yaml`                                    | Default-deny + ingress (ingress-nginx → webhook only) + egress (DNS + HTTPS)                                                                                           |

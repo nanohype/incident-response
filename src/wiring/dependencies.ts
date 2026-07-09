@@ -28,10 +28,10 @@ export interface Dependencies {
   readonly githubRepoNames: string[];
   readonly dynamoDb: DynamoDBDocumentClient;
   /**
-   * The raw Slack WebClient is exposed for Bolt-internal handlers and slash
-   * commands that receive a per-request `client` from Bolt middleware. New
-   * domain services should depend on `slackAdapter` instead so they inherit
-   * the timeout/fail-mode discipline.
+   * The raw Slack WebClient, exposed for the signed-HTTP Slack surface: the
+   * slash-command dispatch (each `CommandContext` carries it as `slack`) and
+   * the interactivity handler's `views.open`. New domain services should depend
+   * on `slackAdapter` instead so they inherit the timeout/fail-mode discipline.
    */
   readonly slackWebClient: WebClient;
   readonly slackAdapter: SlackAdapter;

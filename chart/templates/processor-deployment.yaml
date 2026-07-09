@@ -8,9 +8,10 @@ metadata:
     incident-response.io/service: processor
 spec:
   replicas: {{ .Values.processor.replicaCount }}
-  # Recreate (not RollingUpdate) — Slack socket-mode is a singleton; brief
-  # downtime during deploys is preferable to two sockets briefly running and
-  # dispatching the same event twice.
+  # Recreate (not RollingUpdate) — the processor is a single-writer singleton
+  # (SQS consumer + stateful war-room assembly); brief downtime during deploys
+  # is preferable to two processors briefly running and dispatching the same
+  # incident event twice.
   strategy:
     type: Recreate
   selector:
@@ -38,6 +39,11 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.processor.port }}
+              protocol: TCP
+            # MCP streamable-HTTP server (env MCP_PORT). The mcp-tunnel routes
+            # here; the NetworkPolicy locks it to the mcp-tunnel namespace.
+            - name: mcp
+              containerPort: {{ .Values.processor.mcpPort }}
               protocol: TCP
           env:
             {{- include "incident-response.env" (dict "Values" .Values "service" "processor") | nindent 12 }}

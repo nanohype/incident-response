@@ -25,7 +25,7 @@ Provision these **separately** for each environment — staging and production e
 
 | System | What you need | Where to get it |
 |---|---|---|
-| **Slack app** | Bot token (`xoxb-…`), signing secret, app-level token (`xapp-…`) with `connections:write` (socket mode) | [api.slack.com/apps](https://api.slack.com/apps) → Create New App → From manifest. Required scopes: `chat:write`, `channels:manage`, `channels:read`, `groups:read`, `groups:write`, `users:read`, `commands`. |
+| **Slack app** | Bot token (`xoxb-…`) + signing secret; Interactivity + slash-command Request URLs point at the webhook host (`/slack/interactivity`, `/slack/commands`) | [api.slack.com/apps](https://api.slack.com/apps) → Create New App → From manifest. Required scopes: `chat:write`, `channels:manage`, `channels:read`, `groups:read`, `groups:write`, `users:read`, `commands`. |
 | **Grafana OnCall** | API token (read-only) + webhook HMAC secret | Grafana → OnCall → Settings → API tokens. HMAC secret is generated locally (`openssl rand -base64 32`) and pasted into the OnCall *outgoing webhook* signing field. |
 | **Grafana Cloud** | OTLP instance ID, API token (`glc_…` with `otlp:write`), org ID, Loki username, Loki host | Grafana Cloud → Connections → OpenTelemetry (for OTLP) + Connections → Logs (Loki). See [`docs/secrets.md`](secrets.md) § "The `incident-response/{env}/grafana-cloud/otlp-auth` secret" for the JSON shape. |
 | **Statuspage.io** | API key + page ID | Statuspage → Manage → API. Page ID is visible in the Statuspage URL (`manage.statuspage.io/pages/<PAGE_ID>/`). |
@@ -35,7 +35,7 @@ Provision these **separately** for each environment — staging and production e
 
 ### Slack app (required before first deploy)
 
-Full walkthrough in [`docs/slack-app-setup.md`](slack-app-setup.md). Summary: you need a Slack app per environment with Socket Mode enabled, Interactivity toggled on, the `/incident-response` slash command registered, the bot token scopes listed in that doc, and all three tokens (bot / app-level / signing-secret) seeded. Without this, the processor crash-loops at Bolt startup.
+Full walkthrough in [`docs/slack-app-setup.md`](slack-app-setup.md). Summary: you need a Slack app per environment with Interactivity toggled on and the `/incident-response` slash command registered, both Request URLs pointed at the webhook host (`https://<webhook-host>/slack/{commands,interactivity}`), the bot token scopes listed in that doc, and both secrets (bot token + signing secret) seeded. Socket Mode stays off. Without the signing secret, the webhook returns 401 for every Slack request.
 
 ### Local tooling
 
@@ -209,7 +209,7 @@ Removing the tenant is the inverse of the deploy: remove the ApplicationSet entr
 
 ```bash
 ENV=staging                                   # or: production
-for s in slack/bot-token slack/signing-secret slack/app-token grafana/oncall-token \
+for s in slack/bot-token slack/signing-secret grafana/oncall-token \
          grafana/cloud-token grafana/cloud-org-id statuspage/api-key statuspage/page-id \
          github/token linear/api-key linear/project-id linear/team-id workos/api-key \
          grafana/oncall-webhook-hmac grafana-cloud/otlp-auth; do
