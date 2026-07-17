@@ -1,0 +1,31 @@
+# Development delta.
+image:
+  tag: development
+
+ingress:
+  host: incident-response-webhook-development.example.com
+
+externalSecret:
+  hmacSecret: incident-response/development/grafana-oncall-hmac
+  appSecret: incident-response/development/app-secrets
+  grafanaCloudSecret: incident-response/development/grafana-cloud
+
+env:
+  OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=incident-response,service.version=0.1.0,deployment.environment=development,agents.tenant=protohype,agents.platform=incident-response'
+
+tenantInfra:
+  # Fill the empties below from the landing-zone incident-response-platform development
+  # outputs (terragrunt output -json) — the rest of the slot names match
+  # output names 1:1 (identity_cache_table_name, incident_events_queue_url,
+  # nudge_events_queue_url, nudge_events_queue_arn, sla_check_queue_url,
+  # scheduler_role_arn, audit_bucket_name).
+  incidentsTableName: incident-response-development-incidents
+  auditTableName: incident-response-development-audit
+  identityCacheTableName: '' # output: identity_cache_table_name
+  incidentEventsQueueUrl: ''
+  nudgeEventsQueueUrl: ''
+  nudgeEventsQueueArn: ''
+  slaCheckQueueUrl: ''
+  schedulerRoleArn: ''
+  schedulerGroupName: incident-response-development-nudges
+  auditBucketName: '' # output: audit_bucket_name
