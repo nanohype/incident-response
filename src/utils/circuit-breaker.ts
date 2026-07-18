@@ -16,16 +16,16 @@
  */
 
 import {
-  createCircuitBreaker as createVendoredCircuitBreaker,
-  CircuitOpenError,
   type CircuitBreaker,
+  CircuitOpenError,
   type CircuitState,
-} from '../vendor/runtime/circuit-breaker.js';
-import { logger } from './logger.js';
-import { MetricNames, type MetricsEmitter } from './metrics.js';
+  createCircuitBreaker as createVendoredCircuitBreaker,
+} from "../vendor/runtime/circuit-breaker.js";
+import { logger } from "./logger.js";
+import { MetricNames, type MetricsEmitter } from "./metrics.js";
 
-export { CircuitOpenError };
 export type { CircuitBreaker, CircuitState };
+export { CircuitOpenError };
 
 export interface CircuitBreakerOpts {
   /** Identifier used in logs + metrics. */
@@ -52,9 +52,9 @@ export function createCircuitBreaker(opts: CircuitBreakerOpts): CircuitBreaker {
     onOpen: (name) => {
       logger.warn(
         { circuit: name, failure_threshold: opts.failureThreshold, window_ms: opts.windowMs },
-        'Circuit opened',
+        "Circuit opened",
       );
-      opts.metrics?.increment(MetricNames.CircuitOpenCount, [{ name: 'circuit', value: name }]);
+      opts.metrics?.increment(MetricNames.CircuitOpenCount, [{ name: "circuit", value: name }]);
     },
   });
 
@@ -67,7 +67,7 @@ export function createCircuitBreaker(opts: CircuitBreakerOpts): CircuitBreaker {
       } catch (err) {
         if (err instanceof CircuitOpenError) {
           opts.metrics?.increment(MetricNames.CircuitOpenRejectCount, [
-            { name: 'circuit', value: opts.name },
+            { name: "circuit", value: opts.name },
           ]);
         }
         throw err;

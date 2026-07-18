@@ -14,25 +14,25 @@
  * invariant ("IC must click Approve & Publish in Slack").
  */
 
-import { URLSearchParams } from 'node:url';
-import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-import type { WebClient } from '@slack/web-api';
+import { URLSearchParams } from "node:url";
+import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import type { WebClient } from "@slack/web-api";
 import {
-  CommandRegistry,
-  SlashCommandTextSchema,
+  type CommandRegistry,
   SlashCommandArgsSchema,
-} from '../services/command-registry.js';
-import type { StatuspageApprovalGate } from '../services/statuspage-approval-gate.js';
-import type { AuditWriter } from '../utils/audit.js';
-import type { RespondFn, SlackRespondArguments, SlashCommand } from '../types/slack.js';
-import { resolveIncidentByChannel } from '../utils/incident-lookup.js';
-import { HttpClient } from '../utils/http-client.js';
-import { logger } from '../utils/logger.js';
-import { stringifyError } from '../utils/errors.js';
+  SlashCommandTextSchema,
+} from "../services/command-registry.js";
+import type { StatuspageApprovalGate } from "../services/statuspage-approval-gate.js";
+import type { RespondFn, SlackRespondArguments, SlashCommand } from "../types/slack.js";
+import type { AuditWriter } from "../utils/audit.js";
+import { stringifyError } from "../utils/errors.js";
+import { HttpClient } from "../utils/http-client.js";
+import { resolveIncidentByChannel } from "../utils/incident-lookup.js";
+import { logger } from "../utils/logger.js";
 
 // Subcommands that require an active war-room context. `help` does not — it
 // should work anywhere in the workspace.
-export const CHANNEL_SCOPED_COMMANDS = new Set(['status', 'checklist', 'silence', 'resolve']);
+export const CHANNEL_SCOPED_COMMANDS = new Set(["status", "checklist", "silence", "resolve"]);
 
 export type PulseRating = 1 | 2 | 3 | 4 | 5;
 
@@ -44,8 +44,8 @@ export type ResponseUrlPoster = (
 
 export interface SlackInteractionDeps {
   commandRegistry: CommandRegistry;
-  approvalGate: Pick<StatuspageApprovalGate, 'approveAndPublish'>;
-  auditWriter: Pick<AuditWriter, 'write'>;
+  approvalGate: Pick<StatuspageApprovalGate, "approveAndPublish">;
+  auditWriter: Pick<AuditWriter, "write">;
   dynamoDb: DynamoDBDocumentClient;
   incidentsTableName: string;
   slack: WebClient;
@@ -75,31 +75,31 @@ export interface InteractionPayload {
  */
 export const postToResponseUrl: ResponseUrlPoster = async (responseUrl, message) => {
   const client = new HttpClient({
-    clientName: 'slack.response_url',
+    clientName: "slack.response_url",
     baseUrl: responseUrl,
     timeoutMs: 3000,
     maxRetries: 1,
   });
-  await client.post('', message);
+  await client.post("", message);
 };
 
 /** Build a `respond` bound to one interaction's `response_url`. */
 function makeResponder(deps: SlackInteractionDeps, responseUrl: string): RespondFn {
   return (message) =>
-    deps.respondTo(responseUrl, typeof message === 'string' ? { text: message } : message);
+    deps.respondTo(responseUrl, typeof message === "string" ? { text: message } : message);
 }
 
 /** Parse a Slack slash-command `application/x-www-form-urlencoded` body. */
 export function parseSlashCommand(rawBody: string): SlashCommand {
   const p = new URLSearchParams(rawBody);
   return {
-    command: p.get('command') ?? '',
-    text: p.get('text') ?? '',
-    user_id: p.get('user_id') ?? '',
-    channel_id: p.get('channel_id') ?? '',
-    team_id: p.get('team_id') ?? '',
-    response_url: p.get('response_url') ?? '',
-    trigger_id: p.get('trigger_id') ?? '',
+    command: p.get("command") ?? "",
+    text: p.get("text") ?? "",
+    user_id: p.get("user_id") ?? "",
+    channel_id: p.get("channel_id") ?? "",
+    team_id: p.get("team_id") ?? "",
+    response_url: p.get("response_url") ?? "",
+    trigger_id: p.get("trigger_id") ?? "",
   };
 }
 
@@ -108,7 +108,7 @@ export function parseSlashCommand(rawBody: string): SlashCommand {
  * value is URL-encoded JSON.
  */
 export function parseInteraction(rawBody: string): InteractionPayload {
-  const raw = new URLSearchParams(rawBody).get('payload') ?? '';
+  const raw = new URLSearchParams(rawBody).get("payload") ?? "";
   return JSON.parse(raw) as InteractionPayload;
 }
 
@@ -125,20 +125,20 @@ export async function handleSlashCommand(
 
   const textParse = SlashCommandTextSchema.safeParse(command.text);
   if (!textParse.success) {
-    await respond({ text: '❌ Command text too long. Keep it under 500 characters.' });
+    await respond({ text: "❌ Command text too long. Keep it under 500 characters." });
     return;
   }
   const tokens = textParse.data.trim().split(/\s+/);
   const argsParse = SlashCommandArgsSchema.safeParse(tokens.slice(1));
   if (!argsParse.success) {
     await respond({
-      text: '❌ Too many or oversized arguments. Keep it to 10 tokens, 100 chars each.',
+      text: "❌ Too many or oversized arguments. Keep it to 10 tokens, 100 chars each.",
     });
     return;
   }
-  const subCommand = tokens[0] ?? '';
+  const subCommand = tokens[0] ?? "";
   const args = argsParse.data;
-  await deps.auditWriter.write(command.channel_id, command.user_id, 'SLASH_COMMAND_RECEIVED', {
+  await deps.auditWriter.write(command.channel_id, command.user_id, "SLASH_COMMAND_RECEIVED", {
     command: subCommand,
     args,
     channel_id: command.channel_id,
@@ -160,16 +160,16 @@ export async function handleSlashCommand(
         resolvedIncidentId = incident.incident_id;
       } else {
         await respond({
-          text: 'No active incident found for this channel. Start one via Grafana OnCall.',
+          text: "No active incident found for this channel. Start one via Grafana OnCall.",
         });
         return;
       }
     } catch (err) {
       logger.error(
         { channel_id: command.channel_id, error: stringifyError(err) },
-        'Failed to resolve incident by channel',
+        "Failed to resolve incident by channel",
       );
-      await respond({ text: '❌ Internal error resolving incident for this channel. Check logs.' });
+      await respond({ text: "❌ Internal error resolving incident for this channel. Check logs." });
       return;
     }
   }
@@ -197,11 +197,11 @@ export async function handleInteraction(
   const action = payload.actions?.[0];
   if (!action) return;
   const userId = payload.user.id;
-  const responseUrl = payload.response_url ?? '';
+  const responseUrl = payload.response_url ?? "";
   const respond = makeResponder(deps, responseUrl);
 
-  if (action.action_id === 'statuspage_approve') {
-    const { incident_id, draft_id } = JSON.parse(action.value ?? '{}') as {
+  if (action.action_id === "statuspage_approve") {
+    const { incident_id, draft_id } = JSON.parse(action.value ?? "{}") as {
       incident_id: string;
       draft_id: string;
     };
@@ -217,39 +217,39 @@ export async function handleInteraction(
     } catch (err) {
       logger.error(
         { incident_id, draft_id, error: stringifyError(err) },
-        'Status page approval failed',
+        "Status page approval failed",
       );
       await respond({
-        text: `❌ Failed to publish status page: ${err instanceof Error ? err.message : 'Unknown error'}. Please try again.`,
+        text: `❌ Failed to publish status page: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`,
       });
     }
     return;
   }
 
-  if (action.action_id === 'statuspage_edit') {
-    const { incident_id, draft_id } = JSON.parse(action.value ?? '{}') as {
+  if (action.action_id === "statuspage_edit") {
+    const { incident_id, draft_id } = JSON.parse(action.value ?? "{}") as {
       incident_id: string;
       draft_id: string;
     };
     await deps.slack.views.open({
-      trigger_id: payload.trigger_id ?? '',
+      trigger_id: payload.trigger_id ?? "",
       view: {
-        type: 'modal',
+        type: "modal",
         callback_id: `statuspage_edit_submit:${incident_id}:${draft_id}`,
-        title: { type: 'plain_text', text: 'Edit Status Page Draft' },
-        submit: { type: 'plain_text', text: 'Save & Re-Review' },
-        close: { type: 'plain_text', text: 'Cancel' },
+        title: { type: "plain_text", text: "Edit Status Page Draft" },
+        submit: { type: "plain_text", text: "Save & Re-Review" },
+        close: { type: "plain_text", text: "Cancel" },
         blocks: [
           {
-            type: 'input',
-            block_id: 'draft_body',
+            type: "input",
+            block_id: "draft_body",
             element: {
-              type: 'plain_text_input',
-              action_id: 'draft_body_input',
+              type: "plain_text_input",
+              action_id: "draft_body_input",
               multiline: true,
-              initial_value: 'Edit draft here...',
+              initial_value: "Edit draft here...",
             },
-            label: { type: 'plain_text', text: 'Status Page Message' },
+            label: { type: "plain_text", text: "Status Page Message" },
           },
         ],
       },
@@ -257,10 +257,10 @@ export async function handleInteraction(
     return;
   }
 
-  if (action.action_id === 'silence_reminders') {
+  if (action.action_id === "silence_reminders") {
     logger.info(
-      { channel_id: payload.channel?.id ?? '', user_id: userId },
-      'IC silenced reminders via button',
+      { channel_id: payload.channel?.id ?? "", user_id: userId },
+      "IC silenced reminders via button",
     );
     return;
   }
@@ -268,18 +268,18 @@ export async function handleInteraction(
   const pulseMatch = /^pulse_rate_([1-5])$/.exec(action.action_id);
   if (pulseMatch) {
     const rating = Number.parseInt(pulseMatch[1]!, 10) as PulseRating;
-    const { incident_id } = JSON.parse(action.value ?? '{}') as { incident_id: string };
-    await deps.auditWriter.write(incident_id, userId, 'IC_RATED', {
+    const { incident_id } = JSON.parse(action.value ?? "{}") as { incident_id: string };
+    await deps.auditWriter.write(incident_id, userId, "IC_RATED", {
       rating,
       rated_at: new Date().toISOString(),
     });
     await respond({
-      text: `${'⭐'.repeat(rating)} Thank you! Your rating has been recorded.`,
+      text: `${"⭐".repeat(rating)} Thank you! Your rating has been recorded.`,
       replace_original: true,
     });
-    logger.info({ incident_id, user_id: userId, rating }, 'IC pulse rating recorded');
+    logger.info({ incident_id, user_id: userId, rating }, "IC pulse rating recorded");
     return;
   }
 
-  logger.warn({ action_id: action.action_id, user_id: userId }, 'Unhandled Slack interaction');
+  logger.warn({ action_id: action.action_id, user_id: userId }, "Unhandled Slack interaction");
 }

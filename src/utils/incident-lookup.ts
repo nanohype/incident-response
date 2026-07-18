@@ -10,10 +10,10 @@
  * Returns undefined if no war-room record exists for the channel — callers
  * should surface that as "No active incident found for this channel".
  */
-import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
-import type { IncidentRecord } from '../types/index.js';
+import { type DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import type { IncidentRecord } from "../types/index.js";
 
-const SLACK_CHANNEL_INDEX = 'slack-channel-index';
+const SLACK_CHANNEL_INDEX = "slack-channel-index";
 
 export async function resolveIncidentByChannel(
   docClient: DynamoDBDocumentClient,
@@ -24,8 +24,8 @@ export async function resolveIncidentByChannel(
     new QueryCommand({
       TableName: incidentsTableName,
       IndexName: SLACK_CHANNEL_INDEX,
-      KeyConditionExpression: 'slack_channel_id = :cid',
-      ExpressionAttributeValues: { ':cid': channelId },
+      KeyConditionExpression: "slack_channel_id = :cid",
+      ExpressionAttributeValues: { ":cid": channelId },
       ScanIndexForward: false, // newest first
       Limit: 1,
     }),

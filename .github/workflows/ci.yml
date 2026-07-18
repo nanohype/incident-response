@@ -210,8 +210,8 @@ jobs:
       - uses: actions/checkout@v4
       # The single source of truth for the vendored copies (the
       # tenant-chart-base library chart, the runtime modules under
-      # src/vendor/runtime, .prettierrc.json, eslint.base.mjs, and the sync
-      # script itself — declared in scripts/vendored.json). Copies must stay
+      # src/vendor/runtime, biome.base.json, and the sync script itself —
+      # declared in scripts/vendored.json). Copies must stay
       # byte-identical — fixes land upstream and are re-copied, never patched
       # here.
       - uses: actions/checkout@v4

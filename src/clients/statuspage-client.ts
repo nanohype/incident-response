@@ -4,8 +4,8 @@
  * Never call directly — the approval gate enforces 100% IC-approval invariant.
  */
 
-import { HttpClient } from '../utils/http-client.js';
-import { logger } from '../utils/logger.js';
+import { HttpClient } from "../utils/http-client.js";
+import { logger } from "../utils/logger.js";
 
 export interface StatuspageIncident {
   id: string;
@@ -32,9 +32,9 @@ export class StatuspageClient {
   constructor(apiKey: string, pageId: string) {
     this.pageId = pageId;
     this.http = new HttpClient({
-      clientName: 'statuspage',
-      baseUrl: 'https://api.statuspage.io',
-      defaultHeaders: { Authorization: `OAuth ${apiKey}`, Accept: 'application/json' },
+      clientName: "statuspage",
+      baseUrl: "https://api.statuspage.io",
+      defaultHeaders: { Authorization: `OAuth ${apiKey}`, Accept: "application/json" },
       timeoutMs: 5000,
       maxRetries: 2,
     });
@@ -43,7 +43,7 @@ export class StatuspageClient {
   async listComponents(): Promise<StatuspageComponent[]> {
     const resp = await this.http.get<StatuspageComponent[]>(`/v1/pages/${this.pageId}/components`);
     if (!resp.ok) {
-      logger.warn({ status: resp.status }, 'Failed to list Statuspage components');
+      logger.warn({ status: resp.status }, "Failed to list Statuspage components");
       return [];
     }
     return resp.data;
@@ -57,14 +57,14 @@ export class StatuspageClient {
   ): Promise<StatuspageIncident> {
     logger.info(
       { incident_id: incidentId, page_id: this.pageId },
-      'Creating Statuspage.io incident',
+      "Creating Statuspage.io incident",
     );
     const resp = await this.http.post<StatuspageIncident>(
       `/v1/pages/${this.pageId}/incidents`,
       {
         incident: {
           name,
-          status: 'investigating',
+          status: "investigating",
           body,
           component_ids: componentIds,
           deliver_notifications: true,
@@ -81,12 +81,12 @@ export class StatuspageClient {
   async updateIncident(
     spIncidentId: string,
     body: string,
-    status: 'investigating' | 'identified' | 'monitoring' | 'resolved',
+    status: "investigating" | "identified" | "monitoring" | "resolved",
     incidentId: string,
   ): Promise<StatuspageIncident> {
     logger.info(
       { incident_id: incidentId, statuspage_incident_id: spIncidentId, status },
-      'Updating Statuspage.io incident',
+      "Updating Statuspage.io incident",
     );
     const resp = await this.http.put<StatuspageIncident>(
       `/v1/pages/${this.pageId}/incidents/${spIncidentId}`,

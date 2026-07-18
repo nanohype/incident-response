@@ -2,25 +2,24 @@
  * Build all runtime dependencies in one place. index.ts composes these.
  */
 
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-import { WebClient } from '@slack/web-api';
-
-import { GrafanaOnCallClient } from '../clients/grafana-oncall-client.js';
-import { GrafanaCloudClient } from '../clients/grafana-cloud-client.js';
-import { WorkOSClient } from '../clients/workos-client.js';
-import { StatuspageClient } from '../clients/statuspage-client.js';
-import { LinearIncidentResponseClient } from '../clients/linear-client.js';
-import { GitHubClient } from '../clients/github-client.js';
-import { AuditWriter } from '../utils/audit.js';
-import { MetricsEmitter } from '../utils/metrics.js';
-import { setHttpClientMetrics } from '../utils/http-client.js';
-import { WarRoomAssembler } from '../services/war-room-assembler.js';
-import { StatuspageApprovalGate } from '../services/statuspage-approval-gate.js';
-import { NudgeScheduler } from '../services/nudge-scheduler.js';
-import { IncidentResponseAI } from '../ai/incident-response-ai.js';
-import { createSlackAdapter, type SlackAdapter } from '../adapters/slack-adapter.js';
-import { createCircuitBreaker } from '../utils/circuit-breaker.js';
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { WebClient } from "@slack/web-api";
+import { createSlackAdapter, type SlackAdapter } from "../adapters/slack-adapter.js";
+import { IncidentResponseAI } from "../ai/incident-response-ai.js";
+import { GitHubClient } from "../clients/github-client.js";
+import { GrafanaCloudClient } from "../clients/grafana-cloud-client.js";
+import { GrafanaOnCallClient } from "../clients/grafana-oncall-client.js";
+import { LinearIncidentResponseClient } from "../clients/linear-client.js";
+import { StatuspageClient } from "../clients/statuspage-client.js";
+import { WorkOSClient } from "../clients/workos-client.js";
+import { NudgeScheduler } from "../services/nudge-scheduler.js";
+import { StatuspageApprovalGate } from "../services/statuspage-approval-gate.js";
+import { WarRoomAssembler } from "../services/war-room-assembler.js";
+import { AuditWriter } from "../utils/audit.js";
+import { createCircuitBreaker } from "../utils/circuit-breaker.js";
+import { setHttpClientMetrics } from "../utils/http-client.js";
+import { MetricsEmitter } from "../utils/metrics.js";
 
 export interface Dependencies {
   readonly awsRegion: string;
@@ -46,10 +45,10 @@ export interface Dependencies {
 }
 
 export function buildDependencies(): Dependencies {
-  const awsRegion = process.env['AWS_REGION']!;
-  const incidentsTableName = process.env['INCIDENTS_TABLE_NAME']!;
-  const githubRepoNames = (process.env['GITHUB_REPO_NAMES'] ?? '')
-    .split(',')
+  const awsRegion = process.env.AWS_REGION!;
+  const incidentsTableName = process.env.INCIDENTS_TABLE_NAME!;
+  const githubRepoNames = (process.env.GITHUB_REPO_NAMES ?? "")
+    .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
 
@@ -69,14 +68,13 @@ export function buildDependencies(): Dependencies {
   setHttpClientMetrics(metrics);
 
   const grafanaOnCallClient = new GrafanaOnCallClient(
-    process.env['GRAFANA_ONCALL_BASE_URL'] ?? 'https://oncall-prod-us-central-0.grafana.net',
-    process.env['GRAFANA_ONCALL_TOKEN']!,
+    process.env.GRAFANA_ONCALL_BASE_URL ?? "https://oncall-prod-us-central-0.grafana.net",
+    process.env.GRAFANA_ONCALL_TOKEN!,
   );
   const grafanaCloudClient = new GrafanaCloudClient(
-    process.env['GRAFANA_CLOUD_BASE_URL'] ??
-      'https://prometheus-prod-01-prod-us-east-0.grafana.net',
-    process.env['GRAFANA_CLOUD_ORG_ID']!,
-    process.env['GRAFANA_CLOUD_TOKEN']!,
+    process.env.GRAFANA_CLOUD_BASE_URL ?? "https://prometheus-prod-01-prod-us-east-0.grafana.net",
+    process.env.GRAFANA_CLOUD_ORG_ID!,
+    process.env.GRAFANA_CLOUD_TOKEN!,
   );
   // Circuit breaker for WorkOS directory lookups: 5 failures within a 60s
   // sliding window opens the circuit for 30s (then a single half-open probe),
@@ -84,44 +82,44 @@ export function buildDependencies(): Dependencies {
   // WarRoomAssembler still degrades to manual-invite via
   // `DirectoryLookupFailedError` while the circuit is open.
   const directoryBreaker = createCircuitBreaker({
-    name: 'workos.directory',
+    name: "workos.directory",
     failureThreshold: 5,
     windowMs: 60_000,
     halfOpenAfterMs: 30_000,
     metrics,
   });
   const directoryClient = new WorkOSClient(
-    process.env['WORKOS_API_KEY']!,
-    process.env['WORKOS_DIRECTORY_ID']!,
+    process.env.WORKOS_API_KEY!,
+    process.env.WORKOS_DIRECTORY_ID!,
     directoryBreaker,
   );
   const statuspageClient = new StatuspageClient(
-    process.env['STATUSPAGE_API_KEY']!,
-    process.env['STATUSPAGE_PAGE_ID']!,
+    process.env.STATUSPAGE_API_KEY!,
+    process.env.STATUSPAGE_PAGE_ID!,
   );
   const linearClient = new LinearIncidentResponseClient(
-    process.env['LINEAR_API_KEY']!,
-    process.env['LINEAR_PROJECT_ID']!,
-    process.env['LINEAR_TEAM_ID']!,
+    process.env.LINEAR_API_KEY!,
+    process.env.LINEAR_PROJECT_ID!,
+    process.env.LINEAR_TEAM_ID!,
   );
   const githubClient = new GitHubClient(
-    process.env['GITHUB_TOKEN'] ?? '',
-    process.env['GITHUB_ORG_SLUG'] ?? '',
+    process.env.GITHUB_TOKEN ?? "",
+    process.env.GITHUB_ORG_SLUG ?? "",
   );
-  const auditWriter = new AuditWriter(dynamoDb, process.env['AUDIT_TABLE_NAME']!);
+  const auditWriter = new AuditWriter(dynamoDb, process.env.AUDIT_TABLE_NAME!);
   // NudgeScheduler's second arg is the queue ARN, not URL — EventBridge
   // Scheduler's `Target.Arn` field expects an AWS resource ARN. Passing the
   // SQS URL here fails silently at schedule-create time with
   // "Provided Arn is not in correct format", which means 15-min status
   // nudges never fire even though the audit log shows scheduling attempts.
   const nudgeScheduler = new NudgeScheduler(
-    process.env['SCHEDULER_ROLE_ARN']!,
-    process.env['NUDGE_EVENTS_QUEUE_ARN']!,
+    process.env.SCHEDULER_ROLE_ARN!,
+    process.env.NUDGE_EVENTS_QUEUE_ARN!,
     awsRegion,
-    process.env['SCHEDULER_GROUP_NAME']!,
+    process.env.SCHEDULER_GROUP_NAME!,
   );
   const incidentResponseAI = new IncidentResponseAI(awsRegion);
-  const slackWebClient = new WebClient(process.env['SLACK_BOT_TOKEN'], { timeout: 10000 });
+  const slackWebClient = new WebClient(process.env.SLACK_BOT_TOKEN, { timeout: 10000 });
   const slackAdapter = createSlackAdapter(slackWebClient);
   const approvalGate = new StatuspageApprovalGate(
     dynamoDb,
@@ -139,7 +137,7 @@ export function buildDependencies(): Dependencies {
     grafanaCloudClient,
     auditWriter,
     nudgeScheduler,
-    process.env['GITHUB_ORG_SLUG'] ?? '',
+    process.env.GITHUB_ORG_SLUG ?? "",
     metrics,
   );
 

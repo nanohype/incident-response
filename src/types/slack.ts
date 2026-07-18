@@ -7,14 +7,14 @@
  * no framework type dependency leaks into the command registry.
  */
 
-import type { Block, KnownBlock } from '@slack/types';
+import type { Block, KnownBlock } from "@slack/types";
 
 /** The reply payload posted back to a Slack `response_url`. */
 export interface SlackRespondArguments {
   text?: string;
   blocks?: (KnownBlock | Block)[];
   /** `ephemeral` (default, only the invoker sees it) or `in_channel`. */
-  response_type?: 'ephemeral' | 'in_channel';
+  response_type?: "ephemeral" | "in_channel";
   /** Replace the message the interaction originated from. */
   replace_original?: boolean;
   /** Delete the originating message. */

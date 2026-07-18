@@ -8,13 +8,13 @@
  * http://localhost:8000 with dummy creds and destroys the client after the
  * run so the process exits cleanly.
  */
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
     globals: true,
-    environment: 'node',
-    include: ['test/integration/**/*.integration.test.ts'],
+    environment: "node",
+    include: ["test/integration/**/*.integration.test.ts"],
     testTimeout: 60000,
   },
 });

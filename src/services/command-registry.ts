@@ -5,9 +5,9 @@
  * No edits to src/index.ts required.
  */
 
-import { z } from 'zod';
-import type { RespondFn, SlashCommand } from '../types/slack.js';
-import type { WebClient } from '@slack/web-api';
+import type { WebClient } from "@slack/web-api";
+import { z } from "zod";
+import type { RespondFn, SlashCommand } from "../types/slack.js";
 
 /**
  * Slash command text bounds. Protects the downstream audit write from a

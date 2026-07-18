@@ -19,16 +19,16 @@
  * Caller MUST surface explicit error to IC. NEVER fabricate an invite list.
  */
 
-import { HttpClient } from '../utils/http-client.js';
-import { DirectoryUser, DirectoryLookupFailedError } from '../types/index.js';
-import { logger } from '../utils/logger.js';
-import { CircuitOpenError, type CircuitBreaker } from '../utils/circuit-breaker.js';
-import { stringifyError } from '../utils/errors.js';
+import { DirectoryLookupFailedError, type DirectoryUser } from "../types/index.js";
+import { type CircuitBreaker, CircuitOpenError } from "../utils/circuit-breaker.js";
+import { stringifyError } from "../utils/errors.js";
+import { HttpClient } from "../utils/http-client.js";
+import { logger } from "../utils/logger.js";
 import {
   createWorkOsDirectoryClient,
-  type WorkOsDirectoryClient,
   type DirectoryUser as VendoredDirectoryUser,
-} from '../vendor/runtime/workos-directory.js';
+  type WorkOsDirectoryClient,
+} from "../vendor/runtime/workos-directory.js";
 
 interface CacheEntry<T> {
   value: T;
@@ -45,9 +45,9 @@ export class WorkOSClient {
 
   constructor(apiKey: string, directoryId: string, breaker?: CircuitBreaker) {
     this.http = new HttpClient({
-      clientName: 'workos',
-      baseUrl: 'https://api.workos.com',
-      defaultHeaders: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+      clientName: "workos",
+      baseUrl: "https://api.workos.com",
+      defaultHeaders: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
       timeoutMs: 5000,
       maxRetries: 2,
     });
@@ -57,12 +57,12 @@ export class WorkOSClient {
     // headers, so the vendored client's own header arg is ignored here.
     const fetchViaHttpClient: typeof fetch = async (input) => {
       const url = new URL(
-        input instanceof URL || typeof input === 'string' ? String(input) : input.url,
+        input instanceof URL || typeof input === "string" ? String(input) : input.url,
       );
       const resp = await this.http.get<unknown>(`${url.pathname}${url.search}`);
       return new Response(JSON.stringify(resp.data), {
         status: resp.status,
-        headers: { 'content-type': 'application/json' },
+        headers: { "content-type": "application/json" },
       });
     };
     this.directory = createWorkOsDirectoryClient({
@@ -80,14 +80,14 @@ export class WorkOSClient {
     if (cached && Date.now() < cached.expiresAt) {
       logger.debug(
         { incident_id: incidentId, group_id: groupId },
-        'Using cached WorkOS group membership',
+        "Using cached WorkOS group membership",
       );
       return cached.value;
     }
 
     logger.info(
       { incident_id: incidentId, group_id: groupId },
-      'Fetching WorkOS directory group members',
+      "Fetching WorkOS directory group members",
     );
 
     const fetchUnderBreaker = (): Promise<DirectoryUser[]> =>
@@ -100,7 +100,7 @@ export class WorkOSClient {
       this.groupCache.set(cacheKey, { value: users, expiresAt: Date.now() + GROUP_CACHE_TTL_MS });
       logger.info(
         { incident_id: incidentId, group_id: groupId, user_count: users.length },
-        'WorkOS group members fetched',
+        "WorkOS group members fetched",
       );
       return users;
     } catch (err) {
@@ -114,7 +114,7 @@ export class WorkOSClient {
             error: stringifyError(err),
             circuit_open: err instanceof CircuitOpenError,
           },
-          'WorkOS lookup failed, using stale cache data',
+          "WorkOS lookup failed, using stale cache data",
         );
         return cached.value;
       }
@@ -130,7 +130,7 @@ export class WorkOSClient {
           error: error.message,
           circuit_open: err instanceof CircuitOpenError,
         },
-        'DIRECTORY LOOKUP FAILED — IC must manually specify responders',
+        "DIRECTORY LOOKUP FAILED — IC must manually specify responders",
       );
       throw error;
     }
@@ -141,7 +141,7 @@ export class WorkOSClient {
     const members = await this.directory.listUsersInGroup(groupId);
     const users: DirectoryUser[] = [];
     for (const m of members) {
-      if (m.state !== 'active') continue;
+      if (m.state !== "active") continue;
       if (!m.email) continue;
       users.push(toAppDirectoryUser(m, m.email));
     }
@@ -155,6 +155,6 @@ function toAppDirectoryUser(u: VendoredDirectoryUser, email: string): DirectoryU
     email,
     first_name: u.firstName,
     last_name: u.lastName,
-    state: 'active',
+    state: "active",
   };
 }

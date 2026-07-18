@@ -3,15 +3,15 @@
  * /incident-response status draft — generate a Bedrock-backed status-page draft for IC approval.
  */
 
-import { GetCommand } from '@aws-sdk/lib-dynamodb';
-import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
-import type { CommandContext, CommandHandler } from '../services/command-registry.js';
-import type { IncidentResponseAI } from '../ai/incident-response-ai.js';
-import type { StatuspageApprovalGate } from '../services/statuspage-approval-gate.js';
-import { buildStatusPageApprovalBlocks } from '../services/slack-blocks.js';
-import type { IncidentRecord, GrafanaOnCallAlertPayload } from '../types/index.js';
-import { logger } from '../utils/logger.js';
-import { stringifyError } from '../utils/errors.js';
+import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { GetCommand } from "@aws-sdk/lib-dynamodb";
+import type { IncidentResponseAI } from "../ai/incident-response-ai.js";
+import type { CommandContext, CommandHandler } from "../services/command-registry.js";
+import { buildStatusPageApprovalBlocks } from "../services/slack-blocks.js";
+import type { StatuspageApprovalGate } from "../services/statuspage-approval-gate.js";
+import type { GrafanaOnCallAlertPayload, IncidentRecord } from "../types/index.js";
+import { stringifyError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
 
 export interface StatusDeps {
   docClient: DynamoDBDocumentClient;
@@ -27,7 +27,7 @@ async function loadIncident(
   const result = await deps.docClient.send(
     new GetCommand({
       TableName: deps.incidentsTableName,
-      Key: { PK: `INCIDENT#${incidentId}`, SK: 'METADATA' },
+      Key: { PK: `INCIDENT#${incidentId}`, SK: "METADATA" },
     }),
   );
   return result.Item as IncidentRecord | undefined;
@@ -35,21 +35,21 @@ async function loadIncident(
 
 export function makeStatusHandler(deps: StatusDeps): CommandHandler {
   return async (ctx: CommandContext): Promise<void> => {
-    if (ctx.args[0] === 'draft') {
+    if (ctx.args[0] === "draft") {
       try {
         const incident = await loadIncident(deps, ctx.incidentId);
         const alert: GrafanaOnCallAlertPayload = incident?.alert_payload ?? {
           alert_group_id: ctx.incidentId,
-          alert_group: { id: ctx.incidentId, title: 'Service Disruption', state: 'firing' },
-          integration_id: '',
-          route_id: '',
-          team_id: '',
-          team_name: 'Engineering',
+          alert_group: { id: ctx.incidentId, title: "Service Disruption", state: "firing" },
+          integration_id: "",
+          route_id: "",
+          team_id: "",
+          team_name: "Engineering",
           alerts: [
             {
-              id: '',
-              title: 'Service Disruption',
-              message: '',
+              id: "",
+              title: "Service Disruption",
+              message: "",
               received_at: new Date().toISOString(),
             },
           ],
@@ -69,15 +69,15 @@ export function makeStatusHandler(deps: StatusDeps): CommandHandler {
         await ctx.slack.chat.postMessage({
           channel: ctx.channelId,
           blocks: buildStatusPageApprovalBlocks(ctx.incidentId, storedDraft.draft_id, draftBody),
-          text: '📡 Status page draft ready for IC approval',
+          text: "📡 Status page draft ready for IC approval",
         });
       } catch (err) {
         logger.error(
           { incident_id: ctx.incidentId, error: stringifyError(err) },
-          'Failed to generate status draft',
+          "Failed to generate status draft",
         );
         await ctx.respond({
-          text: '❌ Failed to generate status draft. Check logs; retry with `/incident-response status draft`.',
+          text: "❌ Failed to generate status draft. Check logs; retry with `/incident-response status draft`.",
         });
       }
       return;
@@ -86,7 +86,7 @@ export function makeStatusHandler(deps: StatusDeps): CommandHandler {
     const incident = await loadIncident(deps, ctx.incidentId);
     if (!incident) {
       await ctx.respond({
-        text: 'No active incident found for this channel. Start one via Grafana OnCall.',
+        text: "No active incident found for this channel. Start one via Grafana OnCall.",
       });
       return;
     }

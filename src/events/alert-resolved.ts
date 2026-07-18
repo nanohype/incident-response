@@ -3,11 +3,11 @@
  * The IC still owns running /incident-response resolve to produce a postmortem.
  */
 
-import type { IncidentQueueMessage } from '../services/sqs-consumer.js';
-import type { EventHandler } from '../services/event-registry.js';
-import type { AuditWriter } from '../utils/audit.js';
-import { logger } from '../utils/logger.js';
-import { stringifyError } from '../utils/errors.js';
+import type { EventHandler } from "../services/event-registry.js";
+import type { IncidentQueueMessage } from "../services/sqs-consumer.js";
+import type { AuditWriter } from "../utils/audit.js";
+import { stringifyError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
 
 export function makeAlertResolvedHandler(
   auditWriter: AuditWriter,
@@ -15,16 +15,16 @@ export function makeAlertResolvedHandler(
   return async (message) => {
     const incidentId = message.payload.alert_group_id;
     try {
-      await auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'INCIDENT_RESOLVED', {
+      await auditWriter.write(incidentId, "INCIDENT_RESPONSE", "INCIDENT_RESOLVED", {
         resolved_at: new Date().toISOString(),
         alert_payload: message.payload,
-        source: 'grafana-oncall-webhook',
+        source: "grafana-oncall-webhook",
       });
     } catch (err) {
       // SQS will retry via visibility timeout; bounded by maxReceiveCount=3 → DLQ.
       logger.error(
         { incident_id: incidentId, error: stringifyError(err) },
-        'INCIDENT_RESOLVED audit write failed — SQS retry (DLQ after 3 attempts)',
+        "INCIDENT_RESOLVED audit write failed — SQS retry (DLQ after 3 attempts)",
       );
       throw err;
     }

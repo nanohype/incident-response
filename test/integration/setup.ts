@@ -4,20 +4,20 @@
  */
 
 import {
-  DynamoDBClient,
   CreateTableCommand,
   DeleteTableCommand,
   DescribeTableCommand,
+  DynamoDBClient,
   ListTablesCommand,
-} from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+} from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 
-const ENDPOINT = process.env['DDB_LOCAL_ENDPOINT'] ?? 'http://localhost:8000';
+const ENDPOINT = process.env.DDB_LOCAL_ENDPOINT ?? "http://localhost:8000";
 
 export const ddbLocalClient = new DynamoDBClient({
   endpoint: ENDPOINT,
-  region: 'us-west-2',
-  credentials: { accessKeyId: 'fake', secretAccessKey: 'fake' },
+  region: "us-west-2",
+  credentials: { accessKeyId: "fake", secretAccessKey: "fake" },
 });
 
 export const ddbLocalDoc = DynamoDBDocumentClient.from(ddbLocalClient);
@@ -56,14 +56,14 @@ async function createPkSkTable(tableName: string): Promise<void> {
     new CreateTableCommand({
       TableName: tableName,
       AttributeDefinitions: [
-        { AttributeName: 'PK', AttributeType: 'S' },
-        { AttributeName: 'SK', AttributeType: 'S' },
+        { AttributeName: "PK", AttributeType: "S" },
+        { AttributeName: "SK", AttributeType: "S" },
       ],
       KeySchema: [
-        { AttributeName: 'PK', KeyType: 'HASH' },
-        { AttributeName: 'SK', KeyType: 'RANGE' },
+        { AttributeName: "PK", KeyType: "HASH" },
+        { AttributeName: "SK", KeyType: "RANGE" },
       ],
-      BillingMode: 'PAY_PER_REQUEST',
+      BillingMode: "PAY_PER_REQUEST",
     }),
   );
 }

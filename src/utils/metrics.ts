@@ -19,7 +19,7 @@
  * Errors surface via the SDK's own diag logger rather than blocking callers.
  */
 
-import { createMetrics, type Metrics } from '../vendor/runtime/metrics.js';
+import { createMetrics, type Metrics } from "../vendor/runtime/metrics.js";
 
 export type MetricDimension = { name: string; value: string };
 
@@ -37,8 +37,8 @@ export class MetricsEmitter {
   constructor(_awsRegion?: string) {
     void _awsRegion;
     this.metrics = createMetrics({
-      meterName: 'incident-response',
-      namespace: 'incident_response',
+      meterName: "incident-response",
+      namespace: "incident_response",
     });
   }
 
@@ -51,7 +51,7 @@ export class MetricsEmitter {
   ): void {
     void _unit;
     this.metrics
-      .histogramInstrument(metricName, { unit: 'ms' })
+      .histogramInstrument(metricName, { unit: "ms" })
       .record(value, toAttributes(dimensions));
   }
 
@@ -68,14 +68,14 @@ export class MetricsEmitter {
 
 /** Canonical metric names. Keep in sync with Grafana dashboard panels + alerting rules. */
 export const MetricNames = {
-  AssemblyDurationMs: 'assembly_duration_ms',
-  ApprovalGateLatencyMs: 'approval_gate_latency_ms',
-  DirectoryLookupFailureCount: 'directory_lookup_failure_count',
-  StatuspagePublishCount: 'statuspage_publish_count',
-  IncidentResolvedCount: 'incident_resolved_count',
-  PostmortemCreatedCount: 'postmortem_created_count',
-  HttpTimeoutCount: 'http_timeout_count',
-  HttpErrorCount: 'http_error_count',
-  CircuitOpenCount: 'circuit_open_count',
-  CircuitOpenRejectCount: 'circuit_open_reject_count',
+  AssemblyDurationMs: "assembly_duration_ms",
+  ApprovalGateLatencyMs: "approval_gate_latency_ms",
+  DirectoryLookupFailureCount: "directory_lookup_failure_count",
+  StatuspagePublishCount: "statuspage_publish_count",
+  IncidentResolvedCount: "incident_resolved_count",
+  PostmortemCreatedCount: "postmortem_created_count",
+  HttpTimeoutCount: "http_timeout_count",
+  HttpErrorCount: "http_error_count",
+  CircuitOpenCount: "circuit_open_count",
+  CircuitOpenRejectCount: "circuit_open_reject_count",
 } as const;

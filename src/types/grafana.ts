@@ -7,14 +7,14 @@
  * the other at compile time.
  */
 
-import { z } from 'zod';
+import { z } from "zod";
 
 export const GrafanaOnCallPayloadSchema = z.object({
   alert_group_id: z.string().min(1),
   alert_group: z.object({
     id: z.string(),
     title: z.string(),
-    state: z.enum(['firing', 'resolved', 'silenced']),
+    state: z.enum(["firing", "resolved", "silenced"]),
   }),
   integration_id: z.string().min(1),
   route_id: z.string(),

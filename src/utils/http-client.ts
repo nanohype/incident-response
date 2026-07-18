@@ -3,9 +3,9 @@
  * All external IncidentResponse clients use this. Fast-fail preferred over silent retry loops.
  */
 
-import { ExternalClientTimeoutError } from '../types/index.js';
-import { logger } from './logger.js';
-import { MetricNames, type MetricsEmitter } from './metrics.js';
+import { ExternalClientTimeoutError } from "../types/index.js";
+import { logger } from "./logger.js";
+import { MetricNames, type MetricsEmitter } from "./metrics.js";
 
 // Module-scoped metrics sink so per-call sites don't have to plumb a
 // MetricsEmitter through every client constructor. Wired once from the
@@ -25,7 +25,7 @@ export interface HttpClientOptions {
 }
 
 export interface HttpRequestOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   headers?: Record<string, string>;
   body?: unknown;
@@ -44,7 +44,7 @@ export interface HttpResponse<T = unknown> {
 function jitteredDelay(attempt: number): number {
   const base = 100,
     cap = 1000;
-  return Math.random() * Math.min(cap, base * Math.pow(2, attempt));
+  return Math.random() * Math.min(cap, base * 2 ** attempt);
 }
 
 export function isRetryableStatus(status: number): boolean {
@@ -60,7 +60,7 @@ export class HttpClient {
 
   constructor(opts: HttpClientOptions) {
     this.clientName = opts.clientName;
-    this.baseUrl = opts.baseUrl.replace(/\/$/, '');
+    this.baseUrl = opts.baseUrl.replace(/\/$/, "");
     this.defaultHeaders = opts.defaultHeaders ?? {};
     this.timeoutMs = Math.min(opts.timeoutMs ?? 5000, 5000); // Hard cap
     this.maxRetries = Math.min(opts.maxRetries ?? 2, 2); // Hard cap
@@ -68,9 +68,9 @@ export class HttpClient {
 
   async request<T>(opts: HttpRequestOptions): Promise<HttpResponse<T>> {
     const url = `${this.baseUrl}${opts.path}`;
-    const method = opts.method ?? 'GET';
+    const method = opts.method ?? "GET";
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       ...this.defaultHeaders,
       ...opts.headers,
     };
@@ -103,12 +103,12 @@ export class HttpClient {
             latency_ms,
             attempt,
           },
-          'HTTP request completed',
+          "HTTP request completed",
         );
 
         let data: T;
-        const ct = response.headers.get('content-type') ?? '';
-        if (ct.includes('application/json')) {
+        const ct = response.headers.get("content-type") ?? "";
+        if (ct.includes("application/json")) {
           try {
             data = (await response.json()) as T;
           } catch {
@@ -142,7 +142,7 @@ export class HttpClient {
         };
       } catch (err: unknown) {
         const latency_ms = Date.now() - start;
-        const isTimeout = err instanceof Error && err.name === 'AbortError';
+        const isTimeout = err instanceof Error && err.name === "AbortError";
         if (isTimeout) {
           lastError = new ExternalClientTimeoutError(this.clientName, this.timeoutMs);
           logger.warn(
@@ -154,11 +154,11 @@ export class HttpClient {
               attempt,
               latency_ms,
             },
-            'External client timeout',
+            "External client timeout",
           );
           metricsSink?.increment(MetricNames.HttpTimeoutCount, [
-            { name: 'client', value: this.clientName },
-            { name: 'method', value: method },
+            { name: "client", value: this.clientName },
+            { name: "method", value: method },
           ]);
         } else {
           lastError = err instanceof Error ? err : new Error(String(err));
@@ -171,11 +171,11 @@ export class HttpClient {
               attempt,
               latency_ms,
             },
-            'External client error',
+            "External client error",
           );
           metricsSink?.increment(MetricNames.HttpErrorCount, [
-            { name: 'client', value: this.clientName },
-            { name: 'method', value: method },
+            { name: "client", value: this.clientName },
+            { name: "method", value: method },
           ]);
         }
         if (attempt >= this.maxRetries || opts.noRetry) throw lastError;
@@ -188,7 +188,7 @@ export class HttpClient {
   }
 
   async get<T>(path: string, headers?: Record<string, string>): Promise<HttpResponse<T>> {
-    const opts: HttpRequestOptions = { method: 'GET', path };
+    const opts: HttpRequestOptions = { method: "GET", path };
     if (headers) opts.headers = headers;
     return this.request<T>(opts);
   }
@@ -197,7 +197,7 @@ export class HttpClient {
     body: unknown,
     headers?: Record<string, string>,
   ): Promise<HttpResponse<T>> {
-    const opts: HttpRequestOptions = { method: 'POST', path, body };
+    const opts: HttpRequestOptions = { method: "POST", path, body };
     if (headers) opts.headers = headers;
     return this.request<T>(opts);
   }
@@ -206,7 +206,7 @@ export class HttpClient {
     body: unknown,
     headers?: Record<string, string>,
   ): Promise<HttpResponse<T>> {
-    const opts: HttpRequestOptions = { method: 'PUT', path, body };
+    const opts: HttpRequestOptions = { method: "PUT", path, body };
     if (headers) opts.headers = headers;
     return this.request<T>(opts);
   }

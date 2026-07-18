@@ -13,31 +13,31 @@
  * secret-shaped keys before writing.
  */
 
-import { GrafanaOnCallAlertPayload } from './grafana.js';
+import type { GrafanaOnCallAlertPayload } from "./grafana.js";
 
 export type AuditEventType =
-  | 'WAR_ROOM_CREATED'
-  | 'RESPONDER_INVITED'
-  | 'RESPONDER_INVITE_FAILED'
-  | 'CONTEXT_SNAPSHOT_ATTACHED'
-  | 'CHECKLIST_PINNED'
-  | 'CHECKLIST_ITEM_UPDATED'
-  | 'STATUS_UPDATE_SENT'
-  | 'STATUS_REMINDER_SENT'
-  | 'STATUS_REMINDER_SILENCED'
-  | 'STATUSPAGE_DRAFT_CREATED'
-  | 'STATUSPAGE_DRAFT_APPROVED'
-  | 'STATUSPAGE_PUBLISHED'
-  | 'STATUSPAGE_APPROVAL_REJECTED'
-  | 'POSTMORTEM_CREATED'
-  | 'IC_RATED'
-  | 'INCIDENT_MITIGATED'
-  | 'INCIDENT_RESOLVED'
-  | 'WAR_ROOM_ARCHIVED'
-  | 'WAR_ROOM_ARCHIVE_FAILED'
-  | 'DIRECTORY_LOOKUP_FAILED'
-  | 'ASSEMBLY_FALLBACK_INITIATED'
-  | 'SLASH_COMMAND_RECEIVED';
+  | "WAR_ROOM_CREATED"
+  | "RESPONDER_INVITED"
+  | "RESPONDER_INVITE_FAILED"
+  | "CONTEXT_SNAPSHOT_ATTACHED"
+  | "CHECKLIST_PINNED"
+  | "CHECKLIST_ITEM_UPDATED"
+  | "STATUS_UPDATE_SENT"
+  | "STATUS_REMINDER_SENT"
+  | "STATUS_REMINDER_SILENCED"
+  | "STATUSPAGE_DRAFT_CREATED"
+  | "STATUSPAGE_DRAFT_APPROVED"
+  | "STATUSPAGE_PUBLISHED"
+  | "STATUSPAGE_APPROVAL_REJECTED"
+  | "POSTMORTEM_CREATED"
+  | "IC_RATED"
+  | "INCIDENT_MITIGATED"
+  | "INCIDENT_RESOLVED"
+  | "WAR_ROOM_ARCHIVED"
+  | "WAR_ROOM_ARCHIVE_FAILED"
+  | "DIRECTORY_LOOKUP_FAILED"
+  | "ASSEMBLY_FALLBACK_INITIATED"
+  | "SLASH_COMMAND_RECEIVED";
 
 interface AuditDetailsExtras {
   [key: string]: unknown;
@@ -192,7 +192,7 @@ export interface AuditDetailsByType {
 type _AuditDetailsExhaustive =
   Exclude<AuditEventType, keyof AuditDetailsByType> extends never
     ? true
-    : ['Missing AuditDetailsByType entry for', Exclude<AuditEventType, keyof AuditDetailsByType>];
+    : ["Missing AuditDetailsByType entry for", Exclude<AuditEventType, keyof AuditDetailsByType>];
 const _auditDetailsExhaustive: _AuditDetailsExhaustive = true;
 void _auditDetailsExhaustive;
 

@@ -10,11 +10,11 @@
  * The tracer name identifies this instrumentation library in Grafana Cloud Tempo.
  */
 
-import { context, propagation, Span, SpanStatusCode, trace } from '@opentelemetry/api';
-import type { MessageAttributeValue as SqsMessageAttributeValue } from '@aws-sdk/client-sqs';
-import { stringifyError } from './errors.js';
+import type { MessageAttributeValue as SqsMessageAttributeValue } from "@aws-sdk/client-sqs";
+import { context, propagation, type Span, SpanStatusCode, trace } from "@opentelemetry/api";
+import { stringifyError } from "./errors.js";
 
-const TRACER_NAME = 'incident-response';
+const TRACER_NAME = "incident-response";
 
 export const tracer = trace.getTracer(TRACER_NAME);
 
@@ -52,7 +52,7 @@ export function injectSqsTraceAttributes(
   propagation.inject(context.active(), carrier);
   const out: Record<string, SqsMessageAttributeValue> = { ...baseAttributes };
   for (const [key, value] of Object.entries(carrier)) {
-    if (value) out[key] = { DataType: 'String', StringValue: value };
+    if (value) out[key] = { DataType: "String", StringValue: value };
   }
   return out;
 }
