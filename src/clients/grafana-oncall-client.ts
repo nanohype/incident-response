@@ -18,19 +18,19 @@
  *    service-account tokens (`glsa_…`) work directly in this header.
  */
 
-import { HttpClient } from '../utils/http-client.js';
-import { GrafanaOnCallEscalationChain, GrafanaOnCallUser } from '../types/index.js';
-import { logger } from '../utils/logger.js';
+import type { GrafanaOnCallEscalationChain, GrafanaOnCallUser } from "../types/index.js";
+import { HttpClient } from "../utils/http-client.js";
+import { logger } from "../utils/logger.js";
 
 export class GrafanaOnCallClient {
   private readonly http: HttpClient;
 
   constructor(baseUrl: string, apiToken: string) {
     this.http = new HttpClient({
-      clientName: 'grafana-oncall',
+      clientName: "grafana-oncall",
       baseUrl,
       // OnCall expects the bare token, no `Bearer` prefix.
-      defaultHeaders: { Authorization: apiToken, Accept: 'application/json' },
+      defaultHeaders: { Authorization: apiToken, Accept: "application/json" },
       timeoutMs: 5000,
       maxRetries: 2,
     });
@@ -39,14 +39,14 @@ export class GrafanaOnCallClient {
   async getEscalationChainForIntegration(
     integrationId: string,
   ): Promise<GrafanaOnCallEscalationChain | null> {
-    logger.debug({ integration_id: integrationId }, 'Querying Grafana OnCall escalation chain');
+    logger.debug({ integration_id: integrationId }, "Querying Grafana OnCall escalation chain");
     const resp = await this.http.get<{ results?: GrafanaOnCallEscalationChain[] }>(
       `/oncall/api/v1/escalation_chains/?integration_id=${encodeURIComponent(integrationId)}`,
     );
     if (!resp.ok) {
       logger.warn(
         { integration_id: integrationId, status: resp.status },
-        'Escalation chain query failed',
+        "Escalation chain query failed",
       );
       return null;
     }

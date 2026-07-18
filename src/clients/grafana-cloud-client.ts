@@ -4,10 +4,10 @@
  * INVARIANT: This client MUST NEVER write to Grafana Cloud.
  */
 
-import { HttpClient } from '../utils/http-client.js';
-import { GrafanaContextSnapshot } from '../types/index.js';
-import { logger } from '../utils/logger.js';
-import { stringifyError } from '../utils/errors.js';
+import type { GrafanaContextSnapshot } from "../types/index.js";
+import { stringifyError } from "../utils/errors.js";
+import { HttpClient } from "../utils/http-client.js";
+import { logger } from "../utils/logger.js";
 
 interface MimirQueryResult {
   status: string;
@@ -48,24 +48,24 @@ export class GrafanaCloudClient {
     const common = {
       defaultHeaders: {
         Authorization: `Bearer ${apiToken}`,
-        'X-Scope-OrgID': orgId,
-        Accept: 'application/json',
+        "X-Scope-OrgID": orgId,
+        Accept: "application/json",
       },
       timeoutMs: 5000 as const,
       maxRetries: 2 as const,
     };
     this.mimirClient = new HttpClient({
-      clientName: 'grafana-cloud-mimir',
+      clientName: "grafana-cloud-mimir",
       baseUrl: `${grafanaBaseUrl}/api/prom`,
       ...common,
     });
     this.lokiClient = new HttpClient({
-      clientName: 'grafana-cloud-loki',
+      clientName: "grafana-cloud-loki",
       baseUrl: `${grafanaBaseUrl}/loki/api/v1`,
       ...common,
     });
     this.tempoClient = new HttpClient({
-      clientName: 'grafana-cloud-tempo',
+      clientName: "grafana-cloud-tempo",
       baseUrl: `${grafanaBaseUrl}/tempo/api`,
       ...common,
     });
@@ -77,7 +77,7 @@ export class GrafanaCloudClient {
   ): Promise<GrafanaContextSnapshot> {
     logger.info(
       { incident_id: incidentId, service_label: serviceLabel },
-      'Querying Grafana Cloud for incident context snapshot',
+      "Querying Grafana Cloud for incident context snapshot",
     );
     const now = Math.floor(Date.now() / 1000);
     const twoHoursAgo = now - 7200;
@@ -90,20 +90,20 @@ export class GrafanaCloudClient {
       this.queryRecentTraces(serviceLabel),
     ]);
 
-    let errorRate = { current: 0, baseline: 0, series_url: '' };
-    if (errorRateResult.status === 'fulfilled') errorRate = errorRateResult.value;
+    let errorRate = { current: 0, baseline: 0, series_url: "" };
+    if (errorRateResult.status === "fulfilled") errorRate = errorRateResult.value;
     else datasourceErrors.push(`Mimir error rate: ${stringifyError(errorRateResult.reason)}`);
 
     let p99Latency = { current: 0, baseline: 0 };
-    if (p99Result.status === 'fulfilled') p99Latency = p99Result.value;
+    if (p99Result.status === "fulfilled") p99Latency = p99Result.value;
     else datasourceErrors.push(`Mimir p99: ${stringifyError(p99Result.reason)}`);
 
     let logExcerpts: string[] = [];
-    if (logResult.status === 'fulfilled') logExcerpts = logResult.value;
+    if (logResult.status === "fulfilled") logExcerpts = logResult.value;
     else datasourceErrors.push(`Loki: ${stringifyError(logResult.reason)}`);
 
     let traceIds: string[] = [];
-    if (traceResult.status === 'fulfilled') traceIds = traceResult.value;
+    if (traceResult.status === "fulfilled") traceIds = traceResult.value;
     else datasourceErrors.push(`Tempo: ${stringifyError(traceResult.reason)}`);
 
     const errorBudgetBurnRate =
@@ -138,7 +138,7 @@ export class GrafanaCloudClient {
     return {
       current: this.val(cur.ok ? cur.data : null),
       baseline: this.val(base.ok ? base.data : null),
-      series_url: '',
+      series_url: "",
     };
   }
 
@@ -185,11 +185,11 @@ export class GrafanaCloudClient {
   }
 
   private val(data: MimirQueryResult | null): number {
-    if (!data || !data.data.result[0]) return 0;
+    if (!data?.data.result[0]) return 0;
     const r = data.data.result[0];
     const v = r.value?.[1] ?? r.values?.[0]?.[1];
     if (!v) return 0;
     const n = parseFloat(v);
-    return isNaN(n) ? 0 : n;
+    return Number.isNaN(n) ? 0 : n;
   }
 }

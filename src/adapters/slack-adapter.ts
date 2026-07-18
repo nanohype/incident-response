@@ -12,9 +12,9 @@
  * `new WebClient()`.
  */
 
-import type { WebClient } from '@slack/web-api';
-import type { Block, KnownBlock } from '@slack/types';
-import { withTimeout, withTimeoutOrDefault } from '../utils/with-timeout.js';
+import type { Block, KnownBlock } from "@slack/types";
+import type { WebClient } from "@slack/web-api";
+import { withTimeout, withTimeoutOrDefault } from "../utils/with-timeout.js";
 
 export interface SlackChannel {
   id: string;
@@ -77,7 +77,7 @@ export function createSlackAdapter(client: WebClient): SlackAdapter {
         label,
       );
       if (!res.ok || !res.channel?.id) {
-        throw new Error(`Failed to create Slack channel: ${res.error ?? 'unknown'}`);
+        throw new Error(`Failed to create Slack channel: ${res.error ?? "unknown"}`);
       }
       return { id: res.channel.id, name: res.channel.name ?? name };
     },

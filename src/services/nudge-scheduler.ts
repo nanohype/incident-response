@@ -5,17 +5,17 @@
  */
 
 import {
-  SchedulerClient,
   CreateScheduleCommand,
   DeleteScheduleCommand,
-  GetScheduleCommand,
-  UpdateScheduleCommand,
   FlexibleTimeWindowMode,
-  ScheduleState,
+  GetScheduleCommand,
   ResourceNotFoundException,
-} from '@aws-sdk/client-scheduler';
-import { logger } from '../utils/logger.js';
-import { stringifyError } from '../utils/errors.js';
+  SchedulerClient,
+  ScheduleState,
+  UpdateScheduleCommand,
+} from "@aws-sdk/client-scheduler";
+import { stringifyError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
 
 export class NudgeScheduler {
   private readonly scheduler: SchedulerClient;
@@ -41,15 +41,15 @@ export class NudgeScheduler {
         new CreateScheduleCommand({
           Name: this.name(incidentId),
           GroupName: this.groupName,
-          ScheduleExpression: 'rate(15 minutes)',
-          ScheduleExpressionTimezone: 'UTC',
+          ScheduleExpression: "rate(15 minutes)",
+          ScheduleExpressionTimezone: "UTC",
           State: ScheduleState.ENABLED,
           FlexibleTimeWindow: { Mode: FlexibleTimeWindowMode.FLEXIBLE, MaximumWindowInMinutes: 1 },
           Target: {
             Arn: this.nudgeQueueArn,
             RoleArn: this.schedulerRoleArn,
             Input: JSON.stringify({
-              type: 'STATUS_UPDATE_NUDGE',
+              type: "STATUS_UPDATE_NUDGE",
               incident_id: incidentId,
               channel_id: channelId,
             }),
@@ -57,11 +57,11 @@ export class NudgeScheduler {
           Description: `IncidentResponse 15-min status nudge for incident ${incidentId}`,
         }),
       );
-      logger.info({ incident_id: incidentId, group: this.groupName }, 'Nudge schedule created');
+      logger.info({ incident_id: incidentId, group: this.groupName }, "Nudge schedule created");
     } catch (err) {
       logger.warn(
         { incident_id: incidentId, error: stringifyError(err) },
-        'Failed to create nudge schedule — nudges will not fire for this incident',
+        "Failed to create nudge schedule — nudges will not fire for this incident",
       );
     }
   }
@@ -71,12 +71,12 @@ export class NudgeScheduler {
       await this.scheduler.send(
         new DeleteScheduleCommand({ Name: this.name(incidentId), GroupName: this.groupName }),
       );
-      logger.info({ incident_id: incidentId, group: this.groupName }, 'Nudge schedule deleted');
+      logger.info({ incident_id: incidentId, group: this.groupName }, "Nudge schedule deleted");
     } catch (err) {
       if (err instanceof ResourceNotFoundException) return;
       logger.warn(
         { incident_id: incidentId, error: stringifyError(err) },
-        'Failed to delete nudge schedule',
+        "Failed to delete nudge schedule",
       );
     }
   }
@@ -98,17 +98,17 @@ export class NudgeScheduler {
       );
       logger.info(
         { incident_id: incidentId, group: this.groupName },
-        'Nudge schedule paused (IC silenced)',
+        "Nudge schedule paused (IC silenced)",
       );
     } catch (err) {
       logger.warn(
         { incident_id: incidentId, error: stringifyError(err) },
-        'Failed to pause nudge schedule',
+        "Failed to pause nudge schedule",
       );
     }
   }
 
   private name(incidentId: string): string {
-    return `incident-response-nudge-${incidentId.replace(/[^a-zA-Z0-9-_]/g, '-').substring(0, 50)}`;
+    return `incident-response-nudge-${incidentId.replace(/[^a-zA-Z0-9-_]/g, "-").substring(0, 50)}`;
   }
 }

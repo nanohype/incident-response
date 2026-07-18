@@ -44,7 +44,7 @@ Customer-facing Statuspage messages ALWAYS go through the `StatuspageApprovalGat
 - **src/utils/metrics.ts** — `MetricsEmitter` over `PutMetricData`. Fire-and-forget. Catches and warns on failure — never throws up to the caller.
 - **src/utils/with-timeout.ts** — `withTimeout` (throws on deadline; re-exported from the vendored resilience module) + the app-side `withTimeoutOrDefault` (swallows, returns fallback, warn-logs). Used around non-critical Slack calls.
 - **src/utils/circuit-breaker.ts** — app-side instrumentation (warn log + `circuit_open_count` / `circuit_open_reject_count` metrics) over the vendored sliding-window breaker. Wired around WorkOS directory lookups in `src/wiring/dependencies.ts`.
-- **src/vendor/runtime/** — vendored `@nanohype/runtime` modules (`circuit-breaker.ts`, `resilience.ts`, `pii.ts`, `workos-directory.ts`), byte-identical to `nanohype/library/runtime/src/*` — the same consumption model as the vendored `chart/charts/tenant-chart-base`. `scripts/sync-vendored.mjs` (itself vendored from `library/scripts/`, driven by `scripts/vendored.json`) re-copies every vendored surface — runtime modules, `.prettierrc.json`, `eslint.base.mjs`, the chart base — from a nanohype checkout (`NANOHYPE_DIR`, default `../nanohype`); CI's `--check` mode fails on drift. Behavior changes land upstream first, with their tests — never edit the copies. Vendored files are excluded from app lint/format/coverage (enforced upstream); `tsc` still typechecks and compiles them.
+- **src/vendor/runtime/** — vendored `@nanohype/runtime` modules (`circuit-breaker.ts`, `resilience.ts`, `pii.ts`, `workos-directory.ts`), byte-identical to `nanohype/library/runtime/src/*` — the same consumption model as the vendored `chart/charts/tenant-chart-base`. `scripts/sync-vendored.mjs` (itself vendored from `library/scripts/`, driven by `scripts/vendored.json`) re-copies every vendored surface — runtime modules, `biome.base.json`, the chart base — from a nanohype checkout (`NANOHYPE_DIR`, default `../nanohype`); CI's `--check` mode fails on drift. Behavior changes land upstream first, with their tests — never edit the copies. Vendored files are excluded from app lint/format/coverage (enforced upstream); `tsc` still typechecks and compiles them.
 - **src/utils/env.ts** — `requireEnv(vars)` — fail-fast on missing required env vars.
 - **src/utils/logger.ts** — Structured JSON logger to stdout/stderr. `.child({ incident_id })` threads correlation IDs.
 - **src/types/** — bounded-context modules (`incident`, `grafana`, `audit`, `statuspage`, `postmortem`, `directory`, `errors`) re-exported through `types/index.ts` as a barrel. Custom error classes (`AutoPublishNotPermittedError`, `DirectoryLookupFailedError`, `ExternalClientTimeoutError`) live in `types/errors.ts`. Directory types (`DirectoryUser`) are IdP-neutral so swapping WorkOS for another provider is a client-file change, not a type surgery.
@@ -61,8 +61,8 @@ Customer-facing Statuspage messages ALWAYS go through the `StatuspageApprovalGat
 ```bash
 npm install                        # or npm ci against the committed lockfile
 npm run lint
-npm run format                     # Prettier — write
-npm run format:check               # Prettier — verify
+npm run format                     # Biome — write
+npm run format:check               # Biome — verify
 npm run typecheck                  # tsc --noEmit (runs as part of `check`)
 npm run build                      # tsc → dist/
 npm run test:unit                  # enforces 100% branch on audit + approval-gate
@@ -106,7 +106,7 @@ IncidentResponse-specific:
 
 | Tier | Files | What they exercise |
 |------|-------|-------------------|
-| Static | `tsconfig.json` strict + `eslint.config.mjs` + `.prettierrc.json` | Types, lint rules (no floating promises, no-explicit-any, no-console), consistent format |
+| Static | `tsconfig.json` strict + `biome.json` | Types, lint rules (no floating promises, no-explicit-any, no-console), consistent format |
 | Unit | `test/unit/*.test.ts` | Pure functions, mocked SDKs, handler flows, adapter fail modes |
 | Integration | `test/integration/*.integration.test.ts` | Real dynamodb-local — `ConsistentRead`, idempotency, cross-incident isolation |
 | E2E (scripted) | `scripts/fire-drill.sh`, `scripts/ci-drill.sh` | Full webhook → SQS → processor → Slack → DDB path, in a live staging stack |

@@ -2,24 +2,24 @@
  * Command registry wiring — keeps index.ts thin.
  */
 
-import { CommandRegistry } from '../services/command-registry.js';
-import { makeHelpHandler } from '../commands/help.js';
-import { makeSilenceHandler } from '../commands/silence.js';
-import { makeChecklistHandler } from '../commands/checklist.js';
-import { makeStatusHandler } from '../commands/status.js';
-import { makeResolveHandler } from '../commands/resolve.js';
-import type { Dependencies } from './dependencies.js';
+import { makeChecklistHandler } from "../commands/checklist.js";
+import { makeHelpHandler } from "../commands/help.js";
+import { makeResolveHandler } from "../commands/resolve.js";
+import { makeSilenceHandler } from "../commands/silence.js";
+import { makeStatusHandler } from "../commands/status.js";
+import { CommandRegistry } from "../services/command-registry.js";
+import type { Dependencies } from "./dependencies.js";
 
 export function buildCommandRegistry(deps: Dependencies): CommandRegistry {
   return new CommandRegistry()
-    .register('help', makeHelpHandler())
+    .register("help", makeHelpHandler())
     .register(
-      'silence',
+      "silence",
       makeSilenceHandler({ nudgeScheduler: deps.nudgeScheduler, auditWriter: deps.auditWriter }),
     )
-    .register('checklist', makeChecklistHandler())
+    .register("checklist", makeChecklistHandler())
     .register(
-      'status',
+      "status",
       makeStatusHandler({
         docClient: deps.dynamoDb,
         incidentsTableName: deps.incidentsTableName,
@@ -28,7 +28,7 @@ export function buildCommandRegistry(deps: Dependencies): CommandRegistry {
       }),
     )
     .register(
-      'resolve',
+      "resolve",
       makeResolveHandler({
         docClient: deps.dynamoDb,
         incidentsTableName: deps.incidentsTableName,

@@ -20,15 +20,15 @@
  * from flowing to the processor.
  */
 
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { NodeSDK } from '@opentelemetry/sdk-node';
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
-import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
-import { resourceFromAttributes } from '@opentelemetry/resources';
-import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
-import { logger } from '../utils/logger.js';
-import { stringifyError } from '../utils/errors.js';
+import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
+import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { resourceFromAttributes } from "@opentelemetry/resources";
+import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
+import { NodeSDK } from "@opentelemetry/sdk-node";
+import { stringifyError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
 
 // Memoize on the promise so a cold-start burst of concurrent invocations
 // doesn't fetch the secret more than once. On failure we clear the memo so
@@ -55,7 +55,7 @@ export function initOtelIfNeeded(): Promise<boolean> {
     initPromise = initOtel().catch((err) => {
       logger.warn(
         { error: stringifyError(err) },
-        'OTel init failed — webhook will continue without tracing',
+        "OTel init failed — webhook will continue without tracing",
       );
       initPromise = undefined;
       return false;
@@ -65,47 +65,47 @@ export function initOtelIfNeeded(): Promise<boolean> {
 }
 
 async function initOtel(): Promise<boolean> {
-  const secretArn = process.env['GRAFANA_CLOUD_OTLP_SECRET_ARN'];
-  const endpoint = process.env['OTEL_EXPORTER_OTLP_ENDPOINT'];
+  const secretArn = process.env.GRAFANA_CLOUD_OTLP_SECRET_ARN;
+  const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 
   // Operators can deploy the Lambda without Grafana Cloud configured
   // (e.g. early dev) — skip quietly rather than spam warnings.
   if (!secretArn || !endpoint) return false;
 
-  const region = process.env['AWS_REGION'];
+  const region = process.env.AWS_REGION;
   const sm = region ? new SecretsManagerClient({ region }) : new SecretsManagerClient({});
   const res = await sm.send(new GetSecretValueCommand({ SecretId: secretArn }));
-  if (!res.SecretString) throw new Error('OTLP auth secret has no string value');
+  if (!res.SecretString) throw new Error("OTLP auth secret has no string value");
 
   const parsed = JSON.parse(res.SecretString) as { basic_auth?: unknown };
-  if (typeof parsed.basic_auth !== 'string' || parsed.basic_auth.length === 0) {
-    throw new Error('OTLP auth secret is missing a string `basic_auth` field');
+  if (typeof parsed.basic_auth !== "string" || parsed.basic_auth.length === 0) {
+    throw new Error("OTLP auth secret is missing a string `basic_auth` field");
   }
 
   const headers = { Authorization: `Basic ${parsed.basic_auth}` };
   const resource = resourceFromAttributes(
-    parseOtelResourceAttrs(process.env['OTEL_RESOURCE_ATTRIBUTES'] ?? ''),
+    parseOtelResourceAttrs(process.env.OTEL_RESOURCE_ATTRIBUTES ?? ""),
   );
 
   const sdk = new NodeSDK({
     resource,
     traceExporter: new OTLPTraceExporter({
-      url: `${endpoint.replace(/\/$/, '')}/v1/traces`,
+      url: `${endpoint.replace(/\/$/, "")}/v1/traces`,
       headers,
     }),
     metricReader: new PeriodicExportingMetricReader({
       exporter: new OTLPMetricExporter({
-        url: `${endpoint.replace(/\/$/, '')}/v1/metrics`,
+        url: `${endpoint.replace(/\/$/, "")}/v1/metrics`,
         headers,
       }),
-      exportIntervalMillis: Number(process.env['OTEL_METRIC_EXPORT_INTERVAL'] ?? 60000),
+      exportIntervalMillis: Number(process.env.OTEL_METRIC_EXPORT_INTERVAL ?? 60000),
     }),
     instrumentations: [
       // Auto-instruments http/fetch/aws-sdk/aws-lambda. Slimmer than the full
       // contrib set since the webhook's call graph is narrow.
       getNodeAutoInstrumentations({
-        '@opentelemetry/instrumentation-fs': { enabled: false },
-        '@opentelemetry/instrumentation-dns': { enabled: false },
+        "@opentelemetry/instrumentation-fs": { enabled: false },
+        "@opentelemetry/instrumentation-dns": { enabled: false },
       }),
     ],
   });
@@ -113,16 +113,16 @@ async function initOtel(): Promise<boolean> {
   sdk.start();
   activeSdk = sdk;
   logger.info(
-    { service: process.env['OTEL_SERVICE_NAME'], endpoint },
-    'OTel SDK started (webhook Lambda cold start)',
+    { service: process.env.OTEL_SERVICE_NAME, endpoint },
+    "OTel SDK started (webhook Lambda cold start)",
   );
   return true;
 }
 
 function parseOtelResourceAttrs(raw: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const pair of raw.split(',')) {
-    const [k, v] = pair.split('=');
+  for (const pair of raw.split(",")) {
+    const [k, v] = pair.split("=");
     if (k && v) out[k.trim()] = v.trim();
   }
   return out;

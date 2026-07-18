@@ -3,11 +3,11 @@
  * Uses @linear/sdk to create issues in the configured Incidents project.
  */
 
-import { LinearClient } from '@linear/sdk';
-import { PostmortemDraft } from '../types/index.js';
-import { logger } from '../utils/logger.js';
-import { withTimeout } from '../utils/with-timeout.js';
-import { stringifyError } from '../utils/errors.js';
+import { LinearClient } from "@linear/sdk";
+import type { PostmortemDraft } from "../types/index.js";
+import { stringifyError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
+import { withTimeout } from "../utils/with-timeout.js";
 
 // `@linear/sdk` does not expose a request-level timeout. Without an external
 // deadline a hung Linear endpoint would wedge `/incident-response resolve` past the SQS
@@ -38,17 +38,17 @@ export class LinearIncidentResponseClient {
     const issueTitle = `[P1 Postmortem] ${title} — ${incidentDate.toISOString().slice(0, 10)}`;
     logger.info(
       { incident_id: incidentId, title: issueTitle },
-      'Creating postmortem draft in Linear',
+      "Creating postmortem draft in Linear",
     );
 
     try {
       const labelsResult = await Promise.allSettled([
-        this.findOrCreateLabel('postmortem'),
-        this.findOrCreateLabel('p1'),
+        this.findOrCreateLabel("postmortem"),
+        this.findOrCreateLabel("p1"),
       ]);
       const labelIds: string[] = [];
       for (const r of labelsResult) {
-        if (r.status === 'fulfilled' && r.value) labelIds.push(r.value);
+        if (r.status === "fulfilled" && r.value) labelIds.push(r.value);
       }
 
       let assigneeId: string | undefined;
@@ -56,7 +56,7 @@ export class LinearIncidentResponseClient {
         const viewer = await withTimeout(
           this.client.viewer,
           LINEAR_CALL_TIMEOUT_MS,
-          'linear.viewer',
+          "linear.viewer",
         );
         assigneeId = viewer.id;
       }
@@ -71,20 +71,20 @@ export class LinearIncidentResponseClient {
           ...(assigneeId && { assigneeId }),
         }),
         LINEAR_CALL_TIMEOUT_MS,
-        'linear.createIssue',
+        "linear.createIssue",
       );
 
-      if (!issuePayload.issue) throw new Error('Linear createIssue returned no issue field');
+      if (!issuePayload.issue) throw new Error("Linear createIssue returned no issue field");
       const issue = await withTimeout(
         issuePayload.issue,
         LINEAR_CALL_TIMEOUT_MS,
-        'linear.issueField',
+        "linear.issueField",
       );
-      if (!issue) throw new Error('Linear createIssue returned no issue');
+      if (!issue) throw new Error("Linear createIssue returned no issue");
 
       logger.info(
         { incident_id: incidentId, linear_issue_id: issue.id, linear_issue_url: issue.url },
-        'Postmortem draft created in Linear',
+        "Postmortem draft created in Linear",
       );
 
       return {
@@ -98,7 +98,7 @@ export class LinearIncidentResponseClient {
     } catch (err) {
       logger.error(
         { incident_id: incidentId, error: stringifyError(err) },
-        'Failed to create postmortem draft in Linear',
+        "Failed to create postmortem draft in Linear",
       );
       throw err;
     }
@@ -109,20 +109,20 @@ export class LinearIncidentResponseClient {
       const labels = await withTimeout(
         this.client.issueLabels({ filter: { name: { eq: name } } }),
         LINEAR_CALL_TIMEOUT_MS,
-        'linear.issueLabels',
+        "linear.issueLabels",
       );
       const existing = labels.nodes[0];
       if (existing) return existing.id;
       const created = await withTimeout(
         this.client.createIssueLabel({ name }),
         LINEAR_CALL_TIMEOUT_MS,
-        'linear.createIssueLabel',
+        "linear.createIssueLabel",
       );
       if (!created.issueLabel) return null;
       const label = await withTimeout(
         created.issueLabel,
         LINEAR_CALL_TIMEOUT_MS,
-        'linear.issueLabelField',
+        "linear.issueLabelField",
       );
       return label?.id ?? null;
     } catch {

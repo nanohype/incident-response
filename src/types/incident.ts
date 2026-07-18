@@ -4,19 +4,19 @@
  * centralised in WarRoomAssembler + the command handlers.
  */
 
-import { GrafanaOnCallAlertPayload, GrafanaContextSnapshot } from './grafana.js';
+import type { GrafanaContextSnapshot, GrafanaOnCallAlertPayload } from "./grafana.js";
 
 export type IncidentStatus =
-  | 'ALERT_RECEIVED'
-  | 'ROOM_ASSEMBLING'
-  | 'ASSEMBLY_FAILED'
-  | 'IC_MANUAL_ASSEMBLY'
-  | 'ROOM_ASSEMBLED'
-  | 'ACTIVE'
-  | 'MITIGATED'
-  | 'RESOLVED';
+  | "ALERT_RECEIVED"
+  | "ROOM_ASSEMBLING"
+  | "ASSEMBLY_FAILED"
+  | "IC_MANUAL_ASSEMBLY"
+  | "ROOM_ASSEMBLED"
+  | "ACTIVE"
+  | "MITIGATED"
+  | "RESOLVED";
 
-export type IncidentSeverity = 'P1' | 'P2' | 'P3';
+export type IncidentSeverity = "P1" | "P2" | "P3";
 
 export interface IncidentRecord {
   incident_id: string; // = Grafana OnCall alert_group_id

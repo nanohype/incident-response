@@ -9,22 +9,22 @@
  * Requires dynamodb-local on localhost:8000. See package.json `test:integration:docker`.
  */
 
-import type { Mock } from 'vitest';
-import { GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
-import { WarRoomAssembler } from '../../src/services/war-room-assembler.js';
-import { AuditWriter } from '../../src/utils/audit.js';
-import { GrafanaOnCallAlertPayload, GrafanaContextSnapshot } from '../../src/types/index.js';
-import { createSlackAdapter } from '../../src/adapters/slack-adapter.js';
+import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import type { Mock } from "vitest";
+import { createSlackAdapter } from "../../src/adapters/slack-adapter.js";
+import { WarRoomAssembler } from "../../src/services/war-room-assembler.js";
+import type { GrafanaContextSnapshot, GrafanaOnCallAlertPayload } from "../../src/types/index.js";
+import { AuditWriter } from "../../src/utils/audit.js";
 import {
-  ddbLocalDoc,
   createAuditTable,
-  deleteAuditTable,
   createIncidentsTable,
+  ddbLocalDoc,
+  deleteAuditTable,
   deleteIncidentsTable,
-} from './setup.js';
+} from "./setup.js";
 
-const AUDIT_TABLE = 'incident-response-audit-war-room-int';
-const INCIDENTS_TABLE = 'incident-response-incidents-war-room-int';
+const AUDIT_TABLE = "incident-response-audit-war-room-int";
+const INCIDENTS_TABLE = "incident-response-incidents-war-room-int";
 
 // Narrow stub surface — only the methods WarRoomAssembler.assemble actually calls.
 type SlackStub = {
@@ -45,15 +45,15 @@ function makeSlackStub(
     postMessageTs: string | null;
   }> = {},
 ): SlackStub {
-  const channelId = overrides.channelId ?? 'C-WAR-ROOM';
-  const channelName = overrides.channelName ?? 'incident-response-p1-20260416-abc123';
+  const channelId = overrides.channelId ?? "C-WAR-ROOM";
+  const channelName = overrides.channelName ?? "incident-response-p1-20260416-abc123";
   return {
     conversations: {
       create: vi
         .fn()
         .mockResolvedValue(
           overrides.createOk === false
-            ? { ok: false, error: 'name_taken' }
+            ? { ok: false, error: "name_taken" }
             : { ok: true, channel: { id: channelId, name: channelName } },
         ),
       invite: vi.fn().mockResolvedValue({ ok: true }),
@@ -61,14 +61,14 @@ function makeSlackStub(
     chat: {
       postMessage: vi
         .fn()
-        .mockResolvedValue({ ok: true, ts: overrides.postMessageTs ?? '1734567890.123' }),
+        .mockResolvedValue({ ok: true, ts: overrides.postMessageTs ?? "1734567890.123" }),
     },
     pins: { add: vi.fn().mockResolvedValue({ ok: true }) },
     users: {
       lookupByEmail: vi
         .fn()
         .mockImplementation(({ email }: { email: string }) =>
-          Promise.resolve({ ok: true, user: { id: `U-${email.split('@')[0]}` } }),
+          Promise.resolve({ ok: true, user: { id: `U-${email.split("@")[0]}` } }),
         ),
     },
   };
@@ -80,7 +80,7 @@ function makeWorkOSStub(
     email: string;
     first_name: string;
     last_name: string;
-    state: 'active';
+    state: "active";
   }> = [],
 ) {
   return {
@@ -101,7 +101,7 @@ function makeGrafanaCloudStub(snapshot?: GrafanaContextSnapshot | null) {
       .fn()
       .mockImplementation(() =>
         snapshot === null
-          ? Promise.reject(new Error('Mimir unreachable'))
+          ? Promise.reject(new Error("Mimir unreachable"))
           : Promise.resolve(snapshot ?? undefined),
       ),
   };
@@ -116,16 +116,16 @@ function alertPayload(
     overrides.alert_group_id ?? `int-alert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   return {
     alert_group_id: id,
-    alert_group: { id, title: 'P1 checkout service 500s', state: 'firing' },
-    integration_id: 'grafana-integration-prod',
-    route_id: 'route-critical',
-    team_id: 'team-platform',
-    team_name: 'Platform',
+    alert_group: { id, title: "P1 checkout service 500s", state: "firing" },
+    integration_id: "grafana-integration-prod",
+    route_id: "route-critical",
+    team_id: "team-platform",
+    team_name: "Platform",
     alerts: [
       {
-        id: 'a1',
-        title: 'P1 checkout service 500s',
-        message: 'error rate > 5% on /checkout',
+        id: "a1",
+        title: "P1 checkout service 500s",
+        message: "error rate > 5% on /checkout",
         received_at: new Date().toISOString(),
       },
     ],
@@ -139,10 +139,10 @@ async function seedIncident(incidentId: string): Promise<void> {
       TableName: INCIDENTS_TABLE,
       Item: {
         PK: `INCIDENT#${incidentId}`,
-        SK: 'METADATA',
+        SK: "METADATA",
         incident_id: incidentId,
-        status: 'ALERT_RECEIVED',
-        severity: 'P1',
+        status: "ALERT_RECEIVED",
+        severity: "P1",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         responders: [],
@@ -156,7 +156,7 @@ async function readIncident(incidentId: string) {
   const r = await ddbLocalDoc.send(
     new GetCommand({
       TableName: INCIDENTS_TABLE,
-      Key: { PK: `INCIDENT#${incidentId}`, SK: 'METADATA' },
+      Key: { PK: `INCIDENT#${incidentId}`, SK: "METADATA" },
     }),
   );
   return r.Item;
@@ -166,12 +166,12 @@ async function readAuditActions(incidentId: string): Promise<string[]> {
   const r = await ddbLocalDoc.send(
     new QueryCommand({
       TableName: AUDIT_TABLE,
-      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk_prefix)',
-      ExpressionAttributeValues: { ':pk': `INCIDENT#${incidentId}`, ':sk_prefix': 'AUDIT#' },
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk_prefix)",
+      ExpressionAttributeValues: { ":pk": `INCIDENT#${incidentId}`, ":sk_prefix": "AUDIT#" },
       ConsistentRead: true,
     }),
   );
-  return (r.Items ?? []).map((i) => i['action_type'] as string);
+  return (r.Items ?? []).map((i) => i.action_type as string);
 }
 
 function buildAssembler(
@@ -191,13 +191,13 @@ function buildAssembler(
     cloud as never,
     auditWriter,
     nudgeStub as never,
-    'test-org',
+    "test-org",
     undefined,
   );
 }
 
-describe('WarRoomAssembler — integration vs dynamodb-local', () => {
-  const ORIGINAL_ENV = process.env['WORKOS_TEAM_GROUP_MAP'];
+describe("WarRoomAssembler — integration vs dynamodb-local", () => {
+  const ORIGINAL_ENV = process.env.WORKOS_TEAM_GROUP_MAP;
 
   beforeAll(async () => {
     await createAuditTable(AUDIT_TABLE);
@@ -210,89 +210,89 @@ describe('WarRoomAssembler — integration vs dynamodb-local', () => {
   });
 
   beforeEach(() => {
-    process.env['WORKOS_TEAM_GROUP_MAP'] = JSON.stringify({
-      'team-platform': 'directory_group_01abc',
+    process.env.WORKOS_TEAM_GROUP_MAP = JSON.stringify({
+      "team-platform": "directory_group_01abc",
     });
     nudgeStub.scheduleNudge.mockClear();
   });
 
   afterEach(() => {
-    if (ORIGINAL_ENV === undefined) delete process.env['WORKOS_TEAM_GROUP_MAP'];
-    else process.env['WORKOS_TEAM_GROUP_MAP'] = ORIGINAL_ENV;
+    if (ORIGINAL_ENV === undefined) delete process.env.WORKOS_TEAM_GROUP_MAP;
+    else process.env.WORKOS_TEAM_GROUP_MAP = ORIGINAL_ENV;
   });
 
-  it('INT-ASSEMBLE-001: happy path — assembles, persists ROOM_ASSEMBLED, writes full audit chain', async () => {
+  it("INT-ASSEMBLE-001: happy path — assembles, persists ROOM_ASSEMBLED, writes full audit chain", async () => {
     const alert = alertPayload();
     await seedIncident(alert.alert_group_id);
 
     const slack = makeSlackStub();
     const workos = makeWorkOSStub([
       {
-        id: 'u1',
-        email: 'alice@example.com',
-        first_name: 'Alice',
-        last_name: 'A',
-        state: 'active',
+        id: "u1",
+        email: "alice@example.com",
+        first_name: "Alice",
+        last_name: "A",
+        state: "active",
       },
-      { id: 'u2', email: 'bob@example.com', first_name: 'Bob', last_name: 'B', state: 'active' },
+      { id: "u2", email: "bob@example.com", first_name: "Bob", last_name: "B", state: "active" },
     ]);
-    const oncall = makeGrafanaOnCallStub({ id: 'chain-1' }, ['carol@example.com']);
+    const oncall = makeGrafanaOnCallStub({ id: "chain-1" }, ["carol@example.com"]);
     const cloud = makeGrafanaCloudStub(undefined);
 
     const record = await buildAssembler(slack, workos, oncall, cloud).assemble(alert);
 
-    expect(record.status).toBe('ROOM_ASSEMBLED');
-    expect(record.slack_channel_id).toBe('C-WAR-ROOM');
-    expect(record.responders.sort()).toEqual(['U-alice', 'U-bob', 'U-carol']);
+    expect(record.status).toBe("ROOM_ASSEMBLED");
+    expect(record.slack_channel_id).toBe("C-WAR-ROOM");
+    expect(record.responders.sort()).toEqual(["U-alice", "U-bob", "U-carol"]);
 
     const persisted = await readIncident(alert.alert_group_id);
     expect(persisted).toMatchObject({
-      status: 'ROOM_ASSEMBLED',
-      slack_channel_id: 'C-WAR-ROOM',
-      responders: expect.arrayContaining(['U-alice', 'U-bob', 'U-carol']),
+      status: "ROOM_ASSEMBLED",
+      slack_channel_id: "C-WAR-ROOM",
+      responders: expect.arrayContaining(["U-alice", "U-bob", "U-carol"]),
     });
 
     const audit = await readAuditActions(alert.alert_group_id);
     expect(audit).toEqual(
-      expect.arrayContaining(['WAR_ROOM_CREATED', 'RESPONDER_INVITED', 'CHECKLIST_PINNED']),
+      expect.arrayContaining(["WAR_ROOM_CREATED", "RESPONDER_INVITED", "CHECKLIST_PINNED"]),
     );
-    expect(audit).not.toContain('DIRECTORY_LOOKUP_FAILED');
+    expect(audit).not.toContain("DIRECTORY_LOOKUP_FAILED");
 
     expect(slack.conversations.create).toHaveBeenCalledTimes(1);
     expect(slack.conversations.invite).toHaveBeenCalledTimes(3);
-    expect(nudgeStub.scheduleNudge).toHaveBeenCalledWith(alert.alert_group_id, 'C-WAR-ROOM');
+    expect(nudgeStub.scheduleNudge).toHaveBeenCalledWith(alert.alert_group_id, "C-WAR-ROOM");
   });
 
-  it('INT-ASSEMBLE-002: directory lookup failure → DIRECTORY_LOOKUP_FAILED + ASSEMBLY_FALLBACK_INITIATED audit, assembly still completes', async () => {
+  it("INT-ASSEMBLE-002: directory lookup failure → DIRECTORY_LOOKUP_FAILED + ASSEMBLY_FALLBACK_INITIATED audit, assembly still completes", async () => {
     const alert = alertPayload();
     await seedIncident(alert.alert_group_id);
 
     const slack = makeSlackStub();
-    const workos = { getUsersInGroup: vi.fn().mockRejectedValue(new Error('WorkOS 503')) };
+    const workos = { getUsersInGroup: vi.fn().mockRejectedValue(new Error("WorkOS 503")) };
     const oncall = makeGrafanaOnCallStub(null, []); // no escalation chain either
     const cloud = makeGrafanaCloudStub(undefined);
 
     const record = await buildAssembler(slack, workos, oncall, cloud).assemble(alert);
 
-    expect(record.status).toBe('ROOM_ASSEMBLED');
+    expect(record.status).toBe("ROOM_ASSEMBLED");
     expect(record.responders).toEqual([]);
 
     const audit = await readAuditActions(alert.alert_group_id);
     expect(audit).toEqual(
       expect.arrayContaining([
-        'WAR_ROOM_CREATED',
-        'DIRECTORY_LOOKUP_FAILED',
-        'ASSEMBLY_FALLBACK_INITIATED',
+        "WAR_ROOM_CREATED",
+        "DIRECTORY_LOOKUP_FAILED",
+        "ASSEMBLY_FALLBACK_INITIATED",
       ]),
     );
     // Fallback warning was posted to Slack
     const fallbackCall = slack.chat.postMessage.mock.calls.find((c) =>
-      (c[0].text as string).includes('Responder auto-invite failed'),
+      (c[0].text as string).includes("Responder auto-invite failed"),
     );
     expect(fallbackCall).toBeDefined();
   });
 
-  it('INT-ASSEMBLE-003: Slack channel-create failure → throws, no ROOM_ASSEMBLED record', async () => {
+  it("INT-ASSEMBLE-003: Slack channel-create failure → throws, no ROOM_ASSEMBLED record", async () => {
     const alert = alertPayload();
     await seedIncident(alert.alert_group_id);
 
@@ -307,44 +307,44 @@ describe('WarRoomAssembler — integration vs dynamodb-local', () => {
 
     const persisted = await readIncident(alert.alert_group_id);
     // Status reached ROOM_ASSEMBLING but did not advance to ROOM_ASSEMBLED; there is no slack_channel_id.
-    expect(persisted?.['status']).toBe('ROOM_ASSEMBLING');
-    expect(persisted?.['slack_channel_id']).toBeUndefined();
+    expect(persisted?.status).toBe("ROOM_ASSEMBLING");
+    expect(persisted?.slack_channel_id).toBeUndefined();
   });
 
-  it('INT-ASSEMBLE-004: Grafana Cloud context failure is tolerated — assembly continues, audit records snapshot_present=false', async () => {
+  it("INT-ASSEMBLE-004: Grafana Cloud context failure is tolerated — assembly continues, audit records snapshot_present=false", async () => {
     const alert = alertPayload();
     await seedIncident(alert.alert_group_id);
 
     const slack = makeSlackStub();
     const workos = makeWorkOSStub([
-      { id: 'u1', email: 'alice@example.com', first_name: 'A', last_name: 'A', state: 'active' },
+      { id: "u1", email: "alice@example.com", first_name: "A", last_name: "A", state: "active" },
     ]);
     const oncall = makeGrafanaOnCallStub(null, []);
     const cloud = makeGrafanaCloudStub(null); // reject — Mimir unreachable
 
     const record = await buildAssembler(slack, workos, oncall, cloud).assemble(alert);
 
-    expect(record.status).toBe('ROOM_ASSEMBLED');
+    expect(record.status).toBe("ROOM_ASSEMBLED");
     expect(record.context_snapshot).toBeUndefined();
 
     const audit = await readAuditActions(alert.alert_group_id);
-    expect(audit).toContain('WAR_ROOM_CREATED');
+    expect(audit).toContain("WAR_ROOM_CREATED");
     // CONTEXT_SNAPSHOT_ATTACHED is now always written so the IC can tell from the
     // audit log alone whether the Grafana snapshot landed in-channel.
-    expect(audit).toContain('CONTEXT_SNAPSHOT_ATTACHED');
+    expect(audit).toContain("CONTEXT_SNAPSHOT_ATTACHED");
 
     const fullAudit = await ddbLocalDoc.send(
       new QueryCommand({
         TableName: AUDIT_TABLE,
-        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk_prefix)',
+        KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk_prefix)",
         ExpressionAttributeValues: {
-          ':pk': `INCIDENT#${alert.alert_group_id}`,
-          ':sk_prefix': 'AUDIT#',
+          ":pk": `INCIDENT#${alert.alert_group_id}`,
+          ":sk_prefix": "AUDIT#",
         },
         ConsistentRead: true,
       }),
     );
-    const ctxRow = fullAudit.Items?.find((i) => i['action_type'] === 'CONTEXT_SNAPSHOT_ATTACHED');
-    expect(ctxRow?.['details']).toMatchObject({ snapshot_present: false });
+    const ctxRow = fullAudit.Items?.find((i) => i.action_type === "CONTEXT_SNAPSHOT_ATTACHED");
+    expect(ctxRow?.details).toMatchObject({ snapshot_present: false });
   });
 });

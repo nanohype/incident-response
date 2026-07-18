@@ -12,11 +12,11 @@
  *   - Domain-specific error classes      → ./errors.ts
  */
 
-export * from './incident.js';
-export * from './grafana.js';
-export * from './audit.js';
-export * from './statuspage.js';
-export * from './postmortem.js';
-export * from './directory.js';
-export * from './errors.js';
-export * from './slack.js';
+export * from "./audit.js";
+export * from "./directory.js";
+export * from "./errors.js";
+export * from "./grafana.js";
+export * from "./incident.js";
+export * from "./postmortem.js";
+export * from "./slack.js";
+export * from "./statuspage.js";

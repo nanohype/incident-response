@@ -9,7 +9,7 @@ export interface StatusPageDraft {
   body: string;
   body_sha256: string;
   affected_component_ids: string[];
-  status: 'PENDING_APPROVAL' | 'APPROVED' | 'PUBLISHED' | 'REJECTED';
+  status: "PENDING_APPROVAL" | "APPROVED" | "PUBLISHED" | "REJECTED";
   created_at: string;
   approved_at?: string;
   approved_by?: string;

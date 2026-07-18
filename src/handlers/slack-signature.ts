@@ -13,7 +13,7 @@
  * older than 5 minutes are rejected to blunt replay.
  */
 
-import * as crypto from 'crypto';
+import * as crypto from "node:crypto";
 
 /** Reject timestamps more than this far from now (replay protection). */
 export const SLACK_MAX_SKEW_SECONDS = 5 * 60;
@@ -46,10 +46,10 @@ export function verifySlackSignature(input: SlackSignatureInput): boolean {
   if (Math.abs(nowSeconds - ts) > SLACK_MAX_SKEW_SECONDS) return false;
 
   const basestring = `v0:${timestamp}:${rawBody}`;
-  const expected = `v0=${crypto.createHmac('sha256', signingSecret).update(basestring, 'utf8').digest('hex')}`;
+  const expected = `v0=${crypto.createHmac("sha256", signingSecret).update(basestring, "utf8").digest("hex")}`;
 
-  const a = Buffer.from(signature, 'utf8');
-  const b = Buffer.from(expected, 'utf8');
+  const a = Buffer.from(signature, "utf8");
+  const b = Buffer.from(expected, "utf8");
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
 }

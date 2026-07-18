@@ -4,18 +4,18 @@
  */
 
 import {
-  SQSClient,
-  ReceiveMessageCommand,
   DeleteMessageCommand,
-  Message,
-} from '@aws-sdk/client-sqs';
-import { logger } from '../utils/logger.js';
-import { GrafanaOnCallAlertPayload } from '../types/index.js';
-import { context, extractSqsTraceContext } from '../utils/tracing.js';
-import { stringifyError } from '../utils/errors.js';
+  type Message,
+  ReceiveMessageCommand,
+  SQSClient,
+} from "@aws-sdk/client-sqs";
+import type { GrafanaOnCallAlertPayload } from "../types/index.js";
+import { stringifyError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
+import { context, extractSqsTraceContext } from "../utils/tracing.js";
 
-export type IncidentEventType = 'ALERT_RECEIVED' | 'ALERT_RESOLVED';
-export type NudgeEventType = 'STATUS_UPDATE_NUDGE' | 'SLA_CHECK';
+export type IncidentEventType = "ALERT_RECEIVED" | "ALERT_RESOLVED";
+export type NudgeEventType = "STATUS_UPDATE_NUDGE" | "SLA_CHECK";
 export interface IncidentQueueMessage {
   type: IncidentEventType;
   payload: GrafanaOnCallAlertPayload;
@@ -38,17 +38,17 @@ export class SqsConsumer {
     private readonly onNudgeEvent: MessageHandler<NudgeQueueMessage>,
     private readonly pollIntervalMs = 1000,
   ) {
-    this.sqs = new SQSClient({ region: process.env['AWS_REGION'] ?? 'us-west-2' });
+    this.sqs = new SQSClient({ region: process.env.AWS_REGION ?? "us-west-2" });
   }
 
   start(): void {
     this.running = true;
-    logger.info('SQS consumer started');
+    logger.info("SQS consumer started");
     void this.pollLoop();
   }
   stop(): void {
     this.running = false;
-    logger.info('SQS consumer stopping');
+    logger.info("SQS consumer stopping");
   }
 
   private async pollLoop(): Promise<void> {
@@ -57,9 +57,9 @@ export class SqsConsumer {
         this.pollQueue<IncidentQueueMessage>(
           this.incidentQueueUrl,
           this.onIncidentEvent,
-          'incident-events',
+          "incident-events",
         ),
-        this.pollQueue<NudgeQueueMessage>(this.nudgeQueueUrl, this.onNudgeEvent, 'nudge-events'),
+        this.pollQueue<NudgeQueueMessage>(this.nudgeQueueUrl, this.onNudgeEvent, "nudge-events"),
       ]);
       if (this.running) await new Promise((r) => setTimeout(r, this.pollIntervalMs));
     }
@@ -77,13 +77,13 @@ export class SqsConsumer {
           QueueUrl: queueUrl,
           MaxNumberOfMessages: 10,
           WaitTimeSeconds: 5,
-          MessageAttributeNames: ['All'],
-          AttributeNames: ['All'],
+          MessageAttributeNames: ["All"],
+          AttributeNames: ["All"],
         }),
       );
       messages = result.Messages ?? [];
     } catch (err) {
-      logger.warn({ queue: queueName, error: stringifyError(err) }, 'SQS receive failed');
+      logger.warn({ queue: queueName, error: stringifyError(err) }, "SQS receive failed");
       return;
     }
 
@@ -96,7 +96,7 @@ export class SqsConsumer {
       try {
         parsed = JSON.parse(msg.Body) as T;
       } catch {
-        logger.warn({ queue: queueName }, 'Failed to parse SQS message');
+        logger.warn({ queue: queueName }, "Failed to parse SQS message");
         await this.del(queueUrl, msg.ReceiptHandle!);
         continue;
       }
@@ -112,9 +112,9 @@ export class SqsConsumer {
           {
             queue: queueName,
             error: stringifyError(err),
-            receive_count: msg.Attributes?.['ApproximateReceiveCount'],
+            receive_count: msg.Attributes?.ApproximateReceiveCount,
           },
-          'Message processing failed — retrying via SQS visibility timeout',
+          "Message processing failed — retrying via SQS visibility timeout",
         );
       }
     }
@@ -126,7 +126,7 @@ export class SqsConsumer {
         new DeleteMessageCommand({ QueueUrl: queueUrl, ReceiptHandle: receiptHandle }),
       );
     } catch (err) {
-      logger.warn({ error: stringifyError(err) }, 'Failed to delete SQS message');
+      logger.warn({ error: stringifyError(err) }, "Failed to delete SQS message");
     }
   }
 }

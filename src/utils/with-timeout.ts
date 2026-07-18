@@ -7,11 +7,11 @@
  * non-critical Slack calls so a wedged API can't stall war-room assembly.
  */
 
-import { logger } from './logger.js';
-import { stringifyError } from './errors.js';
-import { withTimeout } from '../vendor/runtime/resilience.js';
+import { withTimeout } from "../vendor/runtime/resilience.js";
+import { stringifyError } from "./errors.js";
+import { logger } from "./logger.js";
 
-export { withTimeout, TimeoutError } from '../vendor/runtime/resilience.js';
+export { TimeoutError, withTimeout } from "../vendor/runtime/resilience.js";
 
 /**
  * Run a non-critical operation with a timeout; swallow failure as a warn-log and return fallback.

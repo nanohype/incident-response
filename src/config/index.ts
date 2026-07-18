@@ -8,15 +8,15 @@
  * process over an optional value.
  */
 
-import { z } from 'zod';
-import { logger } from '../utils/logger.js';
+import { z } from "zod";
+import { logger } from "../utils/logger.js";
 
 const ConfigSchema = z.object({
   // Bedrock model IDs. Sonnet drafts status pages + postmortem narrative;
   // Haiku classifies IC messages. Override per environment (e.g. to pin a
   // dated snapshot or a cross-region inference profile).
-  BEDROCK_SONNET_MODEL_ID: z.string().min(1).default('anthropic.claude-sonnet-4-6'),
-  BEDROCK_HAIKU_MODEL_ID: z.string().min(1).default('anthropic.claude-haiku-4-5-20251001-v1:0'),
+  BEDROCK_SONNET_MODEL_ID: z.string().min(1).default("anthropic.claude-sonnet-4-6"),
+  BEDROCK_HAIKU_MODEL_ID: z.string().min(1).default("anthropic.claude-haiku-4-5-20251001-v1:0"),
   // MCP streamable-HTTP port — the read + draft pull surface the mcp-tunnel
   // routes to. Default 3002 to avoid colliding with the processor health
   // server and webhook server (both on 3001). Locked to the mcp-tunnel
@@ -28,13 +28,13 @@ const ConfigSchema = z.object({
   // threads into the publish audit trail. Claude Tag does not (yet) forward the
   // invoking human's identity to a custom-connector tool call, so the draft's
   // `createdBy` is this fixed service actor, never an LLM-supplied value.
-  MCP_ACTOR_ID: z.string().min(1).default('claude-tag-mcp'),
+  MCP_ACTOR_ID: z.string().min(1).default("claude-tag-mcp"),
 });
 
 function loadConfig(): z.infer<typeof ConfigSchema> {
   const parsed = ConfigSchema.safeParse(process.env);
   if (!parsed.success) {
-    logger.error({ issues: parsed.error.issues }, 'Invalid configuration');
+    logger.error({ issues: parsed.error.issues }, "Invalid configuration");
     process.exit(1);
   }
   return parsed.data;

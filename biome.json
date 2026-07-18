@@ -1,0 +1,33 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.4/schema.json",
+  "extends": ["./biome.base.json"],
+  "linter": {
+    "rules": {
+      "suspicious": {
+        "noConsole": "error"
+      },
+      "nursery": {
+        "noFloatingPromises": "error"
+      }
+    }
+  },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "**",
+      "!package-lock.json",
+      "!*.md",
+      "!chart/templates",
+      "!chart/dashboards",
+      "!src/vendor",
+      "!scripts/sync-vendored.mjs",
+      "!infra/cdk.out",
+      "!infra/cdk.context.json"
+    ]
+  }
+}

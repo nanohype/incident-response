@@ -16,30 +16,29 @@
  * Grafana OnCall HMAC path this Deployment already serves.
  */
 
-import * as http from 'http';
-import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
-
-import { handler } from '../handlers/webhook-ingress.js';
-import { verifySlackSignature } from '../handlers/slack-signature.js';
+import * as http from "node:http";
+import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "aws-lambda";
 import {
-  handleSlashCommand,
   handleInteraction,
-  parseSlashCommand,
+  handleSlashCommand,
   parseInteraction,
+  parseSlashCommand,
   postToResponseUrl,
   type SlackInteractionDeps,
-} from '../handlers/slack-interactions.js';
-import { buildDependencies } from '../wiring/dependencies.js';
-import { buildCommandRegistry } from '../wiring/commands.js';
-import { logger } from '../utils/logger.js';
-import { stringifyError } from '../utils/errors.js';
+} from "../handlers/slack-interactions.js";
+import { verifySlackSignature } from "../handlers/slack-signature.js";
+import { handler } from "../handlers/webhook-ingress.js";
+import { stringifyError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
+import { buildCommandRegistry } from "../wiring/commands.js";
+import { buildDependencies } from "../wiring/dependencies.js";
 
-const PORT = Number.parseInt(process.env['PORT'] ?? '3001', 10);
-const SLACK_SIGNING_SECRET = process.env['SLACK_SIGNING_SECRET'] ?? '';
+const PORT = Number.parseInt(process.env.PORT ?? "3001", 10);
+const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET ?? "";
 
 // Slack Request URLs served by this Deployment.
-const SLACK_COMMANDS_PATH = '/slack/commands';
-const SLACK_INTERACTIVITY_PATH = '/slack/interactivity';
+const SLACK_COMMANDS_PATH = "/slack/commands";
+const SLACK_INTERACTIVITY_PATH = "/slack/interactivity";
 
 // Dependencies for the Slack surface — built once. The gate runs inline here on
 // approve; drafting happens via MCP, but a human approves in Slack.
@@ -57,44 +56,44 @@ const slackDeps: SlackInteractionDeps = {
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
   });
 }
 
 function flattenHeaders(raw: http.IncomingHttpHeaders): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(raw)) {
-    if (typeof v === 'string') out[k] = v;
-    else if (Array.isArray(v)) out[k] = v.join(',');
+    if (typeof v === "string") out[k] = v;
+    else if (Array.isArray(v)) out[k] = v.join(",");
   }
   return out;
 }
 
 function buildLambdaEvent(req: http.IncomingMessage, body: string): APIGatewayProxyEventV2 {
-  const path = req.url ?? '/';
+  const path = req.url ?? "/";
   return {
-    version: '2.0',
-    routeKey: '$default',
+    version: "2.0",
+    routeKey: "$default",
     rawPath: path,
-    rawQueryString: '',
+    rawQueryString: "",
     headers: flattenHeaders(req.headers),
     requestContext: {
-      accountId: 'k8s',
-      apiId: 'k8s-webhook',
-      domainName: req.headers.host ?? 'k8s-webhook.local',
-      domainPrefix: 'k8s-webhook',
+      accountId: "k8s",
+      apiId: "k8s-webhook",
+      domainName: req.headers.host ?? "k8s-webhook.local",
+      domainPrefix: "k8s-webhook",
       http: {
-        method: req.method ?? 'POST',
+        method: req.method ?? "POST",
         path,
-        protocol: 'HTTP/1.1',
-        sourceIp: req.socket.remoteAddress ?? '0.0.0.0',
-        userAgent: req.headers['user-agent'] ?? '',
+        protocol: "HTTP/1.1",
+        sourceIp: req.socket.remoteAddress ?? "0.0.0.0",
+        userAgent: req.headers["user-agent"] ?? "",
       },
       requestId: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-      routeKey: '$default',
-      stage: '$default',
+      routeKey: "$default",
+      stage: "$default",
       time: new Date().toISOString(),
       timeEpoch: Date.now(),
     },
@@ -106,9 +105,9 @@ function buildLambdaEvent(req: http.IncomingMessage, body: string): APIGatewayPr
 function writeResult(res: http.ServerResponse, result: APIGatewayProxyResultV2): void {
   // The Lambda handler returns either a string (treated as 200 body) or an
   // APIGatewayProxyStructuredResultV2 object with statusCode/headers/body.
-  if (typeof result === 'string') {
+  if (typeof result === "string") {
     res.statusCode = 200;
-    res.setHeader('content-type', 'text/plain');
+    res.setHeader("content-type", "text/plain");
     res.end(result);
     return;
   }
@@ -116,7 +115,7 @@ function writeResult(res: http.ServerResponse, result: APIGatewayProxyResultV2):
   for (const [k, v] of Object.entries(result.headers ?? {})) {
     res.setHeader(k, String(v));
   }
-  res.end(result.body ?? '');
+  res.end(result.body ?? "");
 }
 
 /**
@@ -131,13 +130,13 @@ function verifiedSlackRequest(
 ): boolean {
   const ok = verifySlackSignature({
     signingSecret: SLACK_SIGNING_SECRET,
-    signature: req.headers['x-slack-signature'] as string | undefined,
-    timestamp: req.headers['x-slack-request-timestamp'] as string | undefined,
+    signature: req.headers["x-slack-signature"] as string | undefined,
+    timestamp: req.headers["x-slack-request-timestamp"] as string | undefined,
     rawBody,
   });
   if (!ok) {
     res.statusCode = 401;
-    res.end('invalid signature');
+    res.end("invalid signature");
   }
   return ok;
 }
@@ -145,28 +144,28 @@ function verifiedSlackRequest(
 /** Ack Slack immediately (200), then run the work and post to `response_url`. */
 function ackAndDefer(res: http.ServerResponse, work: () => Promise<void>): void {
   res.statusCode = 200;
-  res.setHeader('content-type', 'application/json');
-  res.end('');
-  void work().catch((err) => logger.error({ error: stringifyError(err) }, 'slack handler error'));
+  res.setHeader("content-type", "application/json");
+  res.end("");
+  void work().catch((err) => logger.error({ error: stringifyError(err) }, "slack handler error"));
 }
 
 const server = http.createServer((req, res) => {
-  if (req.url === '/health' || req.url === '/healthz' || req.url === '/readyz') {
+  if (req.url === "/health" || req.url === "/healthz" || req.url === "/readyz") {
     res.statusCode = 200;
-    res.setHeader('content-type', 'application/json');
+    res.setHeader("content-type", "application/json");
     res.end('{"status":"ok"}');
     return;
   }
 
   // Only POST is meaningful — Grafana OnCall and Slack both POST. Reject
   // everything else cheaply.
-  if (req.method !== 'POST') {
+  if (req.method !== "POST") {
     res.statusCode = 405;
-    res.end('method not allowed');
+    res.end("method not allowed");
     return;
   }
 
-  const url = req.url ?? '';
+  const url = req.url ?? "";
 
   readBody(req)
     .then(async (body) => {
@@ -194,27 +193,27 @@ const server = http.createServer((req, res) => {
         )(event)) as APIGatewayProxyResultV2;
         writeResult(res, result);
       } catch (err) {
-        logger.error({ error: stringifyError(err) }, 'webhook handler error');
+        logger.error({ error: stringifyError(err) }, "webhook handler error");
         res.statusCode = 500;
-        res.end('internal error');
+        res.end("internal error");
       }
     })
     .catch((err: unknown) => {
-      logger.error({ error: stringifyError(err) }, 'webhook body read error');
+      logger.error({ error: stringifyError(err) }, "webhook body read error");
       res.statusCode = 400;
-      res.end('bad request');
+      res.end("bad request");
     });
 });
 
 server.listen(PORT, () => {
-  logger.info({ port: PORT }, 'webhook server listening');
+  logger.info({ port: PORT }, "webhook server listening");
 });
 
 const shutdown = (signal: string): void => {
-  logger.info({ signal }, 'webhook server shutting down');
+  logger.info({ signal }, "webhook server shutting down");
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 10_000).unref();
 };
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

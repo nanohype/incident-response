@@ -2,7 +2,7 @@
  * Environment validation. Fail-fast on missing required variables.
  */
 
-import { logger } from './logger.js';
+import { logger } from "./logger.js";
 
 export function requireEnv(vars: readonly string[]): void {
   const missing = vars.filter((v) => !process.env[v]);

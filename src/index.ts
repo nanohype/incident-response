@@ -12,39 +12,38 @@
  * src/handlers/slack-interactions.ts).
  */
 
-import * as http from 'http';
-
-import { logger } from './utils/logger.js';
-import { requireEnv } from './utils/env.js';
-import { config } from './config/index.js';
-import { buildDependencies } from './wiring/dependencies.js';
-import { buildIncidentEventRegistry, buildNudgeEventRegistry } from './wiring/events.js';
-import { SqsConsumer } from './services/sqs-consumer.js';
-import { createMcpHttpServer } from './mcp/server.js';
-import { stringifyError } from './utils/errors.js';
+import * as http from "node:http";
+import { config } from "./config/index.js";
+import { createMcpHttpServer } from "./mcp/server.js";
+import { SqsConsumer } from "./services/sqs-consumer.js";
+import { requireEnv } from "./utils/env.js";
+import { stringifyError } from "./utils/errors.js";
+import { logger } from "./utils/logger.js";
+import { buildDependencies } from "./wiring/dependencies.js";
+import { buildIncidentEventRegistry, buildNudgeEventRegistry } from "./wiring/events.js";
 
 requireEnv([
-  'SLACK_BOT_TOKEN',
-  'SLACK_SIGNING_SECRET',
-  'GRAFANA_ONCALL_TOKEN',
-  'GRAFANA_CLOUD_TOKEN',
-  'GRAFANA_CLOUD_ORG_ID',
-  'STATUSPAGE_API_KEY',
-  'STATUSPAGE_PAGE_ID',
-  'LINEAR_API_KEY',
-  'LINEAR_PROJECT_ID',
-  'LINEAR_TEAM_ID',
-  'WORKOS_API_KEY',
-  'WORKOS_DIRECTORY_ID',
-  'INCIDENTS_TABLE_NAME',
-  'AUDIT_TABLE_NAME',
-  'INCIDENT_EVENTS_QUEUE_URL',
-  'NUDGE_EVENTS_QUEUE_URL',
-  'NUDGE_EVENTS_QUEUE_ARN',
-  'SLA_CHECK_QUEUE_URL',
-  'SCHEDULER_ROLE_ARN',
-  'SCHEDULER_GROUP_NAME',
-  'AWS_REGION',
+  "SLACK_BOT_TOKEN",
+  "SLACK_SIGNING_SECRET",
+  "GRAFANA_ONCALL_TOKEN",
+  "GRAFANA_CLOUD_TOKEN",
+  "GRAFANA_CLOUD_ORG_ID",
+  "STATUSPAGE_API_KEY",
+  "STATUSPAGE_PAGE_ID",
+  "LINEAR_API_KEY",
+  "LINEAR_PROJECT_ID",
+  "LINEAR_TEAM_ID",
+  "WORKOS_API_KEY",
+  "WORKOS_DIRECTORY_ID",
+  "INCIDENTS_TABLE_NAME",
+  "AUDIT_TABLE_NAME",
+  "INCIDENT_EVENTS_QUEUE_URL",
+  "NUDGE_EVENTS_QUEUE_URL",
+  "NUDGE_EVENTS_QUEUE_ARN",
+  "SLA_CHECK_QUEUE_URL",
+  "SCHEDULER_ROLE_ARN",
+  "SCHEDULER_GROUP_NAME",
+  "AWS_REGION",
 ]);
 
 const deps = buildDependencies();
@@ -52,8 +51,8 @@ const incidentEvents = buildIncidentEventRegistry(deps);
 const nudgeEvents = buildNudgeEventRegistry(deps);
 
 const sqsConsumer = new SqsConsumer(
-  process.env['INCIDENT_EVENTS_QUEUE_URL']!,
-  process.env['NUDGE_EVENTS_QUEUE_URL']!,
+  process.env.INCIDENT_EVENTS_QUEUE_URL!,
+  process.env.NUDGE_EVENTS_QUEUE_URL!,
   (m) => incidentEvents.dispatch(m),
   (m) => nudgeEvents.dispatch(m),
 );
@@ -64,23 +63,23 @@ const sqsConsumer = new SqsConsumer(
 const mcpServer = createMcpHttpServer({
   docClient: deps.dynamoDb,
   incidentsTableName: deps.incidentsTableName,
-  auditTableName: process.env['AUDIT_TABLE_NAME']!,
+  auditTableName: process.env.AUDIT_TABLE_NAME!,
   approvalGate: deps.approvalGate,
   incidentResponseAI: deps.incidentResponseAI,
   draftActorId: config.MCP_ACTOR_ID,
 });
 
 const healthServer = http.createServer((req, res) => {
-  if (req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', service: 'incident-response-processor' }));
+  if (req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok", service: "incident-response-processor" }));
   } else {
     res.writeHead(404);
     res.end();
   }
 });
 healthServer.listen(3001, () => {
-  logger.info('Health check server listening on :3001');
+  logger.info("Health check server listening on :3001");
 });
 
 async function main(): Promise<void> {
@@ -92,12 +91,12 @@ async function main(): Promise<void> {
       incident_events: incidentEvents.registeredTypes(),
       nudge_events: nudgeEvents.registeredTypes(),
     },
-    'incident-response processor started',
+    "incident-response processor started",
   );
 }
 
 main().catch((err) => {
-  logger.error({ error: stringifyError(err) }, 'Fatal startup error');
+  logger.error({ error: stringifyError(err) }, "Fatal startup error");
   process.exit(1);
 });
 
@@ -108,10 +107,10 @@ main().catch((err) => {
 // wedged handler must not block a rolling deploy — the hard timeout ensures
 // process.exit fires no matter what.
 const SHUTDOWN_DRAIN_MS = 25_000;
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received — draining');
+process.on("SIGTERM", () => {
+  logger.info("SIGTERM received — draining");
   const forceExit = setTimeout(() => {
-    logger.warn({ drain_ms: SHUTDOWN_DRAIN_MS }, 'Drain deadline exceeded — force-exiting');
+    logger.warn({ drain_ms: SHUTDOWN_DRAIN_MS }, "Drain deadline exceeded — force-exiting");
     process.exit(1);
   }, SHUTDOWN_DRAIN_MS);
   // Give this timer zero keep-alive weight so a quick, clean shutdown isn't
@@ -123,10 +122,10 @@ process.on('SIGTERM', () => {
       sqsConsumer.stop();
       await mcpServer.close();
       healthServer.close();
-      logger.info('Drain complete');
+      logger.info("Drain complete");
       process.exit(0);
     } catch (err) {
-      logger.error({ error: stringifyError(err) }, 'Drain failed');
+      logger.error({ error: stringifyError(err) }, "Drain failed");
       process.exit(1);
     }
   })();

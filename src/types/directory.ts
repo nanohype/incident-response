@@ -8,5 +8,5 @@ export interface DirectoryUser {
   email: string;
   first_name: string;
   last_name: string;
-  state: 'active' | 'suspended' | 'inactive';
+  state: "active" | "suspended" | "inactive";
 }

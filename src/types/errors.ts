@@ -11,7 +11,7 @@ export class AutoPublishNotPermittedError extends Error {
         `without a confirmed STATUSPAGE_DRAFT_APPROVED audit record. ` +
         `This is a hard invariant violation — no status message reaches the public without explicit IC approval.`,
     );
-    this.name = 'AutoPublishNotPermittedError';
+    this.name = "AutoPublishNotPermittedError";
   }
 }
 
@@ -25,13 +25,13 @@ export class AutoPublishNotPermittedError extends Error {
 export class DirectoryLookupFailedError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'DirectoryLookupFailedError';
+    this.name = "DirectoryLookupFailedError";
   }
 }
 
 export class ExternalClientTimeoutError extends Error {
   constructor(client: string, timeout_ms: number) {
     super(`${client} request timed out after ${timeout_ms}ms`);
-    this.name = 'ExternalClientTimeoutError';
+    this.name = "ExternalClientTimeoutError";
   }
 }

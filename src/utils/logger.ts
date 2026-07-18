@@ -10,6 +10,6 @@
  * to stderr.
  */
 
-import { createLogger } from '../vendor/runtime/logger.js';
+import { createLogger } from "../vendor/runtime/logger.js";
 
-export const logger = createLogger({ stream: 'split' });
+export const logger = createLogger({ stream: "split" });

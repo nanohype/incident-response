@@ -16,16 +16,16 @@
  *     the 366-day audit log.
  */
 
-import { DynamoDBDocumentClient, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import * as crypto from "node:crypto";
+import { type DynamoDBDocumentClient, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import {
-  AuditEvent,
-  AuditEventType,
-  AuditDetailsByType,
+  type AuditDetailsByType,
+  type AuditEvent,
+  type AuditEventType,
   AutoPublishNotPermittedError,
-} from '../types/index.js';
-import { stringifyError } from './errors.js';
-import { logger } from './logger.js';
-import * as crypto from 'crypto';
+} from "../types/index.js";
+import { stringifyError } from "./errors.js";
+import { logger } from "./logger.js";
 
 function computeTTL(): number {
   return Math.floor(Date.now() / 1000) + 366 * 24 * 60 * 60;
@@ -45,7 +45,7 @@ function isSecretKey(name: string): boolean {
   return SECRET_KEY_PATTERN_SUBSTRING.test(name) || SECRET_KEY_PATTERN_EXACT.test(name);
 }
 
-const REDACTED = '[REDACTED]';
+const REDACTED = "[REDACTED]";
 
 /**
  * Defensively redact any value whose key looks credential-shaped.
@@ -60,7 +60,7 @@ export function scrubDetails<T>(value: T): T {
   if (Array.isArray(value)) {
     return value.map((v) => scrubDetails(v)) as unknown as T;
   }
-  if (typeof value === 'object') {
+  if (typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (isSecretKey(k)) {
@@ -104,24 +104,24 @@ export class AuditWriter {
         new PutCommand({
           TableName: this.tableName,
           Item: event,
-          ConditionExpression: 'attribute_not_exists(SK)',
+          ConditionExpression: "attribute_not_exists(SK)",
         }),
       )
       .catch((err) => {
-        if (err instanceof Error && err.name === 'ConditionalCheckFailedException') {
+        if (err instanceof Error && err.name === "ConditionalCheckFailedException") {
           logger.debug(
             { incident_id, action_type },
-            'Audit event already exists (idempotent write)',
+            "Audit event already exists (idempotent write)",
           );
           return;
         }
         logger.error(
           { incident_id, action_type, error: stringifyError(err) },
-          'CRITICAL: Audit write failed',
+          "CRITICAL: Audit write failed",
         );
         throw err;
       });
-    logger.info({ incident_id, action_type, actor_user_id }, 'Audit event written');
+    logger.info({ incident_id, action_type, actor_user_id }, "Audit event written");
   }
 
   async writeStatuspageApproval(
@@ -130,8 +130,8 @@ export class AuditWriter {
     draft_body: string,
     draft_id: string,
   ): Promise<{ body_sha256: string }> {
-    const body_sha256 = crypto.createHash('sha256').update(draft_body, 'utf8').digest('hex');
-    await this.write(incident_id, approver_user_id, 'STATUSPAGE_DRAFT_APPROVED', {
+    const body_sha256 = crypto.createHash("sha256").update(draft_body, "utf8").digest("hex");
+    await this.write(incident_id, approver_user_id, "STATUSPAGE_DRAFT_APPROVED", {
       draft_id,
       body_sha256,
       draft_body_length: draft_body.length,
@@ -150,12 +150,12 @@ export class AuditWriter {
     const result = await this.docClient.send(
       new QueryCommand({
         TableName: this.tableName,
-        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk_prefix)',
-        FilterExpression: 'action_type = :action_type',
+        KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk_prefix)",
+        FilterExpression: "action_type = :action_type",
         ExpressionAttributeValues: {
-          ':pk': `INCIDENT#${incident_id}`,
-          ':sk_prefix': 'AUDIT#',
-          ':action_type': 'STATUSPAGE_DRAFT_APPROVED',
+          ":pk": `INCIDENT#${incident_id}`,
+          ":sk_prefix": "AUDIT#",
+          ":action_type": "STATUSPAGE_DRAFT_APPROVED",
         },
         ConsistentRead: true, // SECURITY: strongly consistent — approval write MUST be visible before publish
       }),
@@ -163,13 +163,13 @@ export class AuditWriter {
     if (!result.Items || result.Items.length === 0) {
       logger.error(
         { incident_id },
-        'CRITICAL SECURITY VIOLATION: Statuspage publish without approval in audit log',
+        "CRITICAL SECURITY VIOLATION: Statuspage publish without approval in audit log",
       );
       throw new AutoPublishNotPermittedError(incident_id);
     }
     logger.info(
       { incident_id },
-      'Approval verified in audit log — proceeding with Statuspage publish',
+      "Approval verified in audit log — proceeding with Statuspage publish",
     );
   }
 
@@ -177,14 +177,14 @@ export class AuditWriter {
     const publishedResult = await this.docClient.send(
       new QueryCommand({
         TableName: this.tableName,
-        IndexName: 'published-without-approval-index',
-        KeyConditionExpression: 'action_type = :action_type',
-        ExpressionAttributeValues: { ':action_type': 'STATUSPAGE_PUBLISHED' },
+        IndexName: "published-without-approval-index",
+        KeyConditionExpression: "action_type = :action_type",
+        ExpressionAttributeValues: { ":action_type": "STATUSPAGE_PUBLISHED" },
       }),
     );
     const violations: AuditEvent[] = [];
     for (const published of publishedResult.Items ?? []) {
-      const inc_id = published['incident_id'] as string;
+      const inc_id = published.incident_id as string;
       // Same Limit+Filter ordering hazard as verifyApprovalBeforePublish: DDB
       // applies Limit before FilterExpression, so Limit=1 here can falsely
       // report a violation when the approval exists but isn't the earliest
@@ -192,12 +192,12 @@ export class AuditWriter {
       const approvedResult = await this.docClient.send(
         new QueryCommand({
           TableName: this.tableName,
-          KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk_prefix)',
-          FilterExpression: 'action_type = :action_type',
+          KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk_prefix)",
+          FilterExpression: "action_type = :action_type",
           ExpressionAttributeValues: {
-            ':pk': `INCIDENT#${inc_id}`,
-            ':sk_prefix': 'AUDIT#',
-            ':action_type': 'STATUSPAGE_DRAFT_APPROVED',
+            ":pk": `INCIDENT#${inc_id}`,
+            ":sk_prefix": "AUDIT#",
+            ":action_type": "STATUSPAGE_DRAFT_APPROVED",
           },
         }),
       );

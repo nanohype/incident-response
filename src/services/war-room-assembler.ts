@@ -7,24 +7,24 @@
  * cannot be bypassed — domain code never holds a WebClient handle.
  */
 
-import * as crypto from 'crypto';
-import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { WorkOSClient } from '../clients/workos-client.js';
-import { GrafanaOnCallClient } from '../clients/grafana-oncall-client.js';
-import { GrafanaCloudClient } from '../clients/grafana-cloud-client.js';
-import { AuditWriter } from '../utils/audit.js';
-import { logger } from '../utils/logger.js';
-import { MetricsEmitter, MetricNames } from '../utils/metrics.js';
-import {
-  GrafanaOnCallAlertPayload,
+import * as crypto from "node:crypto";
+import { type DynamoDBDocumentClient, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import type { SlackAdapter } from "../adapters/slack-adapter.js";
+import type { GrafanaCloudClient } from "../clients/grafana-cloud-client.js";
+import type { GrafanaOnCallClient } from "../clients/grafana-oncall-client.js";
+import type { WorkOSClient } from "../clients/workos-client.js";
+import type {
   GrafanaContextSnapshot,
+  GrafanaOnCallAlertPayload,
   IncidentRecord,
-} from '../types/index.js';
-import { buildChecklistBlocks, buildContextSnapshotBlocks } from './slack-blocks.js';
-import { NudgeScheduler } from './nudge-scheduler.js';
-import { withSpan } from '../utils/tracing.js';
-import type { SlackAdapter } from '../adapters/slack-adapter.js';
-import { stringifyError } from '../utils/errors.js';
+} from "../types/index.js";
+import type { AuditWriter } from "../utils/audit.js";
+import { stringifyError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
+import { MetricNames, type MetricsEmitter } from "../utils/metrics.js";
+import { withSpan } from "../utils/tracing.js";
+import type { NudgeScheduler } from "./nudge-scheduler.js";
+import { buildChecklistBlocks, buildContextSnapshotBlocks } from "./slack-blocks.js";
 
 // Slack call deadlines. Channel create is critical (assembly depends on it).
 // Everything else is non-critical — budget < channel-create so a wedge doesn't cascade.
@@ -33,17 +33,17 @@ const SLACK_NON_CRITICAL_TIMEOUT_MS = 7500;
 const SLACK_INVITE_TIMEOUT_MS = 7500;
 
 const CHECKLIST_ITEMS = [
-  'War room assembled',
-  'IC confirmed',
-  'Responders joined',
-  'Initial severity assessed',
-  'Customer impact identified',
-  'Status page draft created',
-  'Status page approved and published',
-  'Incident mitigated',
-  'All-clear confirmed',
-  'Postmortem draft created',
-  'Postmortem reviewed and published',
+  "War room assembled",
+  "IC confirmed",
+  "Responders joined",
+  "Initial severity assessed",
+  "Customer impact identified",
+  "Status page draft created",
+  "Status page approved and published",
+  "Incident mitigated",
+  "All-clear confirmed",
+  "Postmortem draft created",
+  "Postmortem reviewed and published",
 ];
 
 /**
@@ -60,12 +60,12 @@ const CHECKLIST_ITEMS = [
  * Slack channel name cap is 80 chars — this format stays well under.
  */
 function channelName(id: string): string {
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const safeId = id
-    .replace(/[^a-z0-9-]/gi, '')
+    .replace(/[^a-z0-9-]/gi, "")
     .toLowerCase()
     .slice(0, 12);
-  const nonce = crypto.randomBytes(3).toString('hex');
+  const nonce = crypto.randomBytes(3).toString("hex");
   return `incident-response-p1-${date}-${safeId}-${nonce}`;
 }
 
@@ -88,22 +88,22 @@ export class WarRoomAssembler {
   async assemble(alert: GrafanaOnCallAlertPayload): Promise<IncidentRecord> {
     const incidentId = alert.alert_group_id;
     const log = logger.child({ incident_id: incidentId });
-    log.info('Starting war room assembly');
+    log.info("Starting war room assembly");
     const start = Date.now();
 
-    return withSpan('war_room.assemble', async (rootSpan) => {
-      await this.updateIncidentStatus(incidentId, 'ROOM_ASSEMBLING');
+    return withSpan("war_room.assemble", async (rootSpan) => {
+      await this.updateIncidentStatus(incidentId, "ROOM_ASSEMBLING");
 
       // Step 1: Create Slack private channel (critical — no room, no assembly)
-      const channel = await withSpan('assemble.create_channel', () =>
+      const channel = await withSpan("assemble.create_channel", () =>
         this.slack.createPrivateChannel(channelName(incidentId), {
           timeoutMs: SLACK_CHANNEL_CREATE_TIMEOUT_MS,
-          label: 'slack.conversations.create',
+          label: "slack.conversations.create",
         }),
       );
-      rootSpan.setAttribute('slack.channel.id', channel.id);
+      rootSpan.setAttribute("slack.channel.id", channel.id);
 
-      await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'WAR_ROOM_CREATED', {
+      await this.auditWriter.write(incidentId, "INCIDENT_RESPONSE", "WAR_ROOM_CREATED", {
         channel_id: channel.id,
         channel_name: channel.name,
         alert_payload: alert,
@@ -112,51 +112,51 @@ export class WarRoomAssembler {
 
       // Step 2: Parallel queries — responder directory + Grafana Cloud context snapshot.
       const [responderResult, contextResult] = await Promise.allSettled([
-        withSpan('assemble.resolve_responders', () =>
+        withSpan("assemble.resolve_responders", () =>
           this.resolveResponderEmails(alert, incidentId),
         ),
-        withSpan('assemble.context_snapshot', () =>
+        withSpan("assemble.context_snapshot", () =>
           this.grafanaCloudClient.getContextSnapshot(alert.team_name, incidentId),
         ),
       ]);
 
       let contextSnapshot: GrafanaContextSnapshot | undefined;
-      if (contextResult.status === 'fulfilled') contextSnapshot = contextResult.value;
+      if (contextResult.status === "fulfilled") contextSnapshot = contextResult.value;
       else
         log.warn(
           { error: stringifyError(contextResult.reason) },
-          'Grafana Cloud context failed — proceeding without snapshot',
+          "Grafana Cloud context failed — proceeding without snapshot",
         );
 
       // Step 3: Invite responders (or fallback if the directory lookup failed)
       let invitedUserIds: string[] = [];
       let directoryFallback = false;
 
-      if (responderResult.status === 'fulfilled') {
+      if (responderResult.status === "fulfilled") {
         invitedUserIds = await withSpan(
-          'assemble.invite_responders',
+          "assemble.invite_responders",
           () => this.inviteResponders(channel.id, responderResult.value, incidentId),
           { responder_count: responderResult.value.length },
         );
       } else {
         directoryFallback = true;
         this.metrics?.increment(MetricNames.DirectoryLookupFailureCount);
-        await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'DIRECTORY_LOOKUP_FAILED', {
+        await this.auditWriter.write(incidentId, "INCIDENT_RESPONSE", "DIRECTORY_LOOKUP_FAILED", {
           error: stringifyError(responderResult.reason),
         });
         await this.auditWriter.write(
           incidentId,
-          'INCIDENT_RESPONSE',
-          'ASSEMBLY_FALLBACK_INITIATED',
+          "INCIDENT_RESPONSE",
+          "ASSEMBLY_FALLBACK_INITIATED",
           {
-            reason: 'Directory group lookup failed',
+            reason: "Directory group lookup failed",
           },
         );
       }
 
       // Step 4: Post context snapshot (non-critical; continue even if Slack is slow).
       // Audit event always written so the IC can tell whether the snapshot landed.
-      const contextPostResult = await withSpan('assemble.post_context', () =>
+      const contextPostResult = await withSpan("assemble.post_context", () =>
         this.slack.postMessageNonCritical(
           {
             channel: channel.id,
@@ -165,55 +165,55 @@ export class WarRoomAssembler {
           },
           {
             timeoutMs: SLACK_NON_CRITICAL_TIMEOUT_MS,
-            label: 'slack.chat.postMessage:context',
+            label: "slack.chat.postMessage:context",
             incidentId,
           },
         ),
       );
       const contextAttached = !!contextPostResult?.ok;
-      await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'CONTEXT_SNAPSHOT_ATTACHED', {
+      await this.auditWriter.write(incidentId, "INCIDENT_RESPONSE", "CONTEXT_SNAPSHOT_ATTACHED", {
         channel_id: channel.id,
         attached: contextAttached,
         snapshot_present: contextSnapshot !== undefined,
         ...(contextSnapshot && { queried_at: contextSnapshot.queried_at }),
-        ...(!contextAttached && { failure_reason: 'slack_post_failed_or_timed_out' }),
+        ...(!contextAttached && { failure_reason: "slack_post_failed_or_timed_out" }),
       });
 
       if (directoryFallback) {
         await this.slack.postMessageNonCritical(
           {
             channel: channel.id,
-            text: '⚠️ *Responder auto-invite failed* — directory group lookup returned an error. Use `/incident-response invite @user` to manually add responders.',
+            text: "⚠️ *Responder auto-invite failed* — directory group lookup returned an error. Use `/incident-response invite @user` to manually add responders.",
           },
           {
             timeoutMs: SLACK_NON_CRITICAL_TIMEOUT_MS,
-            label: 'slack.chat.postMessage:directory-fallback',
+            label: "slack.chat.postMessage:directory-fallback",
             incidentId,
           },
         );
       }
 
       // Step 5: Post + pin checklist (non-critical)
-      const checklistMsg = await withSpan('assemble.pin_checklist', async () => {
+      const checklistMsg = await withSpan("assemble.pin_checklist", async () => {
         const msg = await this.slack.postMessageNonCritical(
           {
             channel: channel.id,
             blocks: buildChecklistBlocks(incidentId, CHECKLIST_ITEMS),
-            text: '📋 Incident Checklist',
+            text: "📋 Incident Checklist",
           },
           {
             timeoutMs: SLACK_NON_CRITICAL_TIMEOUT_MS,
-            label: 'slack.chat.postMessage:checklist',
+            label: "slack.chat.postMessage:checklist",
             incidentId,
           },
         );
         if (msg?.ok && msg.ts) {
           await this.slack.pinMessage(channel.id, msg.ts, {
             timeoutMs: SLACK_NON_CRITICAL_TIMEOUT_MS,
-            label: 'slack.pins.add',
+            label: "slack.pins.add",
             incidentId,
           });
-          await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'CHECKLIST_PINNED', {
+          await this.auditWriter.write(incidentId, "INCIDENT_RESPONSE", "CHECKLIST_PINNED", {
             channel_id: channel.id,
             message_ts: msg.ts,
           });
@@ -222,14 +222,14 @@ export class WarRoomAssembler {
       });
 
       // Step 6: Schedule 15-min nudge
-      await withSpan('assemble.schedule_nudge', () =>
+      await withSpan("assemble.schedule_nudge", () =>
         this.nudgeScheduler.scheduleNudge(incidentId, channel.id),
       );
 
       const incidentRecord: IncidentRecord = {
         incident_id: incidentId,
-        status: 'ROOM_ASSEMBLED',
-        severity: 'P1',
+        status: "ROOM_ASSEMBLED",
+        severity: "P1",
         alert_payload: alert,
         slack_channel_id: channel.id,
         slack_channel_name: channel.name,
@@ -244,13 +244,13 @@ export class WarRoomAssembler {
       await this.saveIncidentRecord(incidentRecord);
       const durationMs = Date.now() - start;
       this.metrics?.durationMs(MetricNames.AssemblyDurationMs, durationMs, [
-        { name: 'directory_fallback', value: String(directoryFallback) },
+        { name: "directory_fallback", value: String(directoryFallback) },
       ]);
-      rootSpan.setAttribute('incident.id', incidentId);
-      rootSpan.setAttribute('team.id', alert.team_id);
-      rootSpan.setAttribute('directory_fallback', directoryFallback);
-      rootSpan.setAttribute('responder_count', invitedUserIds.length);
-      rootSpan.setAttribute('assembly_duration_ms', durationMs);
+      rootSpan.setAttribute("incident.id", incidentId);
+      rootSpan.setAttribute("team.id", alert.team_id);
+      rootSpan.setAttribute("directory_fallback", directoryFallback);
+      rootSpan.setAttribute("responder_count", invitedUserIds.length);
+      rootSpan.setAttribute("assembly_duration_ms", durationMs);
       log.info(
         {
           channel_id: channel.id,
@@ -259,7 +259,7 @@ export class WarRoomAssembler {
           directory_fallback: directoryFallback,
           context_attached: contextAttached,
         },
-        'War room assembled',
+        "War room assembled",
       );
       return incidentRecord;
     });
@@ -276,11 +276,10 @@ export class WarRoomAssembler {
     if (chain) {
       for (const e of this.grafanaOnCallClient.extractEmailsFromChain(chain)) emails.add(e);
     }
-    const directoryGroupId = process.env['WORKOS_TEAM_GROUP_MAP']
-      ? ((JSON.parse(process.env['WORKOS_TEAM_GROUP_MAP']) as Record<string, string>)[
-          alert.team_id
-        ] ?? '')
-      : '';
+    const directoryGroupId = process.env.WORKOS_TEAM_GROUP_MAP
+      ? ((JSON.parse(process.env.WORKOS_TEAM_GROUP_MAP) as Record<string, string>)[alert.team_id] ??
+        "")
+      : "";
     if (directoryGroupId) {
       const users = await this.directoryClient.getUsersInGroup(directoryGroupId, incidentId);
       for (const u of users) emails.add(u.email.toLowerCase());
@@ -298,15 +297,15 @@ export class WarRoomAssembler {
       try {
         const user = await this.slack.lookupUserByEmail(email, {
           timeoutMs: SLACK_INVITE_TIMEOUT_MS,
-          label: 'slack.users.lookupByEmail',
+          label: "slack.users.lookupByEmail",
         });
         if (!user) continue;
         await this.slack.inviteToChannel(channelId, user.id, {
           timeoutMs: SLACK_INVITE_TIMEOUT_MS,
-          label: 'slack.conversations.invite',
+          label: "slack.conversations.invite",
         });
         invited.push(user.id);
-        await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'RESPONDER_INVITED', {
+        await this.auditWriter.write(incidentId, "INCIDENT_RESPONSE", "RESPONDER_INVITED", {
           channel_id: channelId,
           invited_user_id: user.id,
           email,
@@ -315,9 +314,9 @@ export class WarRoomAssembler {
       } catch (err) {
         logger.warn(
           { incident_id: incidentId, email, error: stringifyError(err) },
-          'Failed to invite responder',
+          "Failed to invite responder",
         );
-        await this.auditWriter.write(incidentId, 'INCIDENT_RESPONSE', 'RESPONDER_INVITE_FAILED', {
+        await this.auditWriter.write(incidentId, "INCIDENT_RESPONSE", "RESPONDER_INVITE_FAILED", {
           channel_id: channelId,
           email,
           error: stringifyError(err),
@@ -331,10 +330,10 @@ export class WarRoomAssembler {
     await this.docClient.send(
       new UpdateCommand({
         TableName: this.incidentsTableName,
-        Key: { PK: `INCIDENT#${incidentId}`, SK: 'METADATA' },
-        UpdateExpression: 'SET #status = :status, updated_at = :updated_at',
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: { ':status': status, ':updated_at': new Date().toISOString() },
+        Key: { PK: `INCIDENT#${incidentId}`, SK: "METADATA" },
+        UpdateExpression: "SET #status = :status, updated_at = :updated_at",
+        ExpressionAttributeNames: { "#status": "status" },
+        ExpressionAttributeValues: { ":status": status, ":updated_at": new Date().toISOString() },
       }),
     );
   }
@@ -345,7 +344,7 @@ export class WarRoomAssembler {
         TableName: this.incidentsTableName,
         Item: {
           PK: `INCIDENT#${record.incident_id}`,
-          SK: 'METADATA',
+          SK: "METADATA",
           ...record,
           TTL: Math.floor(Date.now() / 1000) + 366 * 24 * 60 * 60,
         },

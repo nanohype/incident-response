@@ -4,7 +4,7 @@
  * Decouples event type → handler mapping from the main loop.
  */
 
-import { logger } from '../utils/logger.js';
+import { logger } from "../utils/logger.js";
 
 export interface DispatchableMessage {
   type: string;
@@ -29,7 +29,7 @@ export class EventRegistry<T extends DispatchableMessage> {
     if (!handler) {
       logger.warn(
         { registry: this.name, event_type: message.type },
-        'No handler registered for event type — dropping message',
+        "No handler registered for event type — dropping message",
       );
       return;
     }

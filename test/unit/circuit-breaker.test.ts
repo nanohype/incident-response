@@ -8,7 +8,7 @@
  * and that state/reset/exec delegate to the vendored breaker.
  */
 
-import { createCircuitBreaker, CircuitOpenError } from '../../src/utils/circuit-breaker.js';
+import { CircuitOpenError, createCircuitBreaker } from "../../src/utils/circuit-breaker.js";
 
 function makeClock(start: number) {
   let t = start;
@@ -20,38 +20,38 @@ function makeClock(start: number) {
   };
 }
 
-const FAIL = (): Promise<never> => Promise.reject(new Error('boom'));
-const OK = (): Promise<string> => Promise.resolve('ok');
+const FAIL = (): Promise<never> => Promise.reject(new Error("boom"));
+const OK = (): Promise<string> => Promise.resolve("ok");
 
-describe('createCircuitBreaker (instrumented wrapper)', () => {
-  it('CB-WIRE-001: delegates the lifecycle — trips at threshold, half-open probe closes on success', async () => {
+describe("createCircuitBreaker (instrumented wrapper)", () => {
+  it("CB-WIRE-001: delegates the lifecycle — trips at threshold, half-open probe closes on success", async () => {
     const clock = makeClock(0);
     const cb = createCircuitBreaker({
-      name: 'test',
+      name: "test",
       failureThreshold: 2,
       windowMs: 1000,
       halfOpenAfterMs: 500,
       now: clock.now,
     });
-    await expect(cb.exec(FAIL)).rejects.toThrow('boom');
-    expect(cb.state()).toBe('closed');
-    await expect(cb.exec(FAIL)).rejects.toThrow('boom');
-    expect(cb.state()).toBe('open');
+    await expect(cb.exec(FAIL)).rejects.toThrow("boom");
+    expect(cb.state()).toBe("closed");
+    await expect(cb.exec(FAIL)).rejects.toThrow("boom");
+    expect(cb.state()).toBe("open");
     await expect(cb.exec(OK)).rejects.toBeInstanceOf(CircuitOpenError);
     clock.advance(500);
     // Vendored semantics: state() is a pure read — the open→half_open
     // transition happens on the next exec after the cooldown, not on read.
-    expect(cb.state()).toBe('open');
-    await expect(cb.exec(OK)).resolves.toBe('ok');
-    expect(cb.state()).toBe('closed');
+    expect(cb.state()).toBe("open");
+    await expect(cb.exec(OK)).resolves.toBe("ok");
+    expect(cb.state()).toBe("closed");
   });
 
-  it('CB-WIRE-002: emits circuit_open_count once per trip and circuit_open_reject_count per fast-fail', async () => {
+  it("CB-WIRE-002: emits circuit_open_count once per trip and circuit_open_reject_count per fast-fail", async () => {
     const clock = makeClock(0);
     const increment = vi.fn();
-    const metrics = { increment } as unknown as import('../../src/utils/metrics.js').MetricsEmitter;
+    const metrics = { increment } as unknown as import("../../src/utils/metrics.js").MetricsEmitter;
     const cb = createCircuitBreaker({
-      name: 'test',
+      name: "test",
       failureThreshold: 2,
       windowMs: 1000,
       halfOpenAfterMs: 500,
@@ -60,45 +60,45 @@ describe('createCircuitBreaker (instrumented wrapper)', () => {
     });
     await expect(cb.exec(FAIL)).rejects.toThrow();
     await expect(cb.exec(FAIL)).rejects.toThrow();
-    expect(increment).toHaveBeenCalledWith('circuit_open_count', [
-      { name: 'circuit', value: 'test' },
+    expect(increment).toHaveBeenCalledWith("circuit_open_count", [
+      { name: "circuit", value: "test" },
     ]);
     expect(increment).toHaveBeenCalledTimes(1);
     await expect(cb.exec(OK)).rejects.toBeInstanceOf(CircuitOpenError);
     await expect(cb.exec(OK)).rejects.toBeInstanceOf(CircuitOpenError);
-    expect(increment).toHaveBeenCalledWith('circuit_open_reject_count', [
-      { name: 'circuit', value: 'test' },
+    expect(increment).toHaveBeenCalledWith("circuit_open_reject_count", [
+      { name: "circuit", value: "test" },
     ]);
     expect(increment).toHaveBeenCalledTimes(3); // 1 trip + 2 rejects
   });
 
-  it('CB-WIRE-003: ordinary failures do NOT emit the reject metric', async () => {
+  it("CB-WIRE-003: ordinary failures do NOT emit the reject metric", async () => {
     const clock = makeClock(0);
     const increment = vi.fn();
-    const metrics = { increment } as unknown as import('../../src/utils/metrics.js').MetricsEmitter;
+    const metrics = { increment } as unknown as import("../../src/utils/metrics.js").MetricsEmitter;
     const cb = createCircuitBreaker({
-      name: 'test',
+      name: "test",
       failureThreshold: 5,
       windowMs: 1000,
       halfOpenAfterMs: 500,
       now: clock.now,
       metrics,
     });
-    await expect(cb.exec(FAIL)).rejects.toThrow('boom');
+    await expect(cb.exec(FAIL)).rejects.toThrow("boom");
     expect(increment).not.toHaveBeenCalled();
   });
 
-  it('CB-WIRE-004: works without a metrics sink and without an injected clock', async () => {
+  it("CB-WIRE-004: works without a metrics sink and without an injected clock", async () => {
     const cb = createCircuitBreaker({
-      name: 'test',
+      name: "test",
       failureThreshold: 1,
       windowMs: 1000,
       halfOpenAfterMs: 500,
     });
-    await expect(cb.exec(FAIL)).rejects.toThrow('boom');
-    expect(cb.state()).toBe('open');
+    await expect(cb.exec(FAIL)).rejects.toThrow("boom");
+    expect(cb.state()).toBe("open");
     cb.reset();
-    expect(cb.state()).toBe('closed');
-    await expect(cb.exec(OK)).resolves.toBe('ok');
+    expect(cb.state()).toBe("closed");
+    await expect(cb.exec(OK)).resolves.toBe("ok");
   });
 });

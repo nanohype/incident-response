@@ -9,16 +9,16 @@
  * the `mcp-tunnel` namespace.
  */
 
-import * as http from 'http';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { registerTools, type McpToolDeps } from './tools.js';
-import { logger } from '../utils/logger.js';
-import { stringifyError } from '../utils/errors.js';
+import * as http from "node:http";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { stringifyError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
+import { type McpToolDeps, registerTools } from "./tools.js";
 
 /** The path the streamable-HTTP transport is served on. */
-export const MCP_PATH = '/mcp';
+export const MCP_PATH = "/mcp";
 
 /**
  * Construct the MCP server for one connection. Tools are stateless functions
@@ -28,7 +28,7 @@ export const MCP_PATH = '/mcp';
  */
 export function createMcpServer(deps: McpToolDeps): Server {
   const server = new Server(
-    { name: 'incident-response', version: '0.1.0' },
+    { name: "incident-response", version: "0.1.0" },
     { capabilities: { tools: {} } },
   );
   registerTools(server, deps);
@@ -60,10 +60,10 @@ async function handleRequest(
   res: http.ServerResponse,
   deps: McpToolDeps,
 ): Promise<void> {
-  const url = req.url ?? '';
+  const url = req.url ?? "";
   if (!url.startsWith(MCP_PATH)) {
-    res.writeHead(404, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ status: 'not_found' }));
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ status: "not_found" }));
     return;
   }
 
@@ -73,7 +73,7 @@ async function handleRequest(
   // returns a single JSON body rather than an SSE stream.
   const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
 
-  res.on('close', () => {
+  res.on("close", () => {
     void transport.close();
     void server.close();
   });
@@ -84,16 +84,16 @@ async function handleRequest(
     // the `Transport` parameter — the instance is a valid Transport at runtime.
     // Narrow the cast to this one seam rather than relaxing the flag repo-wide.
     await server.connect(transport as unknown as Transport);
-    const body = req.method === 'POST' ? await readJsonBody(req) : undefined;
+    const body = req.method === "POST" ? await readJsonBody(req) : undefined;
     await transport.handleRequest(req, res, body);
   } catch (err) {
-    logger.error({ error: stringifyError(err) }, 'mcp request failed');
+    logger.error({ error: stringifyError(err) }, "mcp request failed");
     if (!res.headersSent) {
-      res.writeHead(500, { 'content-type': 'application/json' });
+      res.writeHead(500, { "content-type": "application/json" });
       res.end(
         JSON.stringify({
-          jsonrpc: '2.0',
-          error: { code: -32603, message: 'Internal server error' },
+          jsonrpc: "2.0",
+          error: { code: -32603, message: "Internal server error" },
           id: null,
         }),
       );
@@ -107,7 +107,7 @@ async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
   for await (const chunk of req) {
     chunks.push(chunk as Buffer);
   }
-  const raw = Buffer.concat(chunks).toString('utf-8');
+  const raw = Buffer.concat(chunks).toString("utf-8");
   if (!raw) return undefined;
   return JSON.parse(raw);
 }
