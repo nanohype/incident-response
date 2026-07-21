@@ -3,8 +3,8 @@
  *
  * Serves three signature-verified HTTP surfaces behind ingress-nginx, all on
  * PORT (default 3001):
- *   - Grafana OnCall webhook (HMAC-SHA256) → the Lambda-shaped
- *     src/handlers/webhook-ingress.ts handler → SQS enqueue.
+ *   - Grafana OnCall webhook (HMAC-SHA256) → the src/handlers/webhook-ingress.ts
+ *     handler → SQS enqueue.
  *   - Slack slash commands (`POST /slack/commands`, Slack signing secret) →
  *     the CommandRegistry dispatch.
  *   - Slack Block Kit interactivity (`POST /slack/interactivity`, Slack signing
@@ -17,7 +17,6 @@
  */
 
 import * as http from "node:http";
-import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from "aws-lambda";
 import {
   handleInteraction,
   handleSlashCommand,
@@ -27,7 +26,7 @@ import {
   type SlackInteractionDeps,
 } from "../handlers/slack-interactions.js";
 import { verifySlackSignature } from "../handlers/slack-signature.js";
-import { handler } from "../handlers/webhook-ingress.js";
+import { handler, type WebhookResponse } from "../handlers/webhook-ingress.js";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 import { buildCommandRegistry } from "../wiring/commands.js";
@@ -71,51 +70,10 @@ function flattenHeaders(raw: http.IncomingHttpHeaders): Record<string, string> {
   return out;
 }
 
-function buildLambdaEvent(req: http.IncomingMessage, body: string): APIGatewayProxyEventV2 {
-  const path = req.url ?? "/";
-  return {
-    version: "2.0",
-    routeKey: "$default",
-    rawPath: path,
-    rawQueryString: "",
-    headers: flattenHeaders(req.headers),
-    requestContext: {
-      accountId: "k8s",
-      apiId: "k8s-webhook",
-      domainName: req.headers.host ?? "k8s-webhook.local",
-      domainPrefix: "k8s-webhook",
-      http: {
-        method: req.method ?? "POST",
-        path,
-        protocol: "HTTP/1.1",
-        sourceIp: req.socket.remoteAddress ?? "0.0.0.0",
-        userAgent: req.headers["user-agent"] ?? "",
-      },
-      requestId: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-      routeKey: "$default",
-      stage: "$default",
-      time: new Date().toISOString(),
-      timeEpoch: Date.now(),
-    },
-    body,
-    isBase64Encoded: false,
-  };
-}
-
-function writeResult(res: http.ServerResponse, result: APIGatewayProxyResultV2): void {
-  // The Lambda handler returns either a string (treated as 200 body) or an
-  // APIGatewayProxyStructuredResultV2 object with statusCode/headers/body.
-  if (typeof result === "string") {
-    res.statusCode = 200;
-    res.setHeader("content-type", "text/plain");
-    res.end(result);
-    return;
-  }
-  res.statusCode = result.statusCode ?? 200;
-  for (const [k, v] of Object.entries(result.headers ?? {})) {
-    res.setHeader(k, String(v));
-  }
-  res.end(result.body ?? "");
+function writeResult(res: http.ServerResponse, result: WebhookResponse): void {
+  res.statusCode = result.statusCode;
+  res.setHeader("content-type", "application/json");
+  res.end(result.body);
 }
 
 /**
@@ -186,12 +144,8 @@ const server = http.createServer((req, res) => {
       }
 
       // Grafana OnCall webhook (HMAC verified inside the handler).
-      const event = buildLambdaEvent(req, body);
       try {
-        const result = (await (
-          handler as (e: APIGatewayProxyEventV2) => Promise<APIGatewayProxyResultV2>
-        )(event)) as APIGatewayProxyResultV2;
-        writeResult(res, result);
+        writeResult(res, await handler({ headers: flattenHeaders(req.headers), body }));
       } catch (err) {
         logger.error({ error: stringifyError(err) }, "webhook handler error");
         res.statusCode = 500;

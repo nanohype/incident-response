@@ -187,7 +187,7 @@ This query must always return 0 rows. This is the 100% approval-gate metric.
 - Includes link back to Slack war-room
 - Status: `In Progress` (IC must mark `Complete` when analysis is done)
 
-**48h SLA monitoring:** A DynamoDB TTL-triggered Lambda (or EventBridge rule) fires at 48h post-resolution; if Linear issue is still `In Progress`, it sends a DM to the IC and CC's the engineering manager (configurable).
+**48h SLA monitoring:** an EventBridge Scheduler rule fires at 48h post-resolution onto the SLA-check queue; if the Linear issue is still `In Progress`, the processor DMs the IC and CCs the engineering manager (configurable).
 
 ---
 
@@ -214,7 +214,7 @@ This query must always return 0 rows. This is the 100% approval-gate metric.
 - Postmortem draft created in Linear: ≤2 min after resolution event
 
 ### Reliability
-- IncidentResponse webhook ingress: 99.9% uptime (Lambda-backed, auto-scaling)
+- IncidentResponse webhook ingress: 99.9% uptime (stateless Deployment, 2+ replicas behind ingress-nginx)
 - War room assembly: idempotent — re-processing the same alert_group_id must not create duplicate war rooms
 - All external client calls: timeout ≤5s, retry-with-jitter 2 attempts max; fast-fail preferred
 
@@ -222,7 +222,7 @@ This query must always return 0 rows. This is the 100% approval-gate metric.
 - Status page approval gate: 100% enforcement, verified by audit
 - WorkOS Directory Sync fallback: explicit error surfaced to IC, no fabricated invite lists
 - Audit log: all actions awaited, 1-year retention, PITR enabled
-- Bedrock invocation logging: NONE (CDK-configured)
+- Bedrock invocation logging: NONE (account-level, owned by landing-zone)
 - Slack bot token: no workspace-admin scope
 - Grafana Cloud tokens: read-only scoped per tenant
 
@@ -267,4 +267,4 @@ This query must always return 0 rows. This is the 100% approval-gate metric.
 - [ ] Runbook complete and reviewed by SRE
 - [ ] Incident drill playbook complete and one tabletop drill conducted
 - [ ] README enables cold-start onboarding in < 30 minutes
-- [ ] Postmortem SLA monitoring Lambda/EventBridge rule verified in staging
+- [ ] Postmortem SLA monitoring schedule verified in staging

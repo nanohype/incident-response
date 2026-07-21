@@ -1,6 +1,6 @@
 /**
  * Shared setup for integration tests against dynamodb-local.
- * Tables mirror the CDK stack's audit table schema.
+ * Tables mirror the audit table schema landing-zone provisions.
  */
 
 import {

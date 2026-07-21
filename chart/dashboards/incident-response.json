@@ -92,7 +92,7 @@
     {
       "id": 7,
       "type": "row",
-      "title": "Infrastructure (AWS-native)",
+      "title": "Infrastructure — queues + workloads",
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }
     },
     {
@@ -126,43 +126,40 @@
     {
       "id": 9,
       "type": "timeseries",
-      "title": "ECS Processor — Running Task Count",
+      "title": "Pod Availability — webhook + processor",
+      "description": "Ready replicas per Deployment, from kube-state-metrics. The processor is a single-writer singleton, so its floor is 1.",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
-      "datasource": { "type": "cloudwatch", "uid": "${DS_CW}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_MIMIR}" },
       "targets": [
         {
           "refId": "A",
-          "namespace": "ECS/ContainerInsights",
-          "metricName": "RunningTaskCount",
-          "dimensions": { "ClusterName": "incident-response", "ServiceName": "incident-response-processor" },
-          "statistic": "Minimum",
-          "region": "us-west-2",
-          "period": "60"
+          "expr": "sum by (deployment) (kube_deployment_status_replicas_ready{namespace=\"tenants-incident-response\", deployment=~\"incident-response-.*\"})",
+          "legendFormat": "{{deployment}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"tenants-incident-response\", pod=~\"incident-response-.*\"}[15m]))",
+          "legendFormat": "{{pod}} restarts (15m)"
         }
       ]
     },
     {
       "id": 10,
       "type": "timeseries",
-      "title": "Webhook Lambda — Duration + Errors",
+      "title": "Webhook Ingress — request duration p99 + error rate",
+      "description": "From the webhook Deployment's own OTel HTTP server instrumentation.",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 27 },
-      "datasource": { "type": "cloudwatch", "uid": "${DS_CW}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_MIMIR}" },
       "targets": [
         {
           "refId": "D",
-          "namespace": "AWS/Lambda",
-          "metricName": "Duration",
-          "statistic": "p99",
-          "region": "us-west-2",
-          "period": "60"
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_namespace=\"incident-response\"}[5m])))",
+          "legendFormat": "p99 duration (s)"
         },
         {
           "refId": "E",
-          "namespace": "AWS/Lambda",
-          "metricName": "Errors",
-          "statistic": "Sum",
-          "region": "us-west-2",
-          "period": "60"
+          "expr": "sum(rate(http_server_request_duration_seconds_count{service_namespace=\"incident-response\", http_response_status_code=~\"5..\"}[5m]))",
+          "legendFormat": "5xx/s"
         }
       ]
     },

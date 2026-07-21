@@ -1,7 +1,7 @@
 /**
  * MetricsEmitter — IncidentResponse metrics via the OTel Metrics API.
  *
- * Exports via OTLP to the grafana-agent receiver, which forwards metrics to
+ * Exports via OTLP to the cluster collector, which remote-writes metrics to
  * Amazon Managed Prometheus; the meter provider is bootstrapped by
  * `@opentelemetry/auto-instrumentations-node/register` (NODE_OPTIONS in the
  * Dockerfile) plus OTEL_METRICS_EXPORTER=otlp wired into the pod env by the
@@ -12,7 +12,7 @@
  * vendored `@nanohype/runtime` metrics module; this class is the app's
  * emitter surface over it. Counters → monotonic counts (e.g.
  * directory_lookup_failure_count). Histograms → distributions (e.g.
- * assembly_duration_ms) so Mimir/Grafana can surface p50/p99 without
+ * assembly_duration_ms) so Grafana can surface p50/p99 without
  * pre-aggregating in the app.
  *
  * All emission is non-blocking by design; the OTel SDK buffers and batches.

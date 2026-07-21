@@ -27,7 +27,7 @@ npm run check                      # typecheck + lint + format:check + test:unit
 npm run test:integration:docker    # approval-gate semantics against amazon/dynamodb-local
 ```
 
-This is a **CommonJS** app (no `"type": "module"`, `tsconfig` `module: commonjs`) and tests run on **Jest** — both deliberate, see [`ARCHITECTURE.md`](ARCHITECTURE.md) > Key decisions.
+This is a **CommonJS** app (no `"type": "module"`, `tsconfig` `module: commonjs`) — deliberate, see [`ARCHITECTURE.md`](ARCHITECTURE.md) > Key decisions. Tests run on **Vitest**.
 
 ## Contract surface
 
@@ -111,7 +111,7 @@ Slash commands live in `src/commands/` (one file per subcommand) behind the `Com
 1. **Write the handler** — add `src/commands/<name>.ts` exporting a `make<Name>Handler(deps)` factory that returns a `CommandHandler` (`(ctx: CommandContext) => Promise<void>`). The `ctx` carries the resolved `incidentId` (looked up from the channel via the `slack-channel-index` GSI before dispatch), the `args`, the injected `slack` WebClient, and a `respond` callback. Pull every external dependency off the `deps` you accept — never reach for a module-level SDK client.
 2. **Register it** — add one `.register('<name>', make<Name>Handler({ ... }))` line to `buildCommandRegistry` in `src/wiring/commands.ts`, wiring the handler's deps from the `Dependencies` bag. That's the only edit outside your new file.
 3. **Drive the action through, or say so.** Silent stubs are bugs — if the handler can't complete (Linear down, Bedrock failed), the IC reply must be explicit about what worked and what didn't. Never reply "triggered" for work that didn't happen.
-4. **Awaited audit writes.** Any state change writes an audit event through `AuditWriter`, and the write is `await`ed (`@typescript-eslint/no-floating-promises: error` enforces it). A fire-and-forget audit write is a security bug.
+4. **Awaited audit writes.** Any state change writes an audit event through `AuditWriter`, and the write is `await`ed (Biome's `noFloatingPromises`, set to `error` in `biome.json`, enforces it). A fire-and-forget audit write is a security bug.
 5. **Test it** — add a handler-level unit test under `test/unit/` plus an entry in the command-registry test. Inject fake clients via the deps; use `aws-sdk-client-mock` at the client level for AWS calls.
 
 ## Add an SQS event type
@@ -131,7 +131,7 @@ The processor drains two FIFO queues; each message dispatches through an `EventR
 - **Registry dispatch.** New subcommand = one file in `src/commands/` + one `.register()` line. New SQS event = one file in `src/events/` + one `.on()` line. Never grow a `switch` in `src/index.ts`.
 - **The `StatuspageApprovalGate` invariant.** The two-phase commit (write `STATUSPAGE_DRAFT_APPROVED` → re-read `ConsistentRead: true` → `createIncident()`) is the only path that publishes to Statuspage. No auto-publish, no escape hatch, no silent mode. The grep-gate and the 100%-branch coverage on `src/services/statuspage-approval-gate.ts` + `src/utils/audit.ts` stay live in CI.
 - **Slack calls have explicit deadlines.** WebClient-level `timeout` plus per-call `withTimeout` / `withTimeoutOrDefault` on non-critical paths. Assembly must finish in the ≤5-min SLO and can't be hostage to one wedged call. Metrics are best-effort — `MetricsEmitter` swallows errors and never throws up to the caller.
-- TypeScript strict (`exactOptionalPropertyTypes`), CommonJS, Node ≥ 24. Zod at every boundary (config, webhook payloads). Pino JSON to stderr with OTel `trace_id`/`span_id` correlation. Explicit timeouts on every external call (`HttpClient` 5s/2-retry; `withTimeout(8000)` around the deadline-less `@linear/sdk`). ESLint flat config + typescript-eslint, Prettier.
+- TypeScript strict (`exactOptionalPropertyTypes`), CommonJS, Node ≥ 24. Zod at every boundary (config, webhook payloads). Pino JSON to stderr with OTel `trace_id`/`span_id` correlation. Explicit timeouts on every external call (`HttpClient` 5s/2-retry; `withTimeout(8000)` around the deadline-less `@linear/sdk`). Biome for lint + format, Vitest for tests.
 
 ## Pointers
 

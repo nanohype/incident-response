@@ -14,7 +14,11 @@ import { mockClient } from "aws-sdk-client-mock";
 import "aws-sdk-client-mock-vitest/extend";
 import * as crypto from "node:crypto";
 
-import { __resetHmacCacheForTests, handler } from "../../src/handlers/webhook-ingress.js";
+import {
+  __resetHmacCacheForTests,
+  handler,
+  type WebhookRequest,
+} from "../../src/handlers/webhook-ingress.js";
 
 const smMock = mockClient(SecretsManagerClient);
 const ddbMock = mockClient(DynamoDBDocumentClient);
@@ -22,17 +26,11 @@ const sqsMock = mockClient(SQSClient);
 
 const HMAC_SECRET = "test-secret";
 
-function signedEvent(body: string) {
+function signedEvent(body: string): WebhookRequest {
   const signature = crypto.createHmac("sha256", HMAC_SECRET).update(body, "utf8").digest("hex");
   return {
     headers: { "x-grafana-oncall-signature": signature },
     body,
-    requestContext: {} as never,
-    isBase64Encoded: false,
-    rawPath: "/webhook",
-    rawQueryString: "",
-    routeKey: "POST /webhook",
-    version: "2.0" as const,
   };
 }
 
@@ -55,12 +53,8 @@ function firingPayload(alertGroupId = "alert-group-001") {
   };
 }
 
-function invokeHandler(event: ReturnType<typeof signedEvent>) {
-  return (
-    handler as unknown as (
-      event: ReturnType<typeof signedEvent>,
-    ) => Promise<{ statusCode: number; body: string }>
-  )(event);
+function invokeHandler(event: WebhookRequest) {
+  return handler(event);
 }
 
 describe("webhook-ingress atomic-create", () => {
@@ -172,7 +166,7 @@ describe("webhook-ingress atomic-create", () => {
     expect(JSON.parse(result.body)).toMatchObject({ error: "Invalid JSON" });
   });
 
-  it("WEBHOOK-007: non-ConditionalCheckFailed DynamoDB error → propagates (Lambda 5xx triggers API Gateway retry)", async () => {
+  it("WEBHOOK-007: non-ConditionalCheckFailed DynamoDB error → propagates (the server answers 500 so Grafana OnCall retries)", async () => {
     ddbMock.on(PutCommand).rejects(new Error("ProvisionedThroughputExceededException"));
 
     const body = JSON.stringify(firingPayload());

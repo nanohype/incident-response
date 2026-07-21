@@ -1,5 +1,5 @@
 /**
- * Unit tests for the Lambda webhook's OTel init module.
+ * Unit tests for the webhook OTel init module.
  *
  * Asserts:
  *  - Skips quietly when config env vars are absent (dev deploys without Grafana).
@@ -7,7 +7,7 @@
  *    or Secrets Manager errors — tracing loss must never block webhook flow.
  *  - Memoizes the init promise so a burst of concurrent cold-start invocations
  *    fetches the secret at most once.
- *  - Clears the memo on failure so the next cold start retries.
+ *  - Clears the memo on failure so the next request retries.
  */
 
 import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
@@ -78,7 +78,7 @@ describe("initOtelIfNeeded", () => {
     expect(started).toBe(false);
   });
 
-  it("OTEL-INIT-006: memoizes concurrent calls — secret is fetched once per cold start", async () => {
+  it("OTEL-INIT-006: memoizes concurrent calls — secret is fetched once per pod", async () => {
     process.env.GRAFANA_CLOUD_OTLP_SECRET_ARN = "arn:test";
     process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp-gateway.example.com/otlp";
     process.env.OTEL_RESOURCE_ATTRIBUTES =
@@ -93,7 +93,7 @@ describe("initOtelIfNeeded", () => {
     expect(smMock).toHaveReceivedCommandTimes(GetSecretValueCommand, 1);
   });
 
-  it("OTEL-INIT-007: clears the memo on failure so the next cold start retries", async () => {
+  it("OTEL-INIT-007: clears the memo on failure so the next request retries", async () => {
     process.env.GRAFANA_CLOUD_OTLP_SECRET_ARN = "arn:test";
     process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "https://otlp-gateway.example.com/otlp";
 

@@ -1,300 +1,251 @@
 # IncidentResponse — SRE Runbook
-**Author:** ops-sre  
-**Version:** 1.0  
-**Last Updated:** 2025-01-15  
-**On-call rotation:** IncidentResponse is SRE-owned  
+
+**Owner:** SRE
+**Scope:** day-2 operation of the incident-response Platform tenant
+
+This is the day-2 companion to [`docs/troubleshooting.md`](../docs/troubleshooting.md). Troubleshooting is symptom-indexed — "this error appeared, what now". This runbook is alert-indexed: the SLOs, the signals that back them, and the response to each page.
+
+All `kubectl` examples assume `-n tenants-incident-response`.
 
 ---
 
-## 1. Service Overview
+## 1. Service overview
 
-IncidentResponse is an ECS Fargate service (persistent) + Lambda (webhook ingress) + SQS FIFO queue + EventBridge Scheduler + DynamoDB.
-
-**Critical invariant:** IncidentResponse processes P1 incidents. If IncidentResponse is down, incident response falls back to manual.
-
-**Healthy state indicators:**
-- ECS task count = 1 (or ≥1 if scaled out)
-- SQS incident queue depth = 0 (no unprocessed messages)
-- DLQ depth = 0
-- CloudWatch alarm `incident-response-processor-stopped` = OK
-
----
-
-## 2. Architecture at a Glance
+Two Deployments in one tenant namespace, fed by AWS data services the tenant does not own:
 
 ```
-Grafana OnCall → API GW → Lambda (ingress) → SQS FIFO → ECS Fargate (processor)
-                                                              ↕
-                                                         DynamoDB (state + audit)
-                                                              ↕
-                                              Slack / WorkOS Directory Sync / Statuspage / Linear / Bedrock
+Grafana OnCall ─┐
+Slack ──────────┴─► ingress-nginx ─► webhook Deployment (2+ replicas, stateless)
+                                             │ HMAC / Slack signature verify
+                                             │ idempotent DynamoDB write
+                                             ▼
+                                      SQS FIFO (incident-events)
+                                             │
+                                             ▼
+                              processor Deployment (replicas: 1, Recreate)
+                                             ↕
+                                   DynamoDB (state + audit)
+                                             ↕
+                   Slack / WorkOS / Grafana Cloud / Statuspage / Linear / Bedrock
 ```
+
+**Critical invariant:** this service handles P1 incidents. If it is down, incident response falls back to manual — page the SRE on-call and tell the IC directly.
+
+**Healthy state:**
+
+- `kubectl get deploy` shows `incident-response-webhook` at its configured replica count and `incident-response-processor` at `1/1`
+- SQS `incident-events` visible-message count at 0, DLQ at 0
+- The ArgoCD `incident-response-<env>` Application is `Synced` + `Healthy`
+- No firing alerts from the `incident-response.slo` PrometheusRule group
+
+The processor is a **single-writer singleton**. Two processors would each poll SQS and dispatch the same event, producing a second Slack war room and duplicate audit writes. That is why it runs `replicas: 1` with `strategy: Recreate` — never scale it up, and never switch it to `RollingUpdate`.
 
 ---
 
-## 3. SLOs
+## 2. SLOs
 
 | SLO | Target | Measurement |
 |-----|--------|-------------|
-| Webhook ingress availability | 99.9% | Lambda error rate < 0.1% over 30 days |
-| War room assembly time (p50) | ≤5 min | Custom metric: `IncidentResponseWarRoomAssemblyMs` p50 |
-| War room assembly time (p95) | ≤8 min | Custom metric: `IncidentResponseWarRoomAssemblyMs` p95 |
-| Responder invited within 3 min | ≥95% | Custom metric: `IncidentResponseResponderInviteWithin3MinPct` |
-| Status page approval gate | 100% | Audit query: published without approval = 0 |
-| Postmortem created within 48h | ≥95% | Linear issue create timestamp vs. resolved timestamp |
+| Webhook ingress availability | 99.9% | 5xx rate on the webhook Deployment's OTel HTTP server series over 30 days |
+| War room assembly time (p50) | ≤ 5 min | `incident_response_assembly_duration_ms` p50 |
+| War room assembly time (p95) | ≤ 8 min | `incident_response_assembly_duration_ms` p95 |
+| Responder invited within 3 min | ≥ 95% | `incident_response_assembly_duration_ms` bucketed against the invite span |
+| Statuspage approval gate | 100% | Audit query: published without approval = 0 (`auditApprovalGateViolations()`) |
+| Postmortem created within 48h | ≥ 95% | Linear issue create timestamp vs. resolved timestamp |
 
 ---
 
-## 4. SLIs and Metrics
+## 3. Signals
 
-IncidentResponse is split across two observability planes:
+Telemetry lands in two places, and knowing which one to open saves the first five minutes of any page.
 
-- **AWS infra metrics (CloudWatch):** Lambda/SQS/ECS/DynamoDB — native AWS telemetry.
-- **App metrics + traces (Grafana Cloud):** emitted via OTel through the ADOT collector
-  sidecar (ECS) or the in-handler NodeSDK started at cold start (webhook;
-  see `src/handlers/webhook-otel-init.ts`). Traces land in Tempo; metrics in Mimir.
-  Dashboard JSON and alerting rules live in `infra/dashboards/incident-response.json` and
-  `infra/alerts/incident-response-rules.yaml`.
+- **App metrics + traces + logs** — the pods emit OTLP and structured JSON; the cluster collector installed by `eks-gitops` forwards traces to Tempo, metrics to Amazon Managed Prometheus, and logs to Loki. No per-pod sidecars. The dashboard (`chart/dashboards/incident-response.json`) and the three alert rules (`chart/templates/prometheusrule.yaml`) ship with the chart.
+- **AWS data-service metrics** — SQS depth, DynamoDB throttles and the EventBridge Scheduler are CloudWatch-native, surfaced on the dashboard through the CloudWatch datasource.
 
-### Lambda Ingress (CloudWatch)
-- `AWS/Lambda/Duration` — p99 should be < 2s
-- `AWS/Lambda/Errors` — alert if > 5 in 5 minutes
-- `AWS/Lambda/Throttles` — alert if > 0
+### Application metrics
 
-### SQS Queue (CloudWatch)
-- `AWS/SQS/ApproximateNumberOfMessagesVisible` — alert if > 10 (backlog forming)
-- `AWS/SQS/ApproximateAgeOfOldestMessage` — alert if > 300s (5 min delay)
-- DLQ depth alarm: any message in DLQ = immediate alert
+- `incident_response_assembly_duration_ms` — histogram; SLO alert on p99 > 5 min (`IncidentResponseAssemblyDurationBreach`)
+- `incident_response_approval_gate_latency_ms` — histogram; IC approval click → Statuspage publish
+- `incident_response_directory_lookup_failure_count` — counter; spike alert (`IncidentResponseDirectoryLookupFailureSpike`)
+- `incident_response_statuspage_publish_count{outcome}` — counter; page alert on `outcome=failed` (`IncidentResponseStatuspagePublishFailures`)
+- `incident_response_incident_resolved_count`, `incident_response_postmortem_created_count` — counters
 
-### ECS Fargate (CloudWatch)
-- `ECS/ContainerInsights/RunningTaskCount` — alert if < 1
-- `ECS/ContainerInsights/CPUUtilization` — alert if > 80%
-- `ECS/ContainerInsights/MemoryUtilization` — alert if > 80%
+### Workload health
 
-### Application metrics (Grafana Cloud Mimir — OTel)
-- `assembly_duration_ms` — histogram; SLO alert on p99 > 5 min (`IncidentResponseAssemblyDurationBreach`)
-- `approval_gate_latency_ms` — histogram; IC approval click → Statuspage publish
-- `directory_lookup_failure_count` — counter; spike alert (`IncidentResponseDirectoryLookupFailureSpike`)
-- `statuspage_publish_count{outcome}` — counter; page alert on `outcome=failed` (`IncidentResponseStatuspagePublishFailures`)
-- `incident_resolved_count` — counter
-- `postmortem_created_count` — counter
+- `kube_deployment_status_replicas_ready` — the processor floor is 1; a sustained 0 is an outage
+- `kube_pod_container_status_restarts_total` — a climbing restart count on the processor usually means OOM or a failed config parse at startup
 
-### Distributed traces (Grafana Cloud Tempo — OTel)
-Single trace spans the full Grafana OnCall webhook → SQS → ECS assembly flow. Manual spans
-inside `WarRoomAssembler.assemble` give per-step timings (`assemble.create_channel`,
-`assemble.resolve_responders`, `assemble.invite_responders`, `assemble.post_context`,
-`assemble.pin_checklist`, `assemble.schedule_nudge`) — tagged with `incident.id` + `team.id`.
+### Queues
+
+- `ApproximateNumberOfMessagesVisible` — alert above 10, a backlog is forming
+- `ApproximateAgeOfOldestMessage` — alert above 300s, the visibility timeout is cycling
+- DLQ depth — any message at all is an immediate page
+
+### Traces
+
+One trace spans the whole webhook → SQS → processor flow; the W3C context rides across the hop in SQS message attributes. Manual spans inside `WarRoomAssembler.assemble` give per-step timings (`assemble.create_channel`, `assemble.resolve_responders`, `assemble.invite_responders`, `assemble.post_context`, `assemble.pin_checklist`, `assemble.schedule_nudge`), tagged with `incident.id` and `team.id`. Log lines carry `trace_id`, so a Loki line jumps straight into the Tempo waterfall.
 
 ---
 
-## 5. Runbook: Processor is Down
+## 4. Processor is down
 
-**Alarm:** `incident-response-processor-stopped` ALARM  
-**Impact:** No new incidents will be processed; existing war rooms will not receive nudges  
-**Fallback:** Manual incident response (email/Slack direct notification to SRE on-call)  
+**Signal:** processor ready replicas at 0, or a climbing `CrashLoopBackOff`
+**Impact:** no new incidents processed, no nudges fired on live war rooms
+**Fallback:** manual incident response — notify the SRE on-call directly
 
-**Steps:**
-1. Check ECS service status:
+1. Look at the pod and the reason it is not running:
+
    ```bash
-   aws ecs describe-services --cluster incident-response --services incident-response-processor --region us-west-2
+   kubectl -n tenants-incident-response get pods -l app.kubernetes.io/component=processor
+   kubectl -n tenants-incident-response describe pod <pod>
    ```
-2. Check stopped task reason:
+
+2. Read the logs, including the previous container if it restarted:
+
    ```bash
-   aws ecs list-tasks --cluster incident-response --service-name incident-response-processor --desired-status STOPPED
-   aws ecs describe-tasks --cluster incident-response --tasks <task-arn>
+   kubectl -n tenants-incident-response logs deploy/incident-response-processor --since=30m
+   kubectl -n tenants-incident-response logs deploy/incident-response-processor --previous --since=30m
    ```
-3. Check processor logs in Grafana Cloud Loki (app logs ship here via the Fluent Bit sidecar):
-   ```logql
-   {service="incident-response-processor"} | json | level=~"warn|error" | __time > now() - 30m
-   ```
-   If nothing is returned AND the task is running, the forwarder itself is broken — check the
-   CloudWatch meta-log group for Fluent Bit's own stderr:
+
+   If the pod is `Running` and the logs are empty in Loki but present here, the cluster log forwarder is the broken piece, not the app — that is an `eks-gitops` problem.
+
+3. Common causes:
+   - **OOMKilled** — `describe pod` shows `Reason: OOMKilled`. Raise `processor.resources.limits.memory` in `chart/values-<env>.yaml`.
+   - **Missing env** — logs show `Required env not set: X` or a `ZodError`. A secret is absent or empty; re-seed with `npm run seed:<env>` and check the ExternalSecret is `Ready`.
+   - **Invalid Slack token** — rotate in Secrets Manager, then restart so the pod picks up the reprojected Secret.
+
+4. Restart once the cause is fixed:
+
    ```bash
-   aws logs tail /incident-response/forwarder-diagnostics --since 30m --follow
+   kubectl -n tenants-incident-response rollout restart deploy/incident-response-processor
+   kubectl -n tenants-incident-response rollout status  deploy/incident-response-processor
    ```
-4. Common causes:
-   - **OOM**: Increase memory in task definition (`memoryLimitMiB`)
-   - **Missing env var**: Check `REQUIRED_ENV` list in `src/index.ts`; verify all secrets exist in Secrets Manager
-   - **Slack token invalid**: Rotate Slack bot token in Secrets Manager; force new ECS deployment
-5. Force new deployment:
-   ```bash
-   aws ecs update-service --cluster incident-response --service incident-response-processor --force-new-deployment
-   ```
-6. Verify recovery: task count returns to 1; test webhook endpoint.
+
+   `Recreate` means the old pod terminates before the new one starts — expect a short gap, and do not try to shorten it by scaling up.
+
+5. Verify recovery: ready replicas back at 1, queue depth draining, and a drill (`npm run drill:<env>`) reaching Slack.
 
 ---
 
-## 6. Runbook: SQS DLQ Has Messages
+## 5. SQS DLQ has messages
 
-**Alarm:** `incident-response-incident-events-dlq-depth` > 0  
-**Impact:** One or more incidents failed to process; war rooms were not assembled  
+**Signal:** DLQ depth > 0
+**Impact:** one or more incidents failed to process; those war rooms were never assembled
 
-**Steps:**
-1. Check DLQ message content (DO NOT DELETE YET):
+1. Inspect a message without deleting it:
+
    ```bash
-   aws sqs receive-message \
-     --queue-url <dlq-url> \
-     --attribute-names All \
-     --max-number-of-messages 1
+   aws sqs receive-message --queue-url <dlq-url> --attribute-names All --max-number-of-messages 1
    ```
-2. Check processor logs in Grafana Cloud Loki, filtered by incident_id:
-   ```logql
-   {service="incident-response-processor", incident_id="<incident_id>"} | json
-   ```
-   To pivot from a trace in Tempo: clicking a log line in Loki exposes the `trace_id` field
-   (stamped by the logger when a span is active) which jumps directly into the Tempo waterfall
-   for that incident.
-3. If the incident is still active:
-   - Notify the IC via direct Slack message that IncidentResponse failed to assemble the war room
-   - Provide the IC with the incident ID and offer to manually assist with room creation
-4. Determine root cause from logs
-5. Fix root cause (code or config)
-6. Redrive messages from DLQ after fix is deployed:
+
+2. Find the matching processor logs by incident id:
+
    ```bash
-   aws sqs start-message-move-task \
-     --source-arn <dlq-arn> \
-     --destination-arn <main-queue-arn>
+   kubectl -n tenants-incident-response logs deploy/incident-response-processor --since=2h \
+     | grep '"incident_id":"<incident_id>"'
    ```
-7. Monitor that messages process successfully.
+
+   Or in Loki: `{namespace="tenants-incident-response", pod=~"incident-response.*"} | json | incident_id="<incident_id>"`.
+
+3. **If the incident is still live, handle the human side first.** Direct-message the IC that the war room was not assembled, give them the incident id, and offer to create the channel by hand. Root cause can wait; the incident cannot.
+
+4. Determine the root cause from the logs, fix it, and roll out the fix.
+
+5. Redrive once the fix is live:
+
+   ```bash
+   aws sqs start-message-move-task --source-arn <dlq-arn> --destination-arn <main-queue-arn>
+   ```
+
+6. Watch the main queue drain and confirm the incidents assemble.
 
 ---
 
-## 7. Runbook: WorkOS Directory Sync Lookup Failures
+## 6. WorkOS Directory Sync lookup failures
 
-**Signal:** IncidentResponse metric `directory_lookup_failure_count` > 0 in the 1-min sum widget; audit log events `DIRECTORY_LOOKUP_FAILED`  
-**Impact:** Responders are not auto-invited; IC receives fallback error message  
+**Signal:** `incident_response_directory_lookup_failure_count` rising; `DIRECTORY_LOOKUP_FAILED` audit events
+**Impact:** responders are not auto-invited and the IC gets an explicit fallback message — never a half-assembled room presented as complete
 
-**Steps:**
-1. Check if WorkOS is having a service incident: https://status.workos.com
-2. Verify IncidentResponse's WorkOS API key is valid:
+1. Check whether WorkOS itself is degraded: <https://status.workos.com>.
+2. Verify the key still works:
+
    ```bash
-   KEY=$(aws secretsmanager get-secret-value --secret-id incident-response/workos/api-key --query SecretString --output text)
+   KEY=$(aws secretsmanager get-secret-value --secret-id incident-response/<env>/app-secrets \
+     --query SecretString --output text | jq -r '.["workos/api-key"]')
    curl -H "Authorization: Bearer $KEY" https://api.workos.com/directories
    ```
-3. If key rotated/revoked: update Secrets Manager value and force a new ECS deployment (ECS pulls secrets on task start)
-4. Pre-warm WorkOS directory cache manually if needed (restart ECS task to trigger warm-up)
+
+3. If the key was rotated or revoked, put the new value into Secrets Manager and restart the processor so the reprojected Secret reaches the running pod.
+4. The client holds a 5-minute per-instance cache with stale-fallback behind a circuit breaker, so a brief WorkOS outage degrades rather than fails. A restart clears that cache — only restart if the credential actually changed.
 
 ---
 
-## 8. Runbook: Statuspage.io Publish Failure After Approval
+## 7. Statuspage publish failed after approval
 
-**Signal:** IC reports "Failed to publish status page" in Slack; Loki query `{service="incident-response-processor"} |= "Statuspage.io createIncident failed"` shows the failure.  
-**Impact:** IC has approved the draft but the page is not yet updated; customers awaiting update  
+**Signal:** the IC reports a failed publish; processor logs carry `Statuspage.io publish failed after approval`
+**Impact:** the IC approved a draft that customers cannot see yet
 
-**Steps:**
-1. Verify Statuspage.io API status: https://metastatuspage.com (or Statuspage's own status page)
-2. Check API key is valid:
+1. Check Statuspage's own status page.
+2. Verify the credentials:
+
    ```bash
-   KEY=$(aws secretsmanager get-secret-value --secret-id incident-response/statuspage/api-key --query SecretString --output text)
-   PAGE_ID=$(aws secretsmanager get-secret-value --secret-id incident-response/statuspage/page-id --query SecretString --output text)
-   curl -H "Authorization: OAuth $KEY" https://api.statuspage.io/v1/pages/$PAGE_ID
+   SECRET=$(aws secretsmanager get-secret-value --secret-id incident-response/<env>/app-secrets \
+     --query SecretString --output text)
+   KEY=$(jq -r '.["statuspage/api-key"]' <<<"$SECRET")
+   PAGE_ID=$(jq -r '.["statuspage/page-id"]' <<<"$SECRET")
+   curl -H "Authorization: OAuth $KEY" "https://api.statuspage.io/v1/pages/$PAGE_ID"
    ```
-3. If IncidentResponse is unavailable, IC can publish manually via Statuspage.io web UI
-4. Audit log will show `STATUSPAGE_DRAFT_APPROVED` but no `STATUSPAGE_PUBLISHED` — this is expected for a failed publish
-5. Once API is back, IC can retry "Approve & Publish" — the draft remains in `PENDING_APPROVAL`
+
+3. While the API is unavailable the IC can publish by hand in the Statuspage UI.
+4. The audit log will show `STATUSPAGE_DRAFT_APPROVED` with no `STATUSPAGE_PUBLISHED`. That is the correct record of a failed publish, not a gate violation — the gate writes the approval before it calls Statuspage, on purpose.
+5. Once the API recovers the IC can click "Approve & Publish" again; the draft is still `PENDING_APPROVAL`.
 
 ---
 
-## 9. Monitoring Dashboards
+## 8. Approval-gate audit
 
-**Grafana Cloud — `incident-response-ops`** (dashboard JSON committed at `infra/dashboards/incident-response.json`).
-Import via Grafana UI (Dashboards → New → Import → Upload JSON) or via the Grafana Cloud API.
-Alerting rules live at `infra/alerts/incident-response-rules.yaml` and are uploaded to Mimir via the
-Ruler API (`mimirtool rules sync --address <mimir-url> --auth-token <token> infra/alerts/incident-response-rules.yaml`
-or via the Grafana Cloud alerting UI).
+The gate is the property the product hangs on, so verify it rather than trusting it. `auditApprovalGateViolations()` in `src/utils/audit.ts` queries the `published-without-approval-index` GSI for any `STATUSPAGE_PUBLISHED` event with no preceding `STATUSPAGE_DRAFT_APPROVED` for the same incident. The expected result is always zero rows. A non-zero result is a security incident, not a bug report: capture the audit rows before anything else, since they are the evidence.
 
-Key panels:
-- War room assembly p50/p99 (SLO: p99 ≤ 5 min)
-- Approval gate latency p50/p99
-- Statuspage publishes by outcome
-- Directory lookup failure rate
-- SQS depth (CloudWatch datasource)
-- ECS task health (CloudWatch datasource)
-- Lambda ingress duration + errors (CloudWatch datasource)
-
-**CloudWatch** — infrastructure alarms only (`incident-response-incident-events-dlq-depth`,
-`incident-response-processor-stopped`). No dashboard; query via CloudWatch metrics UI if needed.
+CI keeps the invariant honest from the other direction — a grep-gate fails the build on any `createIncident()` call site outside `src/services/statuspage-approval-gate.ts`, and that file plus `src/utils/audit.ts` are pinned at 100% branch coverage.
 
 ---
 
-## 10. Cost Monitoring
+## 9. Dashboards + alerts
+
+Both ship from the chart; there is no manual import step.
+
+- **Dashboard** — `chart/dashboards/incident-response.json`, delivered as a `GrafanaDashboard` CR that the grafana-operator reconciles onto the Grafana instance. Panels: assembly p50/p99, approval-gate latency, Statuspage publishes by outcome, directory-lookup failure rate, SQS depth, pod availability and restarts, webhook duration + 5xx rate, and a Loki panel over both Deployments.
+- **Alerts** — `chart/templates/prometheusrule.yaml`, three rules under `incident-response.slo`, reconciled by the kube-prometheus-stack operator from `eks-gitops`.
+
+Editing either means editing the file in the chart and letting ArgoCD roll it out. Changes made in the Grafana UI are reverted on the next reconcile.
+
+---
+
+## 10. Cost
+
+The tenant's spend is bounded by the `BudgetPolicy` in `platform.yaml`: a USD 2500/month soft cap, alerts at 50/80/100%, and a kill-switch that fires at 120%.
 
 | Resource | Expected monthly cost |
 |----------|-----------------------|
-| ECS Fargate (0.5 vCPU / 1GB, ~720h) | ~$30-50 |
-| Lambda (webhook ingress, 10 req/month) | < $1 |
+| Pods (webhook 2× small + processor 1× small, on the shared cluster) | node-share, no dedicated capacity |
 | DynamoDB (on-demand, ~5K events/month) | < $5 |
 | SQS (FIFO, ~100 messages/month) | < $1 |
 | EventBridge Scheduler (~150 rules/month) | < $5 |
-| Bedrock (Sonnet ~5K tokens × 20/month) | ~$5-10 |
-| Secrets Manager (per-env inventory, ~15 entries) | ~$6/month |
-| CloudWatch (Lambda + forwarder-diagnostics meta-group, 1-day retention) | ~$1-2 |
-| Grafana Cloud (logs + metrics + traces — see Grafana Cloud pricing) | varies by plan |
-| **Total (AWS side)** | **~$50-75/month** |
+| Bedrock (Sonnet ~5K tokens × 20/month, Haiku classification) | ~$5-10 |
+| Secrets Manager (per-env inventory, ~15 entries) | ~$6 |
+| S3 audit archive | < $1 |
 
-Alert: ops-finops if monthly AWS bill for IncidentResponse exceeds $150 (2x estimate).
+Escalate to finance if the tenant's attributed spend exceeds 2× the estimate outside of a real incident surge — sustained Bedrock cost is the line item most likely to move.
 
 ---
 
-## 11. Deployment
+## 11. Deploy + rollback
+
+ArgoCD owns the rollout. A deploy is a commit that bumps `image.tag` in `chart/values-<env>.yaml`; a rollback is the commit that puts the old tag back. Nothing is applied by hand.
 
 ```bash
-# Prerequisites: AWS credentials, CDK bootstrapped in account/region
-cd infra
-npm install
-export CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-export CDK_DEFAULT_REGION=us-west-2
-
-# Deploy
-npx cdk deploy IncidentResponseStack
-
-# Output: WebhookApiUrl — configure in Grafana OnCall integration
-
-# Smoke test: send a test webhook
-curl -X POST \
-  -H "Content-Type: application/json" \
-  -H "X-Grafana-OnCall-Signature: <hmac-of-body>" \
-  -d '{"alert_group_id":"test-001","alert_group":{"id":"test-001","title":"Test Alert","state":"firing"},"integration_id":"int-001","route_id":"route-001","team_id":"team-001","team_name":"SRE","alerts":[{"id":"a-001","title":"Test","message":"Test alert message","received_at":"2025-01-15T00:00:00Z"}]}' \
-  <WebhookApiUrl>/webhook/grafana-oncall
+kubectl -n tenants-incident-response rollout status deploy/incident-response-webhook
+kubectl -n tenants-incident-response rollout status deploy/incident-response-processor
 ```
 
----
-
-## 12. Secrets Setup (First Deploy)
-
-All secrets are created by CDK with placeholder values. After deploy, populate:
-
-```bash
-# Slack
-aws secretsmanager put-secret-value --secret-id incident-response/slack/bot-token --secret-string "xoxb-..."
-aws secretsmanager put-secret-value --secret-id incident-response/slack/signing-secret --secret-string "..."
-
-# Grafana OnCall
-aws secretsmanager put-secret-value --secret-id incident-response/grafana/oncall-token --secret-string "..."
-
-# Grafana Cloud (SEPARATE token from OnCall)
-aws secretsmanager put-secret-value --secret-id incident-response/grafana/cloud-token --secret-string "..."
-aws secretsmanager put-secret-value --secret-id incident-response/grafana/cloud-org-id --secret-string "..."
-
-# Statuspage.io
-aws secretsmanager put-secret-value --secret-id incident-response/statuspage/api-key --secret-string "..."
-aws secretsmanager put-secret-value --secret-id incident-response/statuspage/page-id --secret-string "..."
-
-# GitHub
-aws secretsmanager put-secret-value --secret-id incident-response/github/token --secret-string "..."
-
-# Linear
-aws secretsmanager put-secret-value --secret-id incident-response/linear/api-key --secret-string "..."
-aws secretsmanager put-secret-value --secret-id incident-response/linear/project-id --secret-string "..."
-
-# WorkOS Directory Sync
-aws secretsmanager put-secret-value --secret-id incident-response/workos/api-key --secret-string "sk_live_..."
-
-# Grafana OnCall HMAC
-aws secretsmanager put-secret-value --secret-id incident-response/grafana/oncall-webhook-hmac --secret-string "$(openssl rand -hex 32)"
-```
-
-Then force new ECS deployment to pick up the secrets:
-```bash
-aws ecs update-service --cluster incident-response --service incident-response-processor --force-new-deployment
-```
+First-time setup — landing-zone substrate, the Platform CR, secret seeding, the ApplicationSet entry and the Grafana OnCall webhook wiring — is [`docs/deployment-guide.md`](../docs/deployment-guide.md). Secret inventory and rotation is [`docs/secrets.md`](../docs/secrets.md). Drills are [`docs/drills.md`](../docs/drills.md) and [`artifacts/incident-drill-playbook.md`](incident-drill-playbook.md).

@@ -61,7 +61,7 @@ IncidentResponse handles real P1 incidents. Bugs have real consequences: missing
 | ASSEMBLE-002 | WorkOS Directory Sync failure → no responders invited → fallback error posted to channel | `DIRECTORY_LOOKUP_FAILED` audit event; `ASSEMBLY_FALLBACK_INITIATED` audit event; channel still created; 0 responders |
 | ASSEMBLE-003 | Grafana Cloud context query fails → snapshot missing but assembly continues | Warning posted in channel; assembly completes without snapshot |
 | ASSEMBLE-004 | Slack channel creation fails → throws; DynamoDB status updated to ASSEMBLY_FAILED | Error propagated; status = ASSEMBLY_FAILED |
-| ASSEMBLE-005 | Duplicate `alert_group_id` → idempotency check in Lambda prevents second assembly | Second webhook returns 200 with "Duplicate event ignored" |
+| ASSEMBLE-005 | Duplicate `alert_group_id` → the ingress handler's conditional DynamoDB write prevents a second assembly | Second webhook returns 200 with "Duplicate event ignored" |
 | ASSEMBLE-006 | All Slack invite calls succeed; `RESPONDER_INVITED` audit events written for each | N audit events for N responders |
 | ASSEMBLE-007 | One Slack invite fails (user left workspace) → `RESPONDER_INVITE_FAILED` audit event | Remaining invites continue; failed one is logged |
 | ASSEMBLE-008 | Nudge scheduler failure does not block assembly | Assembly completes; warning logged for scheduler failure |
@@ -169,7 +169,7 @@ Verify that no code path can call Statuspage.io publish without a confirmed `STA
 Verify that WorkOS Directory Sync failure results in 0 invited responders and an explicit error message. See qa-security REQ-S2.
 
 ### SEC-003: Audit Writes Awaited
-ESLint rule `@typescript-eslint/no-floating-promises` must report 0 errors in `src/utils/audit.ts` and `src/services/statuspage-approval-gate.ts`.
+Biome's `noFloatingPromises` rule, set to `error` in `biome.json`, must report 0 errors in `src/utils/audit.ts` and `src/services/statuspage-approval-gate.ts`.
 
 ### SEC-004: Bedrock Invocation Logging NONE
 Integration test (post-deploy): verify `GetModelInvocationLoggingConfiguration` returns NONE.

@@ -40,7 +40,7 @@ tasks:
       - npm run build
 
   lint:
-    desc: 'ESLint over src + test'
+    desc: 'Biome lint over src + test'
     cmds:
       - npm run lint
 
@@ -50,12 +50,12 @@ tasks:
       - npm run typecheck
 
   typecheck:tests:
-    desc: 'Typecheck the test suite too (tsconfig.eslint.json includes test/**)'
+    desc: 'Typecheck the test suite too (tsconfig.tests.json includes test/**)'
     cmds:
       - npm run typecheck:tests
 
   format:check:
-    desc: 'Prettier --check'
+    desc: 'Biome format --check'
     cmds:
       - npm run format:check
 

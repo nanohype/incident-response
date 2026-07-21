@@ -115,7 +115,7 @@ jobs:
       - run: npm audit --omit=dev --audit-level=high
       - name: Typecheck (src)
         run: npm run typecheck
-      - name: Typecheck (tests — tsconfig.eslint.json includes test/**)
+      - name: Typecheck (tests — tsconfig.tests.json includes test/**)
         run: npm run typecheck:tests
       - name: Approval-gate invariant — Statuspage createIncident only inside the gate
         run: |

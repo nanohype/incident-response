@@ -1,7 +1,11 @@
 /**
- * Webhook ingress Lambda handler.
+ * Webhook ingress handler.
  * Verifies Grafana OnCall HMAC-SHA256 signature, validates payload, checks idempotency,
  * and enqueues to SQS FIFO.
+ *
+ * The handler is a pure function of a request envelope and holds no reference to
+ * a server, so `src/bin/webhook-server.ts` owns the transport and the tests
+ * exercise the handler directly.
  */
 
 import * as crypto from "node:crypto";
@@ -9,7 +13,6 @@ import { ConditionalCheckFailedException, DynamoDBClient } from "@aws-sdk/client
 import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
-import type { APIGatewayProxyHandlerV2, APIGatewayProxyResultV2 } from "aws-lambda";
 import { GrafanaOnCallPayloadSchema } from "../types/index.js";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
@@ -62,9 +65,19 @@ function verifyHmacSignature(body: string, signature: string, secret: string): b
   }
 }
 
-export const handler: APIGatewayProxyHandlerV2 = async (
-  event,
-): Promise<APIGatewayProxyResultV2> => {
+/** Inbound request the handler needs: the raw body and the lower-cased headers. */
+export interface WebhookRequest {
+  headers: Record<string, string | undefined>;
+  body: string;
+}
+
+/** What the handler answers with; the transport turns it into an HTTP response. */
+export interface WebhookResponse {
+  statusCode: number;
+  body: string;
+}
+
+export const handler = async (event: WebhookRequest): Promise<WebhookResponse> => {
   // Best-effort OTel init on cold start. Memoized inside `initOtelIfNeeded`.
   // Tracing failure must not block webhook processing.
   await initOtelIfNeeded();

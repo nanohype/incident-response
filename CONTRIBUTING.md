@@ -21,16 +21,18 @@
 
 See [README.md](./README.md), [AGENTS.md](./AGENTS.md), and [ARCHITECTURE.md](./ARCHITECTURE.md).
 
-## Toolchain — CommonJS + Jest (deliberate)
+## Toolchain
 
 This repo is **CommonJS**, not ESM — `package.json` has no `"type": "module"` and
 `tsconfig.json` emits `module: commonjs`. It runs on Node 24 and every dependency is
-CJS-compatible. This is an intentional choice, not drift: keeping CommonJS avoids a refactor that
-would touch the two 100%-branch-coverage invariant files for no runtime benefit.
+CJS-compatible. This is a deliberate choice: it removes the "looks like ESM but isn't" ambiguity
+around the two 100%-branch-coverage invariant files. See
+[ARCHITECTURE.md](./ARCHITECTURE.md) > Key decisions.
 
-Tests run on **Jest** (`jest.config.cjs` + `jest.config.integration.cjs`), not Vitest — also
-deliberate. The enforced invariant below is the load-bearing reason: migrating the runner would
-put the 100%-branch guarantee at risk. Don't convert either of these; they're documented choices.
+Tests run on **Vitest** (`vitest.config.ts` + `vitest.config.integration.ts`) with the v8
+coverage provider; per-file thresholds carry the 100%-branch guarantee. Lint and formatting are
+**Biome** (`biome.json`, extending the shared `biome.base.json`) — one tool, one pass, no
+separate formatter.
 
 ## The test contract (grep-enforced in CI)
 
@@ -54,8 +56,9 @@ incident-commander system, not style preferences:
   flipping `ConsistentRead: true` → `false` in `audit.ts` makes `npm run test:unit` exit 1.
 - Global floor: 55% branches / 75% statements / 75% lines / 75% functions. A PR that lowers
   coverage turns CI red.
-- Test files are typechecked too — `npm run typecheck` includes `test/**` via
-  `tsconfig.eslint.json`, so test type drift doesn't slip past the lazy `ts-jest` path.
+- Test files are typechecked too — `npm run typecheck:tests` covers `test/**` via
+  `tsconfig.tests.json`. Vitest transpiles without typechecking, so without this pass test type
+  drift would never surface.
 
 ### Integration tests
 
@@ -71,9 +74,7 @@ mocking. New boundary code needs a port-injected test; new pure logic needs a di
 ## Adding a `/incident-response` subcommand
 
 The dispatch layer is a registry — a new subcommand is a new file plus one registration line,
-never a `switch` in `src/index.ts`. (Internal naming stays `incident-response`: the GitHub repo is
-`incident-response`, but the Slack product surface, the OTel identity, and the secret prefixes
-all stay `incident-response` — see [ARCHITECTURE.md](./ARCHITECTURE.md).)
+never a `switch` in `src/index.ts`.
 
 1. Add `src/commands/<name>.ts` exporting a `make<Name>Handler(deps)` factory (match the shape of
    `status.ts` / `resolve.ts` / `silence.ts` / `checklist.ts` / `help.ts`). Take every external

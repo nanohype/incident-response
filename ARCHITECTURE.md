@@ -108,7 +108,7 @@ This repo owns the application — source, chart, Platform CR, gitops entry. Eve
 - SQS FIFO queues + DLQs — incident events, nudge events, SLA-check (`sqs.tf`)
 - EventBridge Scheduler group for the per-incident status-update nudges (`scheduler.tf`)
 - S3 audit/artifacts bucket (`s3.tf`)
-- The `incident_response_irsa` role (`irsa.tf`)
+- The app IAM role and the EKS Pod Identity association that binds it to the chart's ServiceAccount
 - Secrets Manager seeding (`incident-response/<env>/grafana-oncall-hmac`, `app-secrets`, `grafana-cloud`)
 - Account-level Bedrock invocation logging = NONE
 
@@ -120,4 +120,4 @@ The chart assumes these cluster-level capabilities are already installed and rec
 
 - **External Secrets Operator** — backs `externalsecret.yaml` (syncs the three `incident-response/<env>/*` Secrets Manager entries into one Secret; the HMAC secret id is also passed as env for the webhook handler's VersionId-keyed cache refresh)
 - **ingress-nginx** + **cert-manager** — back `webhook-ingress.yaml` (TLS for `POST /webhook`)
-- **observability stack** — the cluster OTel Collector (`grafana-agent.monitoring.svc.cluster.local:4318`) and log forwarder that carry traces/metrics/logs to Grafana Cloud. The app emits OTLP and structured Pino JSON to stderr; there are no per-pod sidecars. The `prometheusrule.yaml` alerts and the `grafana-dashboard.yaml` dashboard (`chart/dashboards/incident-response.json`) load into that stack, querying the `incident-response`-namespaced telemetry.
+- **observability stack** — the cluster OTel collector in the `monitoring` namespace and the log forwarder, carrying traces to Tempo, metrics to Amazon Managed Prometheus, and logs to Loki. The app emits OTLP and structured Pino JSON to stderr; there are no per-pod sidecars. The `prometheusrule.yaml` alerts and the `grafana-dashboard.yaml` `GrafanaDashboard` CR (`chart/dashboards/incident-response.json`) load into that stack, querying the `incident-response`-namespaced telemetry.

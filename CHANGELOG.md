@@ -17,7 +17,7 @@ incident-response is a ceremonial incident commander assistant. It assembles P1 
 #### Runtime
 
 - Webhook Deployment behind ingress-nginx ingests Grafana OnCall alerts: HMAC-SHA256 signature verification (timing-safe), Zod payload validation, idempotent DynamoDB write, and enqueue to SQS FIFO. HMAC secret cached by `VersionId` with a 5-min TTL and force-refresh on verification failure so a rotation race recovers without a pod restart.
-- Processor Deployment runs Slack Bolt in socket mode as a single replica (`Recreate` strategy, 60s `terminationGracePeriodSeconds` for in-flight SQS drain), with a typed `CommandRegistry` and `EventRegistry`.
+- Processor Deployment runs the SQS consumer, war-room assembler, nudge scheduler and in-process MCP server as a single-writer singleton (`replicas: 1`, `Recreate` strategy, 60s `terminationGracePeriodSeconds` for in-flight SQS drain), with a typed `CommandRegistry` and `EventRegistry`.
 - `WarRoomAssembler` assembles a Slack private channel in ≤5 min: creates channel, resolves responders via parallel WorkOS directory + Grafana OnCall escalation lookup, attaches a Grafana Cloud context snapshot, pins a checklist, schedules a 15-min status nudge via EventBridge Scheduler.
 - `/incident-response` slash commands: `help`, `status`, `silence`, `resolve`, `checklist`.
 - `StatuspageApprovalGate.approveAndPublish()` — the only code path that calls `StatuspageClient.createIncident()`. Two-phase commit: write `STATUSPAGE_DRAFT_APPROVED` audit → strongly-consistent verify → publish. CI grep-gate prevents any other call site.
@@ -26,10 +26,10 @@ incident-response is a ceremonial incident commander assistant. It assembles P1 
 
 #### Observability
 
-- OpenTelemetry traces + metrics export via OTLP to the cluster `otel-collector.observability.svc.cluster.local:4318`, which forwards to Grafana Cloud Tempo + Mimir. No per-pod sidecars.
-- App writes structured JSON (Pino) to stderr; the cluster log forwarder ships it to Grafana Cloud Loki. `.child({ incident_id })` correlation and W3C trace context propagated through SQS attributes.
+- OpenTelemetry traces + metrics export via OTLP to the cluster collector in the `monitoring` namespace, which forwards traces to Tempo and remote-writes metrics to Amazon Managed Prometheus. No per-pod sidecars.
+- App writes structured JSON (Pino) to stderr; the cluster log forwarder ships it to Loki. `.child({ incident_id })` correlation and W3C trace context propagated through SQS attributes.
 - `prometheusrule.yaml` carries three SLO + reliability alerts (assembly P99, directory-lookup failure spike, Statuspage publish failures), reconciled into Mimir by the kube-prometheus-stack operator from eks-gitops.
-- `grafana-dashboard.yaml` ships the dashboard as a ConfigMap (`grafana_dashboard: "1"`), auto-imported by the Grafana sidecar.
+- `grafana-dashboard.yaml` ships the dashboard as a `GrafanaDashboard` CR the grafana-operator reconciles onto the org Grafana instance.
 
 #### Tenant trio
 
@@ -43,7 +43,7 @@ incident-response is a ceremonial incident commander assistant. It assembles P1 
 - DynamoDB `incident-response-{env}-audit` with a `published-without-approval-index` GSI for invariant auditing.
 - SQS FIFO `incident-response-{env}-incident-events.fifo` + DLQ with `maxReceiveCount: 3`. Non-FIFO queues for nudges + SLA checks.
 - EventBridge Scheduler group `incident-response-{env}` for per-incident nudges.
-- S3 audit/artifacts bucket and the `incident_response_irsa` role. Outputs (`irsa_role_arn`, table names, queue URLs/ARN, scheduler role/group, bucket names) feed the chart via `tenantInfra.*`.
+- S3 audit/artifacts bucket and the app IAM role, bound to the chart's ServiceAccount by an EKS Pod Identity association. Outputs (table names, queue URLs/ARN, scheduler role/group, bucket names) feed the chart via `tenantInfra.*`.
 
 #### Operator surface
 
@@ -55,7 +55,7 @@ incident-response is a ceremonial incident commander assistant. It assembles P1 
 
 #### Testing + CI
 
-- 100% branch coverage enforced on `src/utils/audit.ts` and `src/services/statuspage-approval-gate.ts` (`jest.config.cjs` `coverageThreshold`).
+- 100% branch coverage enforced on `src/utils/audit.ts` and `src/services/statuspage-approval-gate.ts` via per-file thresholds in `vitest.config.ts`.
 - Integration tests against `amazon/dynamodb-local` for `ConsistentRead` semantics, idempotency, and cross-incident isolation.
 - Unit suite covers HttpClient retry + timeout, circuit breaker state machine, HMAC cache invalidation, Slack adapter fail modes, Zod command-text validation.
 - GH Actions `ci.yml`: lint + format:check, build, unit + coverage, integration (dynamodb-local service container), `npm audit`, `tsc --noEmit` (incl. tests), invariant grep-gates (Statuspage gate, Slack adapter, HTTP client, baked secrets, secret-inventory drift), `helm template` staging + production, Docker build.

@@ -9,7 +9,7 @@
 # Why this exists: the bot creates `incident-response-p1-*` as PRIVATE channels and is
 # the only member. Slack has no UI path for a regular user to self-invite to a
 # private channel they aren't in. Rather than bake the drill runner's user ID
-# into the ECS task env at deploy time (requires redeploy to change operators),
+# into the pod env at deploy time (requires a redeploy to change operators),
 # this script runs client-side: pulls the bot token from Secrets Manager,
 # finds the freshest `incident-response-p1-*` channel, calls conversations.invite.
 #

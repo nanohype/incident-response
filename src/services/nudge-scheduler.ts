@@ -1,6 +1,6 @@
 /**
  * NudgeScheduler — 15-minute status update reminders via EventBridge Scheduler.
- * Per-incident rules; survive ECS task restarts.
+ * Per-incident rules; survive processor pod restarts.
  * IC silence → DISABLED (not deleted) + audit logged.
  */
 

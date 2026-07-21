@@ -28,7 +28,7 @@ The most catastrophic threat is unauthorized status page publication. The second
 
 | Threat | Impact | Control | Status |
 |--------|--------|---------|--------|
-| Attacker modifies DynamoDB audit record | Destroys ground-truth incident record | IAM: only IncidentResponse's ECS task role can write to audit table; DynamoDB PITR + no-overwrite ConditionExpression | ✅ Mitigated |
+| Attacker modifies DynamoDB audit record | Destroys ground-truth incident record | IAM: only the tenant IAM role bound to the app's ServiceAccount can write to the audit table; DynamoDB PITR + no-overwrite ConditionExpression | ✅ Mitigated |
 | Race condition allows publish before audit write | 100% approval gate violated | `verifyApprovalBeforePublish()` reads from DynamoDB after audit write; both ops must complete atomically | ⚠️ Review (see RISK-AUDIT-1) |
 | Attacker modifies Grafana Cloud queries | Returns false context data | Read-only token; IncidentResponse cannot modify Grafana; context shown to IC before action | ✅ Mitigated |
 
@@ -46,7 +46,7 @@ The most catastrophic threat is unauthorized status page publication. The second
 |--------|--------|---------|--------|
 | Status page draft leaks customer names | Privacy violation | Guardrail: regex patterns strip email, account IDs, internal hostnames from draft before IC sees it | ✅ Mitigated |
 | War room channel visible to unauthorized users | P1 debug data exposed | Channel private-by-default; only invited responders + IncidentResponse bot; no workspace-admin scope | ✅ Mitigated |
-| Bedrock prompt/response logged | LLM data in AWS logs | `PutModelInvocationLoggingConfiguration` set to NONE in CDK stack | ✅ Mitigated |
+| Bedrock prompt/response logged | LLM data in AWS logs | `PutModelInvocationLoggingConfiguration` set to NONE account-wide by landing-zone | ✅ Mitigated |
 | Grafana Cloud API token exposed in logs | Attacker gains read access to metrics/logs/traces | Tokens in Secrets Manager; never logged; structured logger excludes sensitive env vars | ✅ Mitigated |
 | Audit log leaks PII | Privacy violation | Audit log contains Slack user IDs (internal), not customer PII; DynamoDB access restricted to task role | ✅ Mitigated |
 
@@ -54,7 +54,7 @@ The most catastrophic threat is unauthorized status page publication. The second
 
 | Threat | Impact | Control | Status |
 |--------|--------|---------|--------|
-| Grafana OnCall floods webhook endpoint | Lambda invocations spike; incident processing delayed | SQS FIFO rate-limits processing; FIFO queue per-group ordering prevents race; API Gateway throttle configurable | ✅ Partial (configure API GW throttle) |
+| Grafana OnCall floods webhook endpoint | Webhook pods saturate; incident processing delayed | SQS FIFO rate-limits processing; FIFO per-group ordering prevents race; the webhook Deployment is stateless and horizontally scalable; ingress-nginx rate-limit annotations available on the Ingress | ✅ Partial (set the ingress rate limit) |
 | Slack rate limits war-room invite loop | Responders not invited in time | Per-call timeout + retry-with-jitter; instrument Slack API call latency; alert if Slack rate-limited | ⚠️ Monitor |
 | EventBridge Scheduler limit (10K schedules default) | Nudges fail for incidents > limit | At 10 P1s/month, this is far from limit; auto-delete on resolve | ✅ Low risk |
 | DynamoDB write capacity exhaustion | Audit writes fail | On-demand billing; auto-scales; PITR enabled | ✅ Mitigated |
@@ -64,8 +64,8 @@ The most catastrophic threat is unauthorized status page publication. The second
 | Threat | Impact | Control | Status |
 |--------|--------|---------|--------|
 | IncidentResponse bot gains workspace-admin scope | Full workspace access | Slack manifest declares only: chat:write, channels:manage, channels:read, groups:read, groups:write, users:read — no admin scopes | ✅ Mitigated |
-| ECS task role gains production-system write access | IncidentResponse could modify production | Explicit DENY policy on EC2/RDS/S3-write/EKS/Lambda mutations | ✅ Mitigated |
-| Statuspage.io API key used for unauthorized publish | Customer-facing message without approval | API key only accessible to ECS task role; all publish calls go through approval gate; auto-publish code path does not exist | ✅ Mitigated |
+| Tenant IAM role gains production-system write access | IncidentResponse could modify production | The role carries only the landing-zone `incident-response-platform` inline policy (DDB / SQS / Scheduler / Secrets read / Bedrock invoke); the chart contains no inline IAM, and the operator clamps Bedrock invoke to `spec.identity.allowedModels` | ✅ Mitigated |
+| Statuspage.io API key used for unauthorized publish | Customer-facing message without approval | API key reaches the pod only through the ExternalSecret-projected Secret; all publish calls go through the approval gate; auto-publish code path does not exist | ✅ Mitigated |
 | WorkOS API key used for group modification | Unauthorized group membership changes | WorkOS Directory Sync token has read-only scope (Groups.Read); no write operations in WorkOSClient | ✅ Mitigated |
 
 ---
@@ -133,11 +133,11 @@ it('should surface DirectoryLookupFailedError and NOT generate invite list on Wo
 
 ### REQ-S3: Audit Writes Awaited
 
-All audit writes use `await this.auditWriter.write(...)`. Static analysis rule: no `this.auditWriter.write(` without `await` or explicit Promise chaining. Add eslint rule: `@typescript-eslint/no-floating-promises`.
+All audit writes use `await this.auditWriter.write(...)`. Static analysis rule: no `this.auditWriter.write(` without `await` or explicit Promise chaining. Enforced by Biome's `noFloatingPromises` rule, set to `error` in `biome.json`.
 
 ### REQ-S4: Bedrock Invocation Logging
 
-Verified at CDK deploy time by `BedrockLoggingNone` custom resource. Runtime assertion in integration test:
+Set account-wide by landing-zone's `cluster-bootstrap` component. Runtime assertion in integration test:
 ```typescript
 it('should verify Bedrock invocation logging is NONE after deploy', async () => {
   const bedrock = new BedrockClient({ region: process.env.AWS_REGION });
@@ -166,8 +166,8 @@ Slack app manifest lock checked in scaffold-validator. No workspace-admin scope 
 | A06 Vulnerable Components | npm dependencies | Dependabot enabled; `npm audit` in CI; pin exact versions for security-critical deps |
 | A07 Auth Failures | Token rotation | Secrets Manager rotation policies; separate OnCall/Cloud tokens with different rotation cadences |
 | A08 Data Integrity Failures | Status page draft tampering | SHA256 of draft body in audit log; body comparison before publish |
-| A09 Logging Failures | Audit log fire-and-forget | All audit writes awaited; `@typescript-eslint/no-floating-promises` enforced |
-| A10 SSRF | Outbound HTTP from ECS | Only allowlisted external domains per IAM (where applicable); user-controlled URLs not followed |
+| A09 Logging Failures | Audit log fire-and-forget | All audit writes awaited; Biome's `noFloatingPromises` enforced as an error |
+| A10 SSRF | Outbound HTTP from the pods | Chart NetworkPolicy restricts egress to DNS, HTTPS and the OTLP collector; user-controlled URLs are not followed |
 
 ---
 
@@ -204,7 +204,7 @@ GATE_VERDICT: REQUEST_CHANGES
 
 Required before merge:
 1. Add `ConsistentRead: true` to `verifyApprovalBeforePublish()` DynamoDB query (RISK-AUDIT-1)
-2. Add `@typescript-eslint/no-floating-promises` to ESLint config
+2. Set the linter's floating-promise rule to `error` so no audit write can be fire-and-forget
 3. Confirm Slack app manifest scope lock is validated in CI (scaffold-validator)
 4. Integration test for approval gate: `STATUSPAGE_PUBLISHED` without `STATUSPAGE_DRAFT_APPROVED` must return zero rows
 
