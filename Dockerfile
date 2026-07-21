@@ -33,7 +33,8 @@ EXPOSE 3001
 # OTel auto-instrumentation: the --require hook loads SDK + instrumentations before
 # user code, so http/fetch/aws-sdk/pg/etc. are traced automatically. Manual spans
 # for business-logic milestones (see src/utils/tracing.ts) are created alongside.
-# OTLP target is the cluster otel-collector (chart values OTEL_EXPORTER_OTLP_ENDPOINT).
+# OTLP target is Grafana Alloy in the monitoring namespace (chart values
+# OTEL_EXPORTER_OTLP_ENDPOINT).
 ENV NODE_OPTIONS="--require @opentelemetry/auto-instrumentations-node/register"
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
