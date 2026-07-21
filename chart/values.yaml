@@ -137,7 +137,7 @@ externalSecret:
 prometheusRule:
   # Ships SLO recording rules + burn-rate alerts to a Prometheus Operator
   # (kube-prometheus-stack) via the PrometheusRule CR. Off by default — inert
-  # without an operator, which the managed-Prometheus stack (grafana-agent + AMP,
+  # without an operator, which the managed-Prometheus stack (Alloy + AMP,
   # alerts in Amazon Managed Grafana) doesn't run. Set `enabled: true` on a
   # cluster that runs one.
   enabled: false
@@ -168,7 +168,10 @@ env:
   MCP_PORT: '3002'
   LOG_LEVEL: info
   NODE_ENV: production
-  OTEL_EXPORTER_OTLP_ENDPOINT: http://grafana-agent.monitoring.svc.cluster.local:4318
+  # Grafana Alloy's OTLP/HTTP receiver, installed cluster-wide by eks-gitops
+  # (addons/observability/alloy). The Service is `alloy` in the `monitoring`
+  # namespace and exposes otlp-grpc 4317 / otlp-http 4318.
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy.monitoring.svc.cluster.local:4318
   OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
   OTEL_TRACES_SAMPLER: always_on
   OTEL_METRICS_EXPORTER: otlp
