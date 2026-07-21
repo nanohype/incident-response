@@ -1,7 +1,7 @@
 {
   "name": "incident-response",
   "version": "0.1.0",
-  "description": "Ceremonial incident commander assistant — P1 war room assembly, status cadence, status page approval gate, postmortem draft",
+  "description": "Ceremonial incident commander assistant \u2014 P1 war room assembly, status cadence, status page approval gate, postmortem draft",
   "private": true,
   "engines": {
     "node": ">=24.0.0"
@@ -13,7 +13,7 @@
     "lint": "biome lint .",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test:unit",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run platform:validate && npm run test:unit",
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.config.integration.ts",
@@ -26,6 +26,9 @@
     "chart:lint": "helm lint chart",
     "chart:template:staging": "helm template incident-response chart -f chart/values-staging.yaml",
     "chart:template:production": "helm template incident-response chart -f chart/values-production.yaml",
+    "platform:validate": "node scripts/validate-platform-manifests.mjs",
+    "schemas:sync": "node scripts/sync-crd-schemas.mjs",
+    "schemas:check": "node scripts/sync-crd-schemas.mjs --check",
     "seed:staging": "bash scripts/seed-secrets.sh --env staging",
     "seed:production": "bash scripts/seed-secrets.sh --env production",
     "seed:staging:dry": "bash scripts/seed-secrets.sh --env staging --dry-run",
@@ -69,7 +72,8 @@
     "ts-node": "^10.9.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.9",
+    "yaml": "^2.9.0"
   },
   "overrides": {
     "@grpc/grpc-js": "^1.14.4",

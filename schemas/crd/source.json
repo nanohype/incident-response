@@ -1,0 +1,12 @@
+{
+  "upstream": {
+    "repository": "nanohype/eks-agent-platform",
+    "path": "operators/config/crd/bases",
+    "ref": "3ab89554fc0e79c4596367825eaff540a1a8c89b"
+  },
+  "files": [
+    "platform.nanohype.dev_tenants.yaml",
+    "platform.nanohype.dev_platforms.yaml",
+    "governance.nanohype.dev_budgetpolicies.yaml"
+  ]
+}

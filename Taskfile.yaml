@@ -12,7 +12,7 @@ tasks:
   # === Composite ===
 
   ci:
-    desc: 'Full local CI: install, build, lint, typecheck (src + tests), unit tests, format:check, helm lint/template (staging+prod), docker build'
+    desc: 'Full local CI: install, build, lint, typecheck (src + tests), unit tests, format:check, platform CR validation, helm lint/template (staging+prod), docker build'
     cmds:
       - task: install
       - task: build
@@ -21,6 +21,7 @@ tasks:
       - task: typecheck:tests
       - task: test:unit
       - task: format:check
+      - task: platform:validate
       - task: helm:lint
       - task: helm:template
       - task: docker:build
@@ -70,6 +71,23 @@ tasks:
     desc: 'Integration tests against dynamodb-local (spins up the container)'
     cmds:
       - npm run test:integration:docker
+
+  # === Platform CRs ===
+
+  platform:validate:
+    desc: 'Validate platform.yaml against the vendored eks-agent-platform CRD schemas (structure, scope, unknown fields, cross-CR wiring)'
+    cmds:
+      - npm run platform:validate
+
+  schemas:check:
+    desc: 'Verify the vendored CRD schemas match a local eks-agent-platform checkout (EKS_AGENT_PLATFORM_DIR, default ../eks-agent-platform)'
+    cmds:
+      - npm run schemas:check
+
+  schemas:sync:
+    desc: 'Re-vendor the CRD schemas from a local eks-agent-platform checkout'
+    cmds:
+      - npm run schemas:sync
 
   # === Helm ===
 

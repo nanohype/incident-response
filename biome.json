@@ -27,5 +27,17 @@
       "!src/vendor",
       "!scripts/sync-vendored.mjs"
     ]
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["scripts/**/*.mjs"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    }
+  ]
 }

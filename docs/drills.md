@@ -21,9 +21,9 @@ Five surfaces, each with something different:
 | **Pod logs** | Processor stderr (app-level events, trace-correlated) | `kubectl -n tenants-incident-response logs deploy/incident-response-processor -f` |
 | **DynamoDB** | Incident state (`ALERT_RECEIVED → ROOM_ASSEMBLING → ROOM_ASSEMBLED → RESOLVED`), full audit trail | `incident-response-staging-incidents` + `incident-response-staging-audit` tables, or via `scripts/observe-incident.sh` |
 | **SQS** | In-flight events + DLQ depth (must stay 0) | `incident-response-staging-incident-events.fifo`, `incident-response-staging-nudge-events`, `incident-response-staging-sla-check-events`, plus the DLQ |
-| **Grafana / Mimir** | Pod health, CPU/memory, restarts, the three SLO panels | Grafana Cloud → the auto-imported `incident-response` dashboard; or `kubectl -n tenants-incident-response get pods` for liveness |
+| **Grafana / AMP** | Pod health, CPU/memory, restarts, the three SLO panels | The org Grafana → the reconciled `incident-response` dashboard, over Amazon Managed Prometheus; or `kubectl -n tenants-incident-response get pods` for liveness |
 
-The drill harness synthesises the first three into a single command flow. Pod metrics + traces land in Grafana Cloud via the cluster OTel Collector; pod logs land in Loki via the cluster log forwarder.
+The drill harness synthesises the first three into a single command flow. Pod metrics land in Amazon Managed Prometheus and traces in the in-cluster Tempo, both via Grafana Alloy; pod logs land in the in-cluster Loki via Alloy's pod tail.
 
 ## Strategies in order of effort
 

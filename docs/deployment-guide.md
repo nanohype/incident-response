@@ -27,7 +27,7 @@ Provision these **separately** for each environment — staging and production e
 |---|---|---|
 | **Slack app** | Bot token (`xoxb-…`) + signing secret; Interactivity + slash-command Request URLs point at the webhook host (`/slack/interactivity`, `/slack/commands`) | [api.slack.com/apps](https://api.slack.com/apps) → Create New App → From manifest. Required scopes: `chat:write`, `channels:manage`, `channels:read`, `groups:read`, `groups:write`, `users:read`, `commands`. |
 | **Grafana OnCall** | API token (read-only) + webhook HMAC secret | Grafana → OnCall → Settings → API tokens. HMAC secret is generated locally (`openssl rand -base64 32`) and pasted into the OnCall *outgoing webhook* signing field. |
-| **Grafana Cloud** | OTLP instance ID, API token (`glc_…` with `otlp:write`), org ID, Loki username, Loki host | Grafana Cloud → Connections → OpenTelemetry (for OTLP) + Connections → Logs (Loki). See [`docs/secrets.md`](secrets.md) § "The `incident-response/{env}/grafana-cloud/otlp-auth` secret" for the JSON shape. |
+| **Grafana Cloud** | Read token (`glc_…` with `metrics:read`, `logs:read`, `traces:read`) + org ID, for the war-room context snapshot. Plus OTLP instance ID, write token, Loki username and host **only if** you repoint telemetry export off the in-cluster Alloy at an authenticated gateway. | Grafana Cloud → Connections → Hosted Prometheus Metrics (for the read token + org ID) + Connections → OpenTelemetry / Logs (for the OTLP fields). See [`docs/secrets.md`](secrets.md) § "The `incident-response/{env}/grafana-cloud/otlp-auth` secret" for the JSON shape. |
 | **Statuspage.io** | API key + page ID | Statuspage → Manage → API. Page ID is visible in the Statuspage URL (`manage.statuspage.io/pages/<PAGE_ID>/`). |
 | **Linear** | Personal API key + team UUID + project UUID | Linear → Settings → API → Personal API keys. **`linear/team-id` must be the team UUID, not the team key**. Get both UUIDs via GraphQL: `{ teams { nodes { id key name } } projects { nodes { id name } } }` against `https://api.linear.app/graphql`. A team key (`ENG`) in `team-id` produces `Argument Validation Error - teamId must be a UUID` at resolve time. |
 | **WorkOS** | Directory Sync API key (`sk_live_…`) + directory ID (`directory_…`) | [dashboard.workos.com](https://dashboard.workos.com) → API Keys; the directory ID is on the Directory Sync page. Also prepare the team-to-group map — see step 4. |
@@ -63,7 +63,7 @@ npm run seed:staging:dry     # validates shape, no AWS calls
 npm run seed:staging         # creates every required secret in Secrets Manager
 ```
 
-The `grafana-cloud/otlp-auth` secret is a nested JSON object carrying the Grafana Cloud telemetry credentials. You can omit `basic_auth` from the JSON — the seeder derives it from `instance_id` + `api_token` automatically. Per-key provenance + rotation guidance in [`docs/secrets.md`](secrets.md).
+The `grafana-cloud/otlp-auth` secret is a nested JSON object carrying OTLP-gateway credentials; the default in-cluster export path does not read it. You can omit `basic_auth` from the JSON — the seeder derives it from `instance_id` + `api_token` automatically. Per-key provenance + rotation guidance in [`docs/secrets.md`](secrets.md).
 
 ### 2. Apply the landing-zone substrate + the Platform CR
 
@@ -148,7 +148,7 @@ The webhook handler verifies HMAC-SHA256 in timing-safe fashion and rejects unsi
 
 ### 9. Dashboards + alerts
 
-Both ship as Kubernetes resources from the chart — no manual import step. The PrometheusRule is reconciled into Mimir by the kube-prometheus-stack operator from `eks-gitops`; the Grafana dashboard ConfigMap is auto-imported by the Grafana sidecar via the `grafana_dashboard: "1"` label. Nothing to upload.
+Both ship as Kubernetes resources from the chart — no manual import step. The `GrafanaDashboard` CR is reconciled onto the org Grafana by the grafana-operator from `eks-gitops`; its metrics panels query Amazon Managed Prometheus. The PrometheusRule is off by default — `eks-gitops` installs the prometheus-operator CRDs but no operator, so the CR would apply and sit inert. Nothing to upload.
 
 ### 10. Drill
 
@@ -232,8 +232,8 @@ done
 | Resolve fires but Linear issue doesn't appear | `teamId must be a UUID` — `linear/team-id` secret holds a team key | Reseed with the UUID from `{ teams { nodes { id key } } }`; `kubectl rollout restart deploy/incident-response-processor` |
 | Nudge schedule never fires (no `STATUS_REMINDER_SENT` after 15 min) | `Schedule group incident-response-{env} does not exist` in processor logs | The group is owned by `landing-zone incident-response-platform`; confirm it's applied. Details in [`docs/troubleshooting.md`](troubleshooting.md) § "EventBridge Scheduler errors" |
 | `AutoPublishNotPermitted` on Approve & Publish | Either a real invariant violation, or a DDB `Limit + FilterExpression` bug in `verifyApprovalBeforePublish` | Query the audit table directly for the incident — if `STATUSPAGE_DRAFT_APPROVED` exists, it's the Limit+Filter bug. Details in [`docs/troubleshooting.md`](troubleshooting.md) § "Runtime errors" |
-| Grafana Cloud traces/metrics missing | OTLP export failing | Check the Grafana Alloy logs — `kubectl logs -n monitoring -l app.kubernetes.io/name=alloy` (eks-gitops installs it). If `401`, the `instance_id`/`api_token` in the env's OTLP secret don't match the Grafana Cloud stack. |
-| Grafana Cloud Loki logs missing | Cluster log forwarder error | Check the forwarder (eks-gitops). Usually a wrong `loki_host` for the region. |
+| Traces or metrics missing from Tempo / AMP | OTLP export failing | Check the Grafana Alloy logs — `kubectl logs -n monitoring -l app.kubernetes.io/name=alloy` (eks-gitops installs it). Connection refused usually means the chart's egress NetworkPolicy or `OTEL_EXPORTER_OTLP_ENDPOINT` doesn't match the Alloy Service; remote-write `403`s are Alloy's AMP Pod Identity association, an `eks-gitops` / `landing-zone` problem. |
+| Logs missing from Loki | Alloy's pod tail is broken | Check Alloy (eks-gitops). If the pod's own `kubectl logs` show the JSON lines, the app is fine and the tail or the Loki gateway is the failure. |
 | Secret rotated but pods still use old value | Pods read the projected Secret at start | `kubectl rollout restart deploy/incident-response-processor -n tenants-incident-response` (and `deploy/incident-response-webhook`) to pick up the new value |
 | Staging event fired in production's war-room channel | Same Slack workspace reused across envs | Use separate Slack workspaces per env. Within one workspace, env-scope the channel prefix by adding `DEPLOYMENT_ENV` to `war-room-assembler.ts`'s `channelName` helper. |
 
