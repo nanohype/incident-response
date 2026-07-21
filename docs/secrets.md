@@ -27,7 +27,7 @@ The canonical list is `secrets.template.json`. The seeder's `REQUIRED_KEYS` and 
 | `incident-response/{env}/linear/team-id` | Linear team ID that owns the Incidents project (required by the `@linear/sdk` issue-create call alongside `project-id`). |
 | `incident-response/{env}/workos/api-key` | WorkOS API key (`sk_live_…`) — Directory Sync read (responder resolution by group). |
 | `incident-response/{env}/grafana/oncall-webhook-hmac` | Locally-generated shared secret (`openssl rand -base64 32`). Pasted into *both* Grafana OnCall's outgoing-webhook signing field *and* this secret so the webhook handler can verify signatures. Not issued by Grafana. |
-| `incident-response/{env}/grafana-cloud/otlp-auth` | JSON payload carrying a Grafana **Cloud Access Policy** write token (`glc_…`, scoped `metrics:write`, `logs:write`, `traces:write`) plus three non-credential identifiers (instance_id, loki_username, loki_host). Consumed by the cluster OTel Collector + log forwarder (eks-gitops). See the schema below. |
+| `incident-response/{env}/grafana-cloud/otlp-auth` | JSON payload carrying an OTLP-gateway write token (`glc_…`, scoped `metrics:write`, `logs:write`, `traces:write`) plus three non-credential identifiers (instance_id, loki_username, loki_host). Read by `src/handlers/webhook-otel-init.ts` **only when the OTLP endpoint is an authenticated gateway** — the chart's default in-cluster Alloy endpoint needs no credential. See the schema below. |
 
 > **Different external accounts per environment.** Staging and production typically have their own Slack workspace, Linear project, Statuspage page, WorkOS directory, and Grafana Cloud stack. Don't share credentials across envs — a leaked staging token would otherwise unlock production.
 
@@ -57,7 +57,7 @@ IncidentResponse uses **two distinct Grafana auth surfaces** (plus one locally-g
 |---|---|---|---|---|
 | `grafana/oncall-token` | **Recommended:** open OnCall in your Grafana stack → **Settings → API Tokens → + Create Token**. Legacy OnCall-native pattern; simplest path. Fallback: a Grafana service account (`Administration → Users and access → Service accounts`) with OnCall role also works. | OnCall-native token (opaque) OR `glsa_…` from a service account | `src/clients/grafana-oncall-client.ts` calling `https://oncall-prod-<region>.grafana.net/oncall/api/v1/...` | Read-only OnCall access (ack/resolve write scopes if you use those) |
 | `grafana/cloud-token` | **grafana.com** → Administration → **Cloud access policies** → new policy → **Add token** | `glc_…` | `src/clients/grafana-cloud-client.ts` calling Mimir/Loki/Tempo query endpoints | Cloud Access Policy with `metrics:read`, `logs:read`, `traces:read` |
-| `grafana-cloud/otlp-auth.api_token` | **grafana.com** → Administration → **Cloud access policies** → new policy → **Add token** | `glc_…` | Cluster OTel Collector (metrics + traces) + log forwarder (logs), owned by eks-gitops | Cloud Access Policy with `metrics:write`, `logs:write`, `traces:write` |
+| `grafana-cloud/otlp-auth.api_token` | **grafana.com** → Administration → **Cloud access policies** → new policy → **Add token** | `glc_…` | `src/handlers/webhook-otel-init.ts`, and only against an authenticated OTLP gateway | Cloud Access Policy with `metrics:write`, `logs:write`, `traces:write` |
 | `grafana/oncall-webhook-hmac` | `openssl rand -base64 32` on your laptop | Random base64 | The webhook handler verifying inbound signatures from OnCall | None — shared secret, same value in both this app *and* OnCall's outgoing-webhook config |
 
 **Key points that trip people up:**
@@ -86,9 +86,9 @@ IncidentResponse uses **two distinct Grafana auth surfaces** (plus one locally-g
 
 ## The `incident-response/{env}/grafana-cloud/otlp-auth` secret (JSON payload)
 
-One of the secrets carries a structured JSON payload instead of a plain string. The cluster OTel Collector and the log forwarder each need a different subset of the same Grafana Cloud credentials — storing them together in one secret means one rotation instead of several.
+One of the secrets carries a structured JSON payload instead of a plain string, because a single authenticated OTLP gateway needs several identifiers alongside the token — storing them together means one rotation instead of several.
 
-The credentials are owned by the cluster OTel Collector + log forwarder (eks-gitops), not by the app pods. The app emits OTLP + structured JSON and never holds the Grafana Cloud write token itself, so no secret is ever baked into an image or manifest. CI enforces the non-bake invariant via a grep-gate (no secrets in committed manifests; ExternalSecret only).
+**The chart's default export path does not use this secret.** `OTEL_EXPORTER_OTLP_ENDPOINT` points at `alloy.monitoring.svc.cluster.local:4318`, an in-cluster ClusterIP that authenticates nothing; Alloy holds the only credential in the chain — an EKS Pod Identity association granting it `aps:RemoteWrite` against Amazon Managed Prometheus, owned by `landing-zone`. Tempo and Loki are in-cluster too. Seed this secret when you repoint the endpoint at an authenticated gateway instead: `src/handlers/webhook-otel-init.ts` then reads `basic_auth` out of Secrets Manager through the pod's own `GetSecretValue` grant and sets the `Authorization` header programmatically, rather than through `OTEL_EXPORTER_OTLP_HEADERS` where the plaintext credential would sit in the pod spec. Either way no secret is baked into an image or manifest, and a CI grep-gate enforces it (ExternalSecret only).
 
 Required schema (same for both envs; different values):
 
@@ -104,9 +104,9 @@ Required schema (same for both envs; different values):
 
 Field-by-field wiring:
 
-- `instance_id` + `api_token` → cluster OTel Collector (traces + metrics via the `basicauth` extension)
-- `basic_auth` (pre-computed, same creds as above, base64'd) → the collector's `Authorization` header for the Grafana Cloud OTLP gateway
-- `loki_username` + `api_token` (reused) + `loki_host` → cluster log forwarder → Loki
+- `basic_auth` (pre-computed from `instance_id:api_token`, base64'd) → the `Authorization: Basic …` header `src/handlers/webhook-otel-init.ts` sets on its OTLP exporters. The only field the app reads.
+- `instance_id` + `api_token` → the inputs `basic_auth` is derived from; the seeder computes it for you if you leave `basic_auth` off.
+- `loki_username` + `loki_host` → the log-shipping half of the same gateway, for a deployment that forwards logs there rather than to the in-cluster Loki.
 
 Creating it for the first time (staging shown; repeat with production values + `incident-response/production/grafana-cloud/otlp-auth`):
 
@@ -284,13 +284,13 @@ kubectl -n tenants-incident-response get deploy incident-response-processor \
 kubectl -n tenants-incident-response logs deploy/incident-response-processor --since=5m -f
 ```
 
-If the processor crash-loops, check the logs (or Grafana Cloud Loki) for `ZodError: required ... missing` — one of the seeded values was skipped or empty. Re-run `npm run seed:{env}:dry` and look for any `REPLACE_ME` sentinels that snuck through.
+If the processor crash-loops, check the logs (or Loki) for `ZodError: required ... missing` — one of the seeded values was skipped or empty. Re-run `npm run seed:{env}:dry` and look for any `REPLACE_ME` sentinels that snuck through.
 
 ## Security posture
 
 - Secrets Manager encrypts at rest with an AWS-managed KMS key. To use a customer-managed key, recreate each secret under a CMK via the console or CLI (the seeder honours whatever the secret was created with; nothing in this repo owns the key choice because it doesn't own the secret lifecycle).
 - The IAM role is granted `secretsmanager:GetSecretValue` only on the specific ARNs for its own environment — that scope is set in the `landing-zone incident-response-platform` component. No wildcards. The staging role cannot read production secrets and vice versa.
 - The chart's ExternalSecret references each secret by name; the External Secrets Operator projects the values into a k8s Secret consumed via `envFrom`. No secret value is ever baked into an image or a committed manifest — a CI grep-gate enforces it (ExternalSecret only).
-- The cluster OTel Collector + log forwarder (eks-gitops) hold the Grafana Cloud write token, not the app pods; the app never sees the OTLP `basic_auth`.
+- On the default in-cluster export path there is no telemetry credential at all — the app pushes OTLP to a ClusterIP fenced by the chart's egress NetworkPolicy, and Alloy's own Pod Identity association is what authenticates the remote-write to Amazon Managed Prometheus.
 - `GetSecretValue` calls (by ESO and the seeder) are audited to CloudTrail with the invoking principal. Rotation should be performed by a dedicated deploy role, not a personal IAM user.
 - Never paste a populated secret into chat, issues, or a notebook — Secrets Manager is the authoritative store. The `openssl rand` pattern for the HMAC secret is the one place a value is generated locally; pipe it directly into the seeder and the Grafana OnCall webhook form without writing it to disk.

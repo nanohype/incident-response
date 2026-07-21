@@ -11,7 +11,7 @@ Have ready:
 - An AWS account + region you own (defaults to `us-west-2`; set `AWS_REGION` for the cluster + substrate).
 - A cluster running the `eks-agent-platform` operator, with `kubectl` + `helm` context on it.
 - Admin access to a Slack workspace where you can create an app.
-- Access to Grafana Cloud (OnCall + the Mimir/Loki/Tempo stack) — a free tier works for drills.
+- Access to Grafana Cloud (OnCall for the alert source, plus the Mimir/Loki/Tempo stack the war-room context snapshot reads) — a free tier works for drills. This is the app's upstream, not where its own telemetry lands: that goes to the cluster's Alloy → Tempo / AMP / Loki.
 - A Linear workspace with a project to hold postmortems.
 - A Statuspage.io account — any tier. Use a test page for drills; publish goes there too.
 - A WorkOS account (for directory sync). The free tier handles drill-volume lookups.
@@ -50,7 +50,7 @@ Follow [`docs/secrets.md`](secrets.md) § "Grafana Cloud numeric identifiers." Y
 - `grafana/cloud-token` — Mimir API token
 - `grafana/cloud-org-id` — the Mimir tenant ID (not the instance ID, not the Loki ID)
 - `grafana/oncall-webhook-hmac` — generate with `openssl rand -base64 32`
-- `grafana-cloud/otlp-auth` — JSON blob with `instance_id`, `api_token`, `loki_username`, `loki_host`
+- `grafana-cloud/otlp-auth` — JSON blob with `instance_id`, `api_token`, `loki_username`, `loki_host`. Only read when telemetry export is repointed at an authenticated OTLP gateway; the default in-cluster Alloy endpoint needs no credential.
 
 Create an OnCall outgoing-webhook integration later (after the first deploy — you'll need the webhook ingress hostname). Point it at `https://<ingress-host>/webhook/grafana-oncall` and paste the same HMAC secret you seeded above.
 

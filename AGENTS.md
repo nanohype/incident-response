@@ -23,8 +23,9 @@ npm run dev                # ts-node-dev against the processor entrypoint (SQS c
 In Slack: `/incident-response help` lists the subcommands; `/incident-response status` posts the current incident state.
 
 ```bash
-npm run check                      # typecheck + lint + format:check + test:unit (CI parity, one shot)
+npm run check                      # typecheck + lint + format:check + platform:validate + test:unit (CI parity, one shot)
 npm run test:integration:docker    # approval-gate semantics against amazon/dynamodb-local
+npm run platform:validate          # platform.yaml against the vendored eks-agent-platform CRD schemas
 ```
 
 This is a **CommonJS** app (no `"type": "module"`, `tsconfig` `module: commonjs`) — deliberate, see [`ARCHITECTURE.md`](ARCHITECTURE.md) > Key decisions. Tests run on **Vitest**.
@@ -70,13 +71,22 @@ spec:
   tenant: reliability
   budget: { name: incident-response }
   identity:
-    allowedModelFamilies: [anthropic] # Claude via Bedrock
-    extraPolicyArns: [] # app pods assume the landing-zone role directly
+    # Bedrock invoke on the tenant role is clamped to exactly these IDs
+    allowedModels: [anthropic.claude-sonnet-4-6, anthropic.claude-haiku-4-5]
+    extraPolicyArns: [] # filled per env with landing-zone's app_access_policy_arn
   compliance: { soc2: true }
   isolation: namespace
 ```
 
-`tenants-reliability` is the team's control-plane namespace — it holds these CRs. The workload namespace is a different one: the operator derives `tenants-incident-response` from `Platform.metadata.name` and provisions it along with the ResourceQuota, LimitRange, default-deny NetworkPolicy, an ArgoCD AppProject named `incident-response`, and a per-Platform IAM role trusting the `tenant-runtime` SA. **incident-response's own app pods don't use that operator role** — both workloads assume the landing-zone `incident-response-platform` IAM role directly via the EKS Pod Identity association. `extraPolicyArns` stays empty for that reason; the operator's per-tenant role is for AgentFleet pods, not incident-response's app pods.
+CI validates every document in `platform.yaml` against the CRD schemas vendored
+under [`schemas/crd/`](schemas/crd/README.md) — structure, required fields,
+enums, patterns, cluster-vs-namespaced scope, and any property the CRD does not
+declare. It also asserts what only shows up across documents:
+`Platform.spec.tenant` matching `Tenant.metadata.name`, the BudgetPolicy
+round-trip, and the `agents.tenant` / `agents.platform` OTel resource attributes
+in every chart values file. Run it locally with `npm run platform:validate`.
+
+`tenants-reliability` is the team's control-plane namespace — it holds these CRs. The workload namespace is a different one: the operator derives `tenants-incident-response` from `Platform.metadata.name` and provisions it along with the ResourceQuota, LimitRange, default-deny NetworkPolicy, an ArgoCD AppProject named `incident-response`, and the per-Platform IAM role `<env>-incident-response-tenant`. **That operator role is the one incident-response's app pods run as** — the chart's `incident-response` ServiceAccount is bound to it by an EKS Pod Identity association the landing-zone `incident-response-platform` component creates, so app pods and AgentFleet pods (`tenant-runtime` SA) share one privilege domain. The app's substrate grants arrive on that same role through `spec.identity.extraPolicyArns`, which carries the managed policy landing-zone emits as `app_access_policy_arn` (account-scoped, so it is filled per environment at apply time).
 
 ### The Helm chart (`chart/`)
 

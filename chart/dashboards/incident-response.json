@@ -19,7 +19,7 @@
       "title": "War Room Assembly Duration — p50 / p99 (ms)",
       "description": "SLO: p99 ≤ 5 min (300000 ms). Source: OTel histogram incident_response_assembly_duration_ms.",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "${DS_MIMIR}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_METRICS}" },
       "fieldConfig": { "defaults": { "unit": "ms" } },
       "targets": [
         {
@@ -40,7 +40,7 @@
       "title": "Approval Gate Latency — p50 / p99 (ms)",
       "description": "Time between IC approval click and Statuspage.io publish. Source: OTel histogram incident_response_approval_gate_latency_ms.",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "${DS_MIMIR}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_METRICS}" },
       "fieldConfig": { "defaults": { "unit": "ms" } },
       "targets": [
         {
@@ -66,7 +66,7 @@
       "type": "timeseries",
       "title": "Statuspage Publishes (by outcome, 5-min rate)",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
-      "datasource": { "type": "prometheus", "uid": "${DS_MIMIR}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_METRICS}" },
       "targets": [
         {
           "refId": "R",
@@ -80,7 +80,7 @@
       "type": "timeseries",
       "title": "Directory Lookup Failures (5-min rate)",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
-      "datasource": { "type": "prometheus", "uid": "${DS_MIMIR}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_METRICS}" },
       "targets": [
         {
           "refId": "R",
@@ -99,7 +99,7 @@
       "id": 8,
       "type": "timeseries",
       "title": "SQS Depth — incident-events + DLQ",
-      "description": "Source: CloudWatch via Grafana Cloud CloudWatch datasource.",
+      "description": "Source: CloudWatch via the org Grafana's CloudWatch datasource.",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
       "datasource": { "type": "cloudwatch", "uid": "${DS_CW}" },
       "targets": [
@@ -129,7 +129,7 @@
       "title": "Pod Availability — webhook + processor",
       "description": "Ready replicas per Deployment, from kube-state-metrics. The processor is a single-writer singleton, so its floor is 1.",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
-      "datasource": { "type": "prometheus", "uid": "${DS_MIMIR}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_METRICS}" },
       "targets": [
         {
           "refId": "A",
@@ -149,7 +149,7 @@
       "title": "Webhook Ingress — request duration p99 + error rate",
       "description": "From the webhook Deployment's own OTel HTTP server instrumentation.",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 27 },
-      "datasource": { "type": "prometheus", "uid": "${DS_MIMIR}" },
+      "datasource": { "type": "prometheus", "uid": "${DS_METRICS}" },
       "targets": [
         {
           "refId": "D",
@@ -188,10 +188,10 @@
   "templating": {
     "list": [
       {
-        "name": "DS_MIMIR",
+        "name": "DS_METRICS",
         "type": "datasource",
         "query": "prometheus",
-        "label": "Mimir",
+        "label": "Amazon Managed Prometheus",
         "hide": 0
       },
       {

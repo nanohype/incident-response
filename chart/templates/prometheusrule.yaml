@@ -1,11 +1,13 @@
 {{- if .Values.prometheusRule.enabled -}}
-# The three SLO + reliability rules. The kube-prometheus-stack operator sidecar
-# watches PrometheusRule CRs matching prometheus.spec.ruleSelector (the release
-# label by default) and loads them into the ruler — set
-# `prometheusRule.selector` if the target cluster's selector differs.
+# The three SLO + reliability rules. Rendered only when
+# `prometheusRule.enabled` is true, which it is not by default: eks-gitops
+# installs the prometheus-operator CRDs but runs no Prometheus operator, so on
+# that stack this CR would apply and then sit inert. A cluster that does run one
+# picks these up through prometheus.spec.ruleSelector — set
+# `prometheusRule.selector` if its selector differs from the release label.
 #
-# The PromQL targets OTel metric names as the collector's Prometheus exporter
-# emits them: the `incident_response.` namespace and the `.` separators become
+# The PromQL targets OTel metric names as Alloy's Prometheus exporter emits
+# them: the `incident_response.` namespace and the `.` separators become
 # underscores, and counters gain a `_total` suffix.
 
 apiVersion: monitoring.coreos.com/v1

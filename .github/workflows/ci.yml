@@ -203,6 +203,53 @@ jobs:
           if [ "$fail" -ne 0 ]; then exit 1; fi
           echo "✅ Secret inventory lists agree across template + seeder"
 
+  platform-manifests:
+    name: Platform CR Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      # Validates every document in platform.yaml against the CRD schemas
+      # vendored under schemas/crd/: structure, required fields, enums,
+      # patterns, cluster-vs-namespaced scope, and — because controller-gen
+      # omits `additionalProperties: false` — any property the CRD does not
+      # declare. Also asserts the wiring only visible across documents:
+      # Platform.spec.tenant == Tenant.metadata.name, the BudgetPolicy
+      # round-trip, and the agents.tenant / agents.platform OTel resource
+      # attributes in every chart values file.
+      #
+      # The schemas come from the working tree, never the network, so the
+      # verdict is a pure function of the commit under test and the job cannot
+      # pass by failing to find its schema.
+      - name: validate platform.yaml against the CRD schemas
+        run: npm run platform:validate
+
+  crd-schema-drift:
+    name: CRD Schema Drift Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The upstream source of the vendored schemas. This job is the freshness
+      # half of the gate: an API change in the operator's CRDs shows up here as
+      # a failing check instead of as a schema that quietly rots. Validation
+      # itself never reads this checkout.
+      - uses: actions/checkout@v4
+        with:
+          repository: nanohype/eks-agent-platform
+          path: .eks-agent-platform-src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: sync-crd-schemas --check
+        run: node scripts/sync-crd-schemas.mjs --check
+        env:
+          EKS_AGENT_PLATFORM_DIR: .eks-agent-platform-src
+
   vendored-drift:
     name: Vendored Copy Drift Check
     runs-on: ubuntu-latest
@@ -261,7 +308,18 @@ jobs:
   merge-gate:
     name: Merge Gate
     runs-on: ubuntu-latest
-    needs: [lint, test-unit, test-integration, security-audit, vendored-drift, helm-lint, docker-build]
+    needs:
+      [
+        lint,
+        test-unit,
+        test-integration,
+        security-audit,
+        platform-manifests,
+        crd-schema-drift,
+        vendored-drift,
+        helm-lint,
+        docker-build,
+      ]
     if: github.event_name == 'pull_request'
     steps:
       - name: All gates passed
@@ -270,6 +328,8 @@ jobs:
           echo "✅ Unit Tests (100% branch on audit.ts + statuspage-approval-gate.ts)"
           echo "✅ Integration Tests (ConsistentRead semantics verified against dynamodb-local)"
           echo "✅ Dependency Security Audit (no HIGH/CRITICAL) + typecheck (src + tests)"
+          echo "✅ Platform CRs valid against the eks-agent-platform CRD schemas"
+          echo "✅ Vendored CRD schemas byte-identical to eks-agent-platform"
           echo "✅ Helm Lint + Template"
           echo "✅ Docker Build"
           echo "✅ Approval-gate invariant verified"

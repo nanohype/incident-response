@@ -76,7 +76,7 @@ Three layers meet at this chart. Anything in the right-hand column does not belo
 | Secrets Manager entries the ExternalSecret reads | landing-zone `incident-response-platform`, seeded by `scripts/seed-secrets.sh` |
 | Account-level Bedrock invocation-logging-NONE | landing-zone `cluster-bootstrap` |
 | ingress-nginx, cert-manager, External Secrets Operator | eks-gitops |
-| The cluster OTLP collector and log forwarder — traces → Tempo, metrics → Amazon Managed Prometheus, logs → Loki | eks-gitops |
+| Grafana Alloy — OTLP receiver + pod log tail, fanning out traces → Tempo, metrics → Amazon Managed Prometheus, logs → Loki | eks-gitops |
 | The Grafana instance the `GrafanaDashboard` CR reconciles onto, and the grafana-operator that reconciles it | eks-gitops |
 | Namespace, ResourceQuota, LimitRange, default-deny NetworkPolicy, AppProject, tenant IAM role | the eks-agent-platform operator, from `platform.yaml` |
 
