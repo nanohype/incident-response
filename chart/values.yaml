@@ -26,7 +26,7 @@ serviceAccount:
 # carries the same values into the app's OTel SDK at runtime.
 otel:
   resourceAttributes:
-    agents.tenant: protohype
+    agents.tenant: reliability
     agents.platform: incident-response
 
 podSecurityContext:
@@ -173,7 +173,7 @@ env:
   OTEL_TRACES_SAMPLER: always_on
   OTEL_METRICS_EXPORTER: otlp
   OTEL_METRIC_EXPORT_INTERVAL: '60000'
-  OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=incident-response,service.version=0.1.0,agents.tenant=protohype,agents.platform=incident-response'
+  OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=incident-response,service.version=0.1.0,agents.tenant=reliability,agents.platform=incident-response'
 
 # Per-tenant infra references — populated by per-env values from the
 # landing-zone incident-response-platform component's outputs (terragrunt run-all

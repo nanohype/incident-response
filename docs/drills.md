@@ -18,10 +18,10 @@ Five surfaces, each with something different:
 | Surface | What you see | How to reach it |
 |---|---|---|
 | **Slack** | War room channel (`incident-response-p1-YYYYMMDD-<6char>`), pinned checklist, context snapshot, responder invites, `/incident-response` slash commands | Your workspace — check the channel list for recent private channels |
-| **Pod logs** | Processor stderr (app-level events, trace-correlated) | `kubectl -n tenants-protohype logs deploy/incident-response-processor -f` |
+| **Pod logs** | Processor stderr (app-level events, trace-correlated) | `kubectl -n tenants-incident-response logs deploy/incident-response-processor -f` |
 | **DynamoDB** | Incident state (`ALERT_RECEIVED → ROOM_ASSEMBLING → ROOM_ASSEMBLED → RESOLVED`), full audit trail | `incident-response-staging-incidents` + `incident-response-staging-audit` tables, or via `scripts/observe-incident.sh` |
 | **SQS** | In-flight events + DLQ depth (must stay 0) | `incident-response-staging-incident-events.fifo`, `incident-response-staging-nudge-events`, `incident-response-staging-sla-check-events`, plus the DLQ |
-| **Grafana / Mimir** | Pod health, CPU/memory, restarts, the three SLO panels | Grafana Cloud → the auto-imported `incident-response` dashboard; or `kubectl -n tenants-protohype get pods` for liveness |
+| **Grafana / Mimir** | Pod health, CPU/memory, restarts, the three SLO panels | Grafana Cloud → the auto-imported `incident-response` dashboard; or `kubectl -n tenants-incident-response get pods` for liveness |
 
 The drill harness synthesises the first three into a single command flow. Pod metrics + traces land in Grafana Cloud via the cluster OTel Collector; pod logs land in Loki via the cluster log forwarder.
 
@@ -143,8 +143,8 @@ The highest-fidelity exercise, scripted as a team activity in [`artifacts/incide
 
 | Symptom | Likely cause |
 |---|---|
-| `scripts/fire-drill.sh` returns `401 Invalid signature` | HMAC secret in Secrets Manager differs from what the webhook handler has cached. It refreshes on first failure + retries once; if that still fails, restart the pods: `kubectl rollout restart deploy/incident-response-webhook -n tenants-protohype`. |
-| Drill returned `200` but no Slack channel appears | Check the processor pod logs (`kubectl -n tenants-protohype logs deploy/incident-response-processor`) for war-room assembly errors. `SLACK_BOT_TOKEN` must be a valid `xoxb-…` with the war-room scopes (`groups:write`, `chat:write`, `users:read.email`). |
+| `scripts/fire-drill.sh` returns `401 Invalid signature` | HMAC secret in Secrets Manager differs from what the webhook handler has cached. It refreshes on first failure + retries once; if that still fails, restart the pods: `kubectl rollout restart deploy/incident-response-webhook -n tenants-incident-response`. |
+| Drill returned `200` but no Slack channel appears | Check the processor pod logs (`kubectl -n tenants-incident-response logs deploy/incident-response-processor`) for war-room assembly errors. `SLACK_BOT_TOKEN` must be a valid `xoxb-…` with the war-room scopes (`groups:write`, `chat:write`, `users:read.email`). |
 | `observe-incident.sh` shows DDB row but no audit events | Processor crashed before reaching the audit write. Tail the processor logs and look for a stack trace. |
 | DLQ depth > 0 | An incident event failed 3 times and landed in the DLQ. The PrometheusRule on the `incident-response-{env}-incident-events` DLQ fires at ≥1. Inspect + drain via `aws sqs receive-message`. |
 | Slack channel assembles but has no responders | Expected for drills — `integration_id` and `team_id` are synthetic, so both OnCall escalation-chain lookup and WorkOS directory lookup return empty. The IC sees a "responder auto-invite failed" message. Run `npm run drill:join:staging -- --user U…` to land yourself in the room (see "Invite yourself" below); use `/incident-response invite @user` to add others. |

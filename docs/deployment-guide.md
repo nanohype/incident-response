@@ -1,6 +1,6 @@
 # Deployment guide
 
-End-to-end walkthrough for bringing incident-response up as a Platform tenant. The app ships as a tenant of the `protohype` team on the `eks-agent-platform` operator: a Helm chart in `chart/`, a `Platform` CR in `platform.yaml`, and an ApplicationSet entry registered in `nanohype/eks-gitops`. Two environments — staging and production — coexist on the same cluster fleet, each with its own namespace-scoped values and `incident-response/<env>/*` secret tree. Stand staging up first, run the drills, then repeat for production.
+End-to-end walkthrough for bringing incident-response up as a Platform tenant. The app ships as a tenant of the `reliability` team on the `eks-agent-platform` operator: a Helm chart in `chart/`, a `Platform` CR in `platform.yaml`, and an ApplicationSet entry registered in `nanohype/eks-gitops`. Two environments — staging and production — coexist on the same cluster fleet, each with its own namespace-scoped values and `incident-response/<env>/*` secret tree. Stand staging up first, run the drills, then repeat for production.
 
 If you're rotating credentials on an already-running tenant, jump to [`docs/secrets.md`](secrets.md) instead.
 
@@ -71,10 +71,10 @@ Apply the `incident-response-platform` component in `landing-zone` for this env 
 
 ```bash
 kubectl apply -f platform.yaml      # Platform CR + BudgetPolicy
-kubectl -n tenants-protohype get platform incident-response -w   # wait for Ready
+kubectl -n tenants-reliability get platform incident-response -w   # wait for Ready
 ```
 
-The operator reconciles Namespace `tenants-protohype`, the ResourceQuota, default-deny NetworkPolicy, the ArgoCD AppProject, and the IAM role. Wait for the Platform to reach `Ready` before registering the ApplicationSet entry.
+The operator reconciles Namespace `tenants-incident-response`, the ResourceQuota, default-deny NetworkPolicy, the ArgoCD AppProject, and the IAM role. Wait for the Platform to reach `Ready` before registering the ApplicationSet entry.
 
 ### 3. Wire chart values from landing-zone outputs
 
@@ -122,14 +122,14 @@ helm template incident-response chart -f chart/values-staging.yaml | grep -c gra
 ### 7. Confirm the rollout is healthy
 
 ```bash
-kubectl -n tenants-protohype rollout status deploy/incident-response-webhook
-kubectl -n tenants-protohype rollout status deploy/incident-response-processor
+kubectl -n tenants-incident-response rollout status deploy/incident-response-webhook
+kubectl -n tenants-incident-response rollout status deploy/incident-response-processor
 
 # ExternalSecret synced into a k8s Secret?
-kubectl -n tenants-protohype get externalsecret incident-response -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+kubectl -n tenants-incident-response get externalsecret incident-response -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
 
 # Webhook HMAC gate is live (unsigned request → 401):
-kubectl -n tenants-protohype port-forward svc/incident-response-webhook 3001:80 &
+kubectl -n tenants-incident-response port-forward svc/incident-response-webhook 3001:80 &
 curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:3001/webhook/grafana-oncall   # expect 401
 ```
 
@@ -194,7 +194,7 @@ Production uses completely separate resources:
 
 | | Staging | Production |
 |---|---|---|
-| Namespace | `tenants-protohype` (staging cluster) | `tenants-protohype` (production cluster) |
+| Namespace | `tenants-incident-response` (staging cluster) | `tenants-incident-response` (production cluster) |
 | Tables | `incident-response-staging-incidents`, `incident-response-staging-audit` | `incident-response-production-incidents`, `incident-response-production-audit` |
 | Queues | `incident-response-staging-incident-events.fifo`, … | `incident-response-production-incident-events.fifo`, … |
 | Scheduler group | `incident-response-staging` | `incident-response-production` |
@@ -223,9 +223,9 @@ done
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | ExternalSecret stuck `SecretSyncedError` | A `incident-response/<env>/*` secret doesn't exist yet, or the IAM role lacks `GetSecretValue` on its ARN | Run step 1 for that env; confirm the `incident_response_irsa` role's secrets-read scope in `landing-zone` |
-| Processor pod `CrashLoopBackOff` | Zod config fail on startup — one of the per-integration secrets is empty for this env | `kubectl logs deploy/incident-response-processor -n tenants-protohype` and look for the missing key; reseed + `kubectl rollout restart` |
+| Processor pod `CrashLoopBackOff` | Zod config fail on startup — one of the per-integration secrets is empty for this env | `kubectl logs deploy/incident-response-processor -n tenants-incident-response` and look for the missing key; reseed + `kubectl rollout restart` |
 | `npm run typecheck` fails with SDK version errors | Stale `package-lock.json` with drifted peer deps | `rm -rf node_modules package-lock.json && npm install` — details in [`docs/troubleshooting.md`](troubleshooting.md) § "Build / TypeScript errors" |
-| Webhook returns 5xx on unsigned POST | Webhook pod crashed before the HMAC check | `kubectl logs deploy/incident-response-webhook -n tenants-protohype`. Usually a missing `GRAFANA_ONCALL_HMAC_SECRET_ID` or a Secrets Manager permission regression |
+| Webhook returns 5xx on unsigned POST | Webhook pod crashed before the HMAC check | `kubectl logs deploy/incident-response-webhook -n tenants-incident-response`. Usually a missing `GRAFANA_ONCALL_HMAC_SECRET_ID` or a Secrets Manager permission regression |
 | DLQ depth > 0 | An incident event failed 3 times | Inspect + drain via `aws sqs receive-message`; the PrometheusRule fires on the `incident-response-{env}-incident-events` DLQ at ≥1 |
 | Processor restarts on a loop | Bedrock model access not enabled in the region, or a Grafana Cloud credential in `otlp-auth` is stale | Enable model access; rotate the env-scoped `otlp-auth` — pods pick up the new value on the next `kubectl rollout restart` |
 | Resolve fires but "Bedrock postmortem failed" in logs | `claude-sonnet-4-6` requires an inference profile for on-demand throughput | Switch `src/ai/incident-response-ai.ts` model IDs to `us.anthropic.claude-*` profiles. See [`docs/troubleshooting.md`](troubleshooting.md) § "Bedrock errors" |
@@ -234,7 +234,7 @@ done
 | `AutoPublishNotPermitted` on Approve & Publish | Either a real invariant violation, or a DDB `Limit + FilterExpression` bug in `verifyApprovalBeforePublish` | Query the audit table directly for the incident — if `STATUSPAGE_DRAFT_APPROVED` exists, it's the Limit+Filter bug. Details in [`docs/troubleshooting.md`](troubleshooting.md) § "Runtime errors" |
 | Grafana Cloud traces/metrics missing | OTLP export failing | Check the cluster `otel-collector` logs (eks-gitops). If `401`, the `instance_id`/`api_token` in the env's OTLP secret don't match the Grafana Cloud stack. |
 | Grafana Cloud Loki logs missing | Cluster log forwarder error | Check the forwarder (eks-gitops). Usually a wrong `loki_host` for the region. |
-| Secret rotated but pods still use old value | Pods read the projected Secret at start | `kubectl rollout restart deploy/incident-response-processor -n tenants-protohype` (and `deploy/incident-response-webhook`) to pick up the new value |
+| Secret rotated but pods still use old value | Pods read the projected Secret at start | `kubectl rollout restart deploy/incident-response-processor -n tenants-incident-response` (and `deploy/incident-response-webhook`) to pick up the new value |
 | Staging event fired in production's war-room channel | Same Slack workspace reused across envs | Use separate Slack workspaces per env. Within one workspace, env-scope the channel prefix by adding `DEPLOYMENT_ENV` to `war-room-assembler.ts`'s `channelName` helper. |
 
 For ongoing operation, see [`artifacts/runbook.md`](../artifacts/runbook.md). For every concrete error and its fix, see [`docs/troubleshooting.md`](troubleshooting.md).

@@ -1,7 +1,7 @@
 {
   "title": "IncidentResponse — Operational Dashboard",
   "uid": "incident-response-ops",
-  "tags": ["incident-response", "incident-response"],
+  "tags": ["incident-response", "reliability"],
   "schemaVersion": 39,
   "timezone": "browser",
   "refresh": "30s",
@@ -182,7 +182,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{namespace=\"tenants-protohype\", pod=~\"incident-response.*\"} | json | level=~\"warn|error\""
+          "expr": "{namespace=\"tenants-incident-response\", pod=~\"incident-response.*\"} | json | level=~\"warn|error\""
         }
       ],
       "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none" }
