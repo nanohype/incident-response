@@ -5,7 +5,7 @@
 # Reads a single JSON file (see secrets.template.json for the shape), then for
 # each top-level key writes the value to Secrets Manager at
 # `incident-response/${env}/${key}`. Robust against both states a secret can be in:
-#   - CDK-provisioned, empty  → put-secret-value
+#   - already created, empty  → put-secret-value
 #   - not yet created         → create-secret, then put-secret-value
 #
 # Safety rails:
@@ -65,10 +65,9 @@ die()  { printf '[seed] FAIL: %s\n' "$*" >&2; exit 1; }
 ok()   { printf '[seed] OK  : %s\n' "$*"; }
 
 # The canonical list of secret paths IncidentResponse expects. Must stay in lockstep
-# with `scripts/smoke.sh`'s REQUIRED_SECRETS, `secrets.template.json` keys, and
-# the per-secret `name.secret(...)` calls in `infra/lib/incident-response-stack.ts`. The
-# "inventory drift" grep-gate in `.github/workflows/incident-response-ci.yml` enforces
-# this mechanically on every push.
+# with the `secrets.template.json` keys and the `remoteRefs` in the chart's
+# `externalsecret.yaml`. The "inventory drift" grep-gate in
+# `.github/workflows/ci.yml` enforces this mechanically on every push.
 REQUIRED_KEYS=(
   "slack/bot-token"
   "slack/signing-secret"
@@ -111,7 +110,7 @@ fi
 
 # ── 2. Compute basic_auth if the operator left it off ───────────────────────
 # The `grafana-cloud/otlp-auth` secret needs a pre-computed `basic_auth` for
-# the Lambda webhook's init code. If present, use as-is. If missing but both
+# the webhook's OTel init code. If present, use as-is. If missing but both
 # `instance_id` and `api_token` are provided, derive it here so operators
 # don't have to remember the `printf '%s:%s' a b | base64` incantation.
 PAYLOAD_FILE="$(mktemp -t incident-response-seed.XXXXXX)"

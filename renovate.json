@@ -39,21 +39,10 @@
       "groupName": "aws-sdk-js"
     },
     {
-      "description": "Group typescript-eslint plugins",
+      "description": "Group the Vitest runner with its coverage provider — they release together",
       "matchManagers": ["npm"],
-      "matchPackagePatterns": [
-        "^@typescript-eslint/",
-        "^typescript-eslint$",
-        "^@eslint/",
-        "^eslint-plugin-"
-      ],
-      "groupName": "eslint-stack"
-    },
-    {
-      "description": "Group jest core + ts-jest + types",
-      "matchManagers": ["npm"],
-      "matchPackagePatterns": ["^jest$", "^ts-jest$", "^@types/jest$"],
-      "groupName": "jest"
+      "matchPackagePatterns": ["^vitest$", "^@vitest/"],
+      "groupName": "vitest"
     },
     {
       "description": "GitHub Actions — group minor + patch into one PR",

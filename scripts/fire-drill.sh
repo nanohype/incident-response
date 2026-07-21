@@ -4,7 +4,7 @@
 #
 # Purpose: exercise the full P1 flow end-to-end without needing a real
 # Grafana OnCall integration — HMAC-signed with the seeded webhook secret
-# so the Lambda treats it as a genuine alert.
+# so the webhook treats it as a genuine alert.
 #
 # Usage:
 #   scripts/fire-drill.sh [--env staging|production]
@@ -149,8 +149,8 @@ case "$STATUS" in
     log "When you're done with this drill:"
     log "  bash scripts/fire-drill.sh --env $ENVIRONMENT --state resolved --incident-id $INCIDENT_ID"
     ;;
-  401) die "signature rejected — is the HMAC secret the same one IncidentResponse's Lambda caches? Try forcing a new Lambda cold start (update-function-configuration)." ;;
+  401) die "signature rejected — the webhook caches the HMAC secret for 5 minutes keyed on its VersionId. If you just rotated it, wait for the TTL or restart: kubectl -n tenants-incident-response rollout restart deploy/incident-response-webhook" ;;
   400) die "Zod payload rejected — the schema changed; update the jq block above" ;;
-  5??) die "Lambda error — check /aws/lambda/incident-response-${ENVIRONMENT}-ingress" ;;
+  5??) die "webhook error — check: kubectl -n tenants-incident-response logs deploy/incident-response-webhook --since=10m" ;;
   *)   die "unexpected status $STATUS" ;;
 esac

@@ -22,7 +22,7 @@ Incident drills validate that:
 
 Before any drill:
 
-- [ ] Staging environment deployed and healthy (ECS task running, DLQ empty)
+- [ ] Staging environment deployed and healthy (both Deployments ready, DLQ empty)
 - [ ] Test Grafana OnCall integration configured (staging-specific webhook URL)
 - [ ] Test Slack workspace (or dedicated `#incident-response-drill-*` channels isolated from production)
 - [ ] Test Statuspage.io page (staging page, not the production customer-facing page)

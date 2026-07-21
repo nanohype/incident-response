@@ -2,7 +2,7 @@
  * Grafana OnCall + Grafana Cloud contract types.
  *
  * The OnCall webhook schema below is the SINGLE SOURCE OF TRUTH. The
- * TypeScript type is inferred from the Zod schema, and the Lambda ingress
+ * TypeScript type is inferred from the Zod schema, and the webhook ingress
  * handler uses the schema for runtime validation — a change to one updates
  * the other at compile time.
  */

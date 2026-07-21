@@ -100,7 +100,7 @@ export class SqsConsumer {
         await this.del(queueUrl, msg.ReceiptHandle!);
         continue;
       }
-      // Continue the W3C trace from the sender (webhook Lambda) across the SQS hop.
+      // Continue the W3C trace from the sender (webhook Deployment) across the SQS hop.
       // Handler spans parent off the extracted context; auto-instrumentation already
       // records the aws.sqs.receive span that wraps the poll itself.
       const parentCtx = extractSqsTraceContext(msg.MessageAttributes);

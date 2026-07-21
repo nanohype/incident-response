@@ -1,18 +1,16 @@
 /**
- * Lambda-webhook OTel init.
+ * Webhook OTel init.
  *
- * Runs in the Lambda handler's init path (cold start only — memoized).
- * Fetches the Grafana Cloud OTLP `basic_auth` field from Secrets Manager
- * via the AWS SDK, constructs OTLP exporters with the Authorization header
- * set programmatically, and starts the OTel NodeSDK.
+ * Runs on the first request the webhook pod serves and is memoized from then
+ * on. Fetches the OTLP `basic_auth` field from Secrets Manager via the AWS
+ * SDK, constructs OTLP exporters with the Authorization header set
+ * programmatically, and starts the OTel NodeSDK.
  *
- * Why not the ADOT managed Lambda layer: the layer reads OTel config from
- * env vars at layer-load time (before user code runs). That forces the
- * Authorization header to live in `environment:` on the Lambda resource,
- * which means the plaintext credential ends up readable by any IAM
- * principal with `lambda:GetFunctionConfiguration`, logged in CloudTrail
- * on every describe call, and baked in until the next redeploy. Fetching
- * at cold-start via the Lambda's existing `secretsmanager:GetSecretValue`
+ * Why the credential is fetched rather than injected: the OTel SDK reads
+ * exporter headers from `OTEL_EXPORTER_OTLP_HEADERS` at startup, which would
+ * put the plaintext credential in the pod spec — readable by anything with
+ * `get pod` in the namespace and captured in every rendered manifest.
+ * Resolving it through the pod's existing `secretsmanager:GetSecretValue`
  * permission keeps the secret inside Secrets Manager's perimeter.
  *
  * The init is best-effort: if it fails, the handler warn-logs and
@@ -30,9 +28,9 @@ import { NodeSDK } from "@opentelemetry/sdk-node";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 
-// Memoize on the promise so a cold-start burst of concurrent invocations
+// Memoize on the promise so a burst of concurrent requests on a fresh pod
 // doesn't fetch the secret more than once. On failure we clear the memo so
-// the next cold start retries — cached failure would be worse than a retry.
+// the next request retries — cached failure would be worse than a retry.
 let initPromise: Promise<boolean> | undefined;
 // Retained so tests can shut the SDK down. A started NodeSDK holds a live
 // metric-export interval — without shutdown, every start leaks that handle.
@@ -68,8 +66,8 @@ async function initOtel(): Promise<boolean> {
   const secretArn = process.env.GRAFANA_CLOUD_OTLP_SECRET_ARN;
   const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 
-  // Operators can deploy the Lambda without Grafana Cloud configured
-  // (e.g. early dev) — skip quietly rather than spam warnings.
+  // Operators can deploy without the OTLP credential configured (e.g. early
+  // dev) — skip quietly rather than spam warnings.
   if (!secretArn || !endpoint) return false;
 
   const region = process.env.AWS_REGION;
@@ -101,8 +99,8 @@ async function initOtel(): Promise<boolean> {
       exportIntervalMillis: Number(process.env.OTEL_METRIC_EXPORT_INTERVAL ?? 60000),
     }),
     instrumentations: [
-      // Auto-instruments http/fetch/aws-sdk/aws-lambda. Slimmer than the full
-      // contrib set since the webhook's call graph is narrow.
+      // Auto-instruments http/fetch/aws-sdk. Slimmer than the full contrib set
+      // since the webhook's call graph is narrow.
       getNodeAutoInstrumentations({
         "@opentelemetry/instrumentation-fs": { enabled: false },
         "@opentelemetry/instrumentation-dns": { enabled: false },
@@ -114,7 +112,7 @@ async function initOtel(): Promise<boolean> {
   activeSdk = sdk;
   logger.info(
     { service: process.env.OTEL_SERVICE_NAME, endpoint },
-    "OTel SDK started (webhook Lambda cold start)",
+    "OTel SDK started (webhook pod)",
   );
   return true;
 }

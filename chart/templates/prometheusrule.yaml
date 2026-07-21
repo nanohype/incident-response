@@ -1,12 +1,12 @@
 {{- if .Values.prometheusRule.enabled -}}
-# Ported from infra/alerts/incident-response-rules.yaml. The CDK era uploaded these
-# directly to Mimir's ruler API via the grafana-provisioner custom resource;
-# under kube-prometheus-stack the operator sidecar watches PrometheusRule CRs
-# matching prometheus.spec.ruleSelector (release label by default) and pushes
-# them to the embedded Mimir / Prometheus instance.
+# The three SLO + reliability rules. The kube-prometheus-stack operator sidecar
+# watches PrometheusRule CRs matching prometheus.spec.ruleSelector (the release
+# label by default) and loads them into the ruler — set
+# `prometheusRule.selector` if the target cluster's selector differs.
 #
-# PromQL queries target OTel metric names as they arrive in Mimir — unchanged
-# from the Mimir-direct version.
+# The PromQL targets OTel metric names as the collector's Prometheus exporter
+# emits them: the `incident_response.` namespace and the `.` separators become
+# underscores, and counters gain a `_total` suffix.
 
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule

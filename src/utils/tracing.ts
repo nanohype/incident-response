@@ -5,9 +5,9 @@
  * at process start, see Dockerfile) traces http/fetch/aws-sdk automatically. This module adds:
  *   - `withSpan` wrapper for business-logic milestones (named spans with exception + error
  *     status recorded automatically)
- *   - SQS-attribute <-> W3C-context helpers so traces cross the Lambda → SQS → ECS hop
+ *   - SQS-attribute <-> W3C-context helpers so traces cross the webhook → SQS → processor hop
  *
- * The tracer name identifies this instrumentation library in Grafana Cloud Tempo.
+ * The tracer name identifies this instrumentation library in Tempo.
  */
 
 import type { MessageAttributeValue as SqsMessageAttributeValue } from "@aws-sdk/client-sqs";

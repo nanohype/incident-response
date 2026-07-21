@@ -25,9 +25,7 @@
       "!chart/templates",
       "!chart/dashboards",
       "!src/vendor",
-      "!scripts/sync-vendored.mjs",
-      "!infra/cdk.out",
-      "!infra/cdk.context.json"
+      "!scripts/sync-vendored.mjs"
     ]
   }
 }
