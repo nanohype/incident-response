@@ -2,7 +2,7 @@
 
 Every concrete error this app has surfaced during bring-up, with root cause and fix. Keyed on the exact error text where possible so you (or the next operator) can grep-find the answer instead of re-diagnosing.
 
-The app runs as a Platform tenant in namespace `tenants-protohype`: a `incident-response-webhook` Deployment (behind ingress-nginx — Grafana HMAC + signed-HTTP Slack) and a `incident-response-processor` Deployment (single-writer singleton — SQS consumer + MCP server). All `kubectl` examples assume `-n tenants-protohype`.
+The app runs as a Platform tenant in namespace `tenants-incident-response`: a `incident-response-webhook` Deployment (behind ingress-nginx — Grafana HMAC + signed-HTTP Slack) and a `incident-response-processor` Deployment (single-writer singleton — SQS consumer + MCP server). All `kubectl` examples assume `-n tenants-incident-response`.
 
 Sections:
 - [Rollout / sync errors](#rollout--sync-errors)
@@ -26,7 +26,7 @@ Sections:
 **Fix:** confirm the Platform reconciled, then re-render to find the gap:
 
 ```bash
-kubectl -n tenants-protohype get platform incident-response -o jsonpath='{.status.phase}'   # expect Ready
+kubectl -n tenants-reliability get platform incident-response -o jsonpath='{.status.phase}'   # expect Ready
 helm template incident-response chart -f chart/values-staging.yaml | less          # eyeball the rendered Secret/env
 ```
 
@@ -76,7 +76,7 @@ Commit the refreshed `package-lock.json`. CI uses `npm ci` which needs the lockf
 **Fix:** audit the gap between `src/index.ts:requireEnv([...])` and the chart's env sources — `tenantInfra.*` (landing-zone outputs), `env.*` (plain values), and the ExternalSecret keys. Every name in `requireEnv` must have a corresponding source. Past misses: `LINEAR_TEAM_ID`, `NUDGE_EVENTS_QUEUE_ARN`, `SCHEDULER_GROUP_NAME`.
 
 ```bash
-kubectl -n tenants-protohype logs deploy/incident-response-processor --previous --since=10m
+kubectl -n tenants-incident-response logs deploy/incident-response-processor --previous --since=10m
 ```
 
 ### Pod stuck `CreateContainerConfigError` referencing the projected Secret
@@ -86,8 +86,8 @@ kubectl -n tenants-protohype logs deploy/incident-response-processor --previous 
 **Fix:**
 
 ```bash
-kubectl -n tenants-protohype describe externalsecret incident-response
-kubectl -n tenants-protohype get secret incident-response -o jsonpath='{.data}' | jq 'keys'
+kubectl -n tenants-incident-response describe externalsecret incident-response
+kubectl -n tenants-incident-response get secret incident-response -o jsonpath='{.data}' | jq 'keys'
 ```
 
 If the ExternalSecret shows `SecretSyncError`, the IAM role can't `GetSecretValue` on the `incident-response/<env>/*` ARNs, or a referenced secret doesn't exist. Seed the secret (`npm run seed:{env}`) and confirm the role's secrets-read scope in `landing-zone incident-response-platform`.
@@ -185,7 +185,7 @@ Specific known cases:
 1. Verify the sender is using the same secret in `incident-response/{env}/grafana/oncall-webhook-hmac`.
 2. If you rotated the secret recently, the handler's in-memory cache (5-min TTL, keyed on `VersionId`) refreshes on the first verification failure and retries once. If it's still wedged, restart the webhook pods to force a fresh read:
    ```bash
-   kubectl rollout restart deploy/incident-response-webhook -n tenants-protohype
+   kubectl rollout restart deploy/incident-response-webhook -n tenants-incident-response
    ```
 
 ### "No channel created" — but logs say `War room assembled`
@@ -298,7 +298,7 @@ aws secretsmanager put-secret-value --region us-west-2 \
   --secret-string '<the-UUID>'
 
 # Restart the processor so it picks up the rotated secret
-kubectl rollout restart deploy/incident-response-processor -n tenants-protohype
+kubectl rollout restart deploy/incident-response-processor -n tenants-incident-response
 ```
 
 Same pattern for `linear/project-id` (also a UUID, from `{ projects { nodes { id name } } }`).
@@ -329,8 +329,8 @@ If empty, the `incident-response-platform` component wasn't applied (or `schedul
 **Fix:** restart the workload to roll the pods with fresh secrets:
 
 ```bash
-kubectl rollout restart deploy/incident-response-processor deploy/incident-response-webhook -n tenants-protohype
-kubectl rollout status  deploy/incident-response-processor -n tenants-protohype
+kubectl rollout restart deploy/incident-response-processor deploy/incident-response-webhook -n tenants-incident-response
+kubectl rollout status  deploy/incident-response-processor -n tenants-incident-response
 ```
 
 For the webhook, the HMAC secret is additionally cached in-process with a 5-min TTL and `VersionId`-aware invalidation, so HMAC rotations usually propagate within 5 minutes even without a restart.
@@ -349,9 +349,9 @@ Same as the Slack section above — the channel is private. See [`docs/drills.md
 
 ```bash
 # Is the processor running at all?
-kubectl -n tenants-protohype get deploy incident-response-processor \
+kubectl -n tenants-incident-response get deploy incident-response-processor \
   -o jsonpath='{.status.readyReplicas}/{.status.replicas}'
-kubectl -n tenants-protohype logs deploy/incident-response-processor --since=5m
+kubectl -n tenants-incident-response logs deploy/incident-response-processor --since=5m
 
 # What's in the queue?
 aws sqs get-queue-attributes --region us-west-2 \
@@ -368,7 +368,7 @@ aws sqs get-queue-attributes --region us-west-2 \
 **Fix:** check the processor is running (see above), then the event registry:
 
 ```bash
-kubectl -n tenants-protohype logs deploy/incident-response-processor --since=5m | grep 'IncidentResponse processor started'
+kubectl -n tenants-incident-response logs deploy/incident-response-processor --since=5m | grep 'IncidentResponse processor started'
 ```
 
 The startup log line includes `incident_events: [...]` — confirm `ALERT_RESOLVED` is in that list.

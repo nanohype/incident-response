@@ -109,7 +109,7 @@ Seed + restart both deployments so they pick up the new values (the webhook serv
 
 ```bash
 npm run seed:{env}
-kubectl rollout restart deploy/incident-response-webhook deploy/incident-response-processor -n tenants-protohype
+kubectl rollout restart deploy/incident-response-webhook deploy/incident-response-processor -n tenants-incident-response
 ```
 
 ## 9. Verify
@@ -127,7 +127,7 @@ Common verify failures:
 | You see | Means | Fix |
 |---|---|---|
 | `/incident-response is not a valid command` | Step 5 wasn't done, or the app wasn't reinstalled after step 5 | Go back to Install App → **Reinstall** after adding slash commands |
-| Slack shows a dispatch/timeout error | The Request URL is wrong or unreachable, or the signing secret doesn't match (webhook returns 401) | Confirm the URL is `https://<webhook-host>/slack/commands` and reseed `slack/signing-secret`, then `kubectl rollout restart deploy/incident-response-webhook -n tenants-protohype` |
+| Slack shows a dispatch/timeout error | The Request URL is wrong or unreachable, or the signing secret doesn't match (webhook returns 401) | Confirm the URL is `https://<webhook-host>/slack/commands` and reseed `slack/signing-secret`, then `kubectl rollout restart deploy/incident-response-webhook -n tenants-incident-response` |
 | Command runs but replies with "Unknown command" | Slash command fired but the subcommand isn't registered in `CommandRegistry` | Type `/incident-response help` — the `help` handler is always registered; if that works, the issue is your subcommand arg |
 | `cannot_post_to_channel` in processor logs | Bot isn't in the channel | Add the bot: channel settings → Integrations → Add apps |
 
@@ -138,7 +138,7 @@ Whenever you change scopes or the slash-command definition, Slack requires a **r
 1. **Install App → Reinstall to Workspace** → copy the new `xoxb-…`.
 2. Edit your seed file with the new value.
 3. `npm run seed:{env}`.
-4. `kubectl rollout restart deploy/incident-response-processor -n tenants-protohype`.
+4. `kubectl rollout restart deploy/incident-response-processor -n tenants-incident-response`.
 
 The signing secret doesn't rotate on reinstall — you only re-seed `slack/bot-token`.
 

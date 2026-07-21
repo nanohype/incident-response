@@ -11,7 +11,7 @@ externalSecret:
   grafanaCloudSecret: incident-response/development/grafana-cloud
 
 env:
-  OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=incident-response,service.version=0.1.0,deployment.environment=development,agents.tenant=protohype,agents.platform=incident-response'
+  OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=incident-response,service.version=0.1.0,deployment.environment=development,agents.tenant=reliability,agents.platform=incident-response'
 
 tenantInfra:
   # Fill the empties below from the landing-zone incident-response-platform development

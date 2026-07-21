@@ -158,7 +158,7 @@ Safety rails in the seeder (`scripts/seed-secrets.sh`):
 After seeding, restart the workloads so the pods pick up the freshly-written values (the External Secrets Operator re-syncs the projected Secret on its refresh interval; restarting the pods makes it immediate):
 
 ```bash
-kubectl rollout restart deploy/incident-response-processor deploy/incident-response-webhook -n tenants-protohype
+kubectl rollout restart deploy/incident-response-processor deploy/incident-response-webhook -n tenants-incident-response
 ```
 
 ## Rotate by hand (fallback)
@@ -233,7 +233,7 @@ aws secretsmanager put-secret-value \
 Then restart that env's workloads so the pods pick up the new values:
 
 ```bash
-kubectl rollout restart deploy/incident-response-processor deploy/incident-response-webhook -n tenants-protohype
+kubectl rollout restart deploy/incident-response-processor deploy/incident-response-webhook -n tenants-incident-response
 ```
 
 ## Rotate a single credential
@@ -248,7 +248,7 @@ aws secretsmanager put-secret-value \
   --secret-id incident-response/${ENV}/statuspage/api-key \
   --secret-string '<new-value>'
 
-kubectl rollout restart deploy/incident-response-processor deploy/incident-response-webhook -n tenants-protohype
+kubectl rollout restart deploy/incident-response-processor deploy/incident-response-webhook -n tenants-incident-response
 ```
 
 Rotation cadence guidance:
@@ -273,15 +273,15 @@ After seeding, confirm every secret for the target env is non-empty and the work
 
 ```bash
 # 1. Did the ExternalSecret sync into a k8s Secret?
-kubectl -n tenants-protohype get externalsecret incident-response \
+kubectl -n tenants-incident-response get externalsecret incident-response \
   -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
 
 # 2. Did the processor pod start clean?
-kubectl -n tenants-protohype get deploy incident-response-processor \
+kubectl -n tenants-incident-response get deploy incident-response-processor \
   -o jsonpath='{.status.readyReplicas}/{.status.replicas}'
 
 # 3. Tail the processor logs for config / collector errors.
-kubectl -n tenants-protohype logs deploy/incident-response-processor --since=5m -f
+kubectl -n tenants-incident-response logs deploy/incident-response-processor --since=5m -f
 ```
 
 If the processor crash-loops, check the logs (or Grafana Cloud Loki) for `ZodError: required ... missing` — one of the seeded values was skipped or empty. Re-run `npm run seed:{env}:dry` and look for any `REPLACE_ME` sentinels that snuck through.

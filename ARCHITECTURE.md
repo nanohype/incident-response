@@ -1,20 +1,22 @@
 # Architecture
 
-`incident-response` (internal service handle: **incident-response**) is a ceremonial incident-commander assistant: a Grafana OnCall webhook fires, and within a five-minute SLO it stands up a Slack war room, drives the incident from `/incident-response` subcommands, gates every customer-facing Statuspage publish behind an explicit approval, and drafts a postmortem on resolve. This document covers the bounded contexts, the load-bearing decisions, the data flow from alert to assembled war room, the identity-rename split, and where the boundaries sit relative to the rest of the stack.
+`incident-response` is a ceremonial incident-commander assistant: a Grafana OnCall webhook fires, and within a five-minute SLO it stands up a Slack war room, drives the incident from `/incident-response` subcommands, gates every customer-facing Statuspage publish behind an explicit approval, and drafts a postmortem on resolve. This document covers the bounded contexts, the load-bearing decisions, the data flow from alert to assembled war room, the app/team identity split, and where the boundaries sit relative to the rest of the stack.
 
-## The identity split (read this first)
+## App identity vs. team identity (read this first)
 
-The repo and its GitHub-coupled handles are `incident-response`. Everything the running system *emits or invokes* stays `incident-response`. This is intentional, not drift:
+Two independent tokens run through this repo. Almost everything keys on the **app** (`incident-response`); a small set of governance surfaces keys on the **owning team** (`reliability`). Mixing them up is the one identity mistake that actually breaks something.
 
-| Surface | Value | Why |
+| Surface | Token | Why |
 | --- | --- | --- |
-| GitHub repo, product name, npm package, image repo, gitops `repoURL`/`path` | `incident-response` | GitHub-coupled identity — flips with the repo |
-| OTel `service.namespace` + `agents.platform` | `incident-response` | Telemetry identity. Grafana dashboards, PrometheusRule PromQL, and historical metrics/traces key on it — renaming orphans them |
-| `agents.tenant` + namespace + AppProject | `protohype` / `tenants-protohype` / `tenant-protohype` | The protohype *team* boundary, not the repo. The landing-zone Pod Identity association targets it |
-| `/incident-response` slash commands + the Slack app | `incident-response` | The user-facing product surface in Slack — renaming changes how operators invoke the bot |
-| Secret prefixes (`incident-response/<env>/*`), DDB/SQS/Scheduler resource names, `incident-response.json` dashboard | `incident-response` | Owned by the landing-zone `incident-response-platform` substrate outputs — renaming them is a substrate change, out of scope here |
+| GitHub repo, product name, npm package, image repo, gitops `repoURL`/`path` | `incident-response` | GitHub-coupled identity |
+| OTel `service.namespace` + `agents.platform` | `incident-response` | Telemetry identity. Grafana dashboards and PrometheusRule PromQL key on it |
+| Workload namespace + ArgoCD AppProject | `tenants-incident-response` / `incident-response` | Both derive from `Platform.metadata.name`, which is the app. The landing-zone Pod Identity association targets that namespace |
+| `/incident-response` slash commands + the Slack app | `incident-response` | The user-facing product surface in Slack |
+| Secret prefixes (`incident-response/<env>/*`), DDB/SQS/Scheduler resource names, `incident-response.json` dashboard | `incident-response` | Owned by the landing-zone `incident-response-platform` substrate outputs |
+| `Platform.spec.tenant`, OTel `agents.tenant`, chart maintainer, dashboard tag | `reliability` | The owning team — the organizational boundary a `Tenant` CR models, independent of how many apps that team runs |
+| Control-plane namespace holding the `Platform` + `BudgetPolicy` CRs | `tenants-reliability` | Team-scoped. Holds the tenant declarations, not the pods |
 
-Net: the repo is `incident-response`; the running telemetry identity, the Slack product surface, and all substrate-owned names stay `incident-response`. A grep that finds `incident-response` emitted at runtime is finding documented intent, not leftover rename residue.
+Net: pods, telemetry and substrate names read `incident-response`; ownership, budget and cost attribution read `reliability`. `agents.tenant` in every values file must equal `Platform.spec.tenant` byte-for-byte, since the operator stamps the same pair onto AgentFleet pods and the two sets of spans land in one dashboard.
 
 ## Bounded contexts
 
@@ -91,7 +93,7 @@ Directory resolution failing is an explicit IC error plus a `DIRECTORY_LOOKUP_FA
 - **Not its own cloud substrate.** It does not provision DynamoDB, SQS, EventBridge Scheduler, S3, KMS, or the IAM role. Those are landing-zone (see Boundaries). The chart consumes their outputs.
 - **Not a model host.** Bedrock runs Claude inference outside the cluster on-account. No self-hosted models, no AI framework (no LangChain) — direct Bedrock SDK via `IncidentResponseAI`.
 - **Not a cluster bootstrap.** The EKS cluster, ArgoCD, and the cluster addons it depends on (ESO, ingress-nginx, cert-manager, the observability stack) must already exist (eks-gitops).
-- **Not the tenant operator.** It declares a `Platform` CR; the `eks-agent-platform` operator reconciles the namespace, IRSA, and AppProject.
+- **Not the tenant operator.** It declares a `Platform` CR; the `eks-agent-platform` operator reconciles the namespace, IAM role, and AppProject.
 - **Not the owner of Bedrock invocation logging.** Bedrock invocation logging is set to NONE so IC↔AI conversations never reach CloudWatch — but that is an **account-level control owned by landing-zone**, not enforced by app code. The app relies on it being in place.
 
 ## Boundaries

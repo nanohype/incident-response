@@ -1,6 +1,6 @@
 # Forking incident-response for a new client
 
-This app is a protohype subsystem skeleton. Forking for a different client means swapping **runtime configuration** (secrets, DDB table names, Slack workspace, Linear project, Grafana tenant) — not editing business logic. Every external integration goes through a constructor-injected client, and every AWS resource carries an env-scoped prefix owned by the `landing-zone incident-response-platform` substrate.
+This app is a self-contained service. Forking for a different client means swapping **runtime configuration** (secrets, DDB table names, Slack workspace, Linear project, Grafana tenant) — not editing business logic. Every external integration goes through a constructor-injected client, and every AWS resource carries an env-scoped prefix owned by the `landing-zone incident-response-platform` substrate.
 
 Budget ~2 hours end-to-end: 30 min for third-party account setup, 30 min for local seed, 30 min for a clean deploy, 30 min for a drill.
 
@@ -110,9 +110,9 @@ Apply the `landing-zone incident-response-platform` substrate for the env, fill 
 npm install
 npm run check              # typecheck + lint + format:check + unit tests
 kubectl apply -f platform.yaml                       # tenant boundary
-kubectl -n tenants-protohype get platform incident-response -w # wait Ready
+kubectl -n tenants-reliability get platform incident-response -w # wait Ready
 # register gitops/applicationset-entry.yaml in eks-gitops → ArgoCD rolls it out
-kubectl -n tenants-protohype rollout status deploy/incident-response-processor
+kubectl -n tenants-incident-response rollout status deploy/incident-response-processor
 ```
 
 Full step-by-step in [`docs/deployment-guide.md`](deployment-guide.md). Confirm the webhook HMAC gate is live (unsigned POST → `401`) and the DLQ depth is zero before wiring real alerts.
@@ -164,4 +164,4 @@ The production tenant is identical in shape; only IAM scoping and the substrate'
 
 ## Support contract
 
-IncidentResponse is a protohype skeleton. Treat the code as yours after forking — there's no upstream sync path. Pull design ideas, not code.
+Treat the code as yours after forking — there's no upstream sync path. Pull design ideas, not code.

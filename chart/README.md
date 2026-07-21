@@ -50,8 +50,8 @@ Two IAM roles exist for any incident-response Platform tenant — different SAs,
 
 | Role | Owner | Trust | Used by |
 |---|---|---|---|
-| `<env>-incident-response-platform` | landing-zone `incident-response-platform` component | `system:serviceaccount:tenants-protohype:incident-response` | This chart's webhook + processor pods |
-| `<env>-incident-response-tenant` | eks-agent-platform operator | `system:serviceaccount:tenants-protohype:tenant-runtime` | AgentFleet pods (if/when any land in this Platform) |
+| `<env>-incident-response-platform` | landing-zone `incident-response-platform` component | `system:serviceaccount:tenants-incident-response:incident-response` | This chart's webhook + processor pods |
+| `<env>-incident-response-tenant` | eks-agent-platform operator | `system:serviceaccount:tenants-incident-response:tenant-runtime` | AgentFleet pods (if/when any land in this Platform) |
 
 The chart's `serviceaccount.yaml` creates a ServiceAccount named `incident-response` (pinned via `serviceAccount.name`) with no role-arn annotation. The landing-zone `incident-response-platform` component creates an EKS Pod Identity association binding that `(namespace, service-account)` to the IAM role, so EKS injects credentials through the standard AWS credential chain — no annotation, no role ARN in the chart. The ServiceAccount name must match the association's `service_account`, which is why it is pinned to the app name.
 

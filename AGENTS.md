@@ -2,7 +2,7 @@
 
 You're an AI client (or the author of one) about to run this service locally, add a `/incident-response` subcommand, wire a new SQS event type, or ship it as a Platform tenant. This file gets you running in five minutes. For the wider picture — how this repo fits into the nanohype stack — read the [Platform Reference](../nanohype/docs/platform-reference.md).
 
-> Internal service handle: **incident-response**. The GitHub repo and product name are `incident-response`, but the npm package, the OTel `service.namespace` / `agents.platform`, the `/incident-response` slash commands + the Slack app, and the `incident-response/<env>/*` secret prefixes all stay `incident-response` — they're coupled to the landing-zone `incident-response-platform` substrate component. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full split.
+> Two identity tokens run through this repo: the app is `incident-response` (npm package, image, OTel `service.namespace` / `agents.platform`, the `/incident-response` slash commands + Slack app, the `incident-response/<env>/*` secret prefixes, and the landing-zone `incident-response-platform` substrate component), and the owning team is `reliability` (`Platform.spec.tenant`, OTel `agents.tenant`). See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full split.
 
 ## What this repo gives you
 
@@ -35,14 +35,24 @@ Shipping this on a cluster means three artifacts travel together: the **Platform
 
 ### The Platform CR (`platform.yaml`)
 
-Two CRs in different groups — a `BudgetPolicy` (`governance.nanohype.dev/v1alpha1`) and the `Platform` (`platform.nanohype.dev/v1alpha1`) that references it:
+Three CRs — a cluster-scoped `Tenant` (`platform.nanohype.dev/v1alpha1`) for the owning team, a `BudgetPolicy` (`governance.nanohype.dev/v1alpha1`), and the `Platform` (`platform.nanohype.dev/v1alpha1`) that references both:
 
 ```yaml
+apiVersion: platform.nanohype.dev/v1alpha1
+kind: Tenant
+metadata:
+  name: reliability
+spec:
+  displayName: Reliability
+  primaryPersona: ops
+  aggregateMonthlyBudgetUsd: "2500"
+  compliance: { soc2: true, hipaa: false }
+---
 apiVersion: governance.nanohype.dev/v1alpha1
 kind: BudgetPolicy
 metadata:
   name: incident-response
-  namespace: tenants-protohype
+  namespace: tenants-reliability
 spec:
   platformRef: { name: incident-response }
   monthlyUsd: "2500" # kill-switch fires at 120% (USD 3000)
@@ -53,11 +63,11 @@ apiVersion: platform.nanohype.dev/v1alpha1
 kind: Platform
 metadata:
   name: incident-response
-  namespace: tenants-protohype
+  namespace: tenants-reliability
 spec:
   displayName: incident-response
   persona: ops
-  tenant: protohype
+  tenant: reliability
   budget: { name: incident-response }
   identity:
     allowedModelFamilies: [anthropic] # Claude via Bedrock
@@ -66,7 +76,7 @@ spec:
   isolation: namespace
 ```
 
-The operator reconciles the namespace `tenants-protohype`, ResourceQuota, LimitRange, default-deny NetworkPolicy, ArgoCD AppProject, and a per-Platform IAM role trusting the `tenant-runtime` SA. **incident-response's own app pods don't use that operator role** — both workloads assume the landing-zone `incident-response-platform` IAM role directly via the EKS Pod Identity association. `extraPolicyArns` stays empty for that reason; the operator's per-tenant role is for AgentFleet pods, not incident-response's app pods. The tenant identity (`tenant: protohype`, namespace `tenants-protohype`, AppProject `tenant-protohype`) is the protohype *team* boundary, not the repo, and stays stable.
+`tenants-reliability` is the team's control-plane namespace — it holds these CRs. The workload namespace is a different one: the operator derives `tenants-incident-response` from `Platform.metadata.name` and provisions it along with the ResourceQuota, LimitRange, default-deny NetworkPolicy, an ArgoCD AppProject named `incident-response`, and a per-Platform IAM role trusting the `tenant-runtime` SA. **incident-response's own app pods don't use that operator role** — both workloads assume the landing-zone `incident-response-platform` IAM role directly via the EKS Pod Identity association. `extraPolicyArns` stays empty for that reason; the operator's per-tenant role is for AgentFleet pods, not incident-response's app pods.
 
 ### The Helm chart (`chart/`)
 
@@ -84,7 +94,7 @@ Two workloads in one chart — the webhook ingress and the processor — plus ev
 | `prometheusrule.yaml`                                   | SLO + reliability alerts                                                                                                                                               |
 | `grafana-dashboard.yaml`                                | ConfigMap labeled `grafana_dashboard: "1"` loading `chart/dashboards/incident-response.json`                                                                                     |
 
-`values.yaml` is the base; `values-staging.yaml` / `values-production.yaml` carry the per-env deltas (image tag, `tenantInfra.*` from the landing-zone outputs, ingress host). The image is `ghcr.io/nanohype/incident-response`. OTel attrs `service.namespace=incident-response`, `agents.tenant=protohype`, and `agents.platform=incident-response` are set in every values file (required by the platform-tenant contract — see the identity split in [`ARCHITECTURE.md`](ARCHITECTURE.md)).
+`values.yaml` is the base; `values-staging.yaml` / `values-production.yaml` carry the per-env deltas (image tag, `tenantInfra.*` from the landing-zone outputs, ingress host). The image is `ghcr.io/nanohype/incident-response`. OTel attrs `service.namespace=incident-response`, `agents.tenant=reliability`, and `agents.platform=incident-response` are set in every values file (required by the platform-tenant contract — see the identity split in [`ARCHITECTURE.md`](ARCHITECTURE.md)).
 
 ### Required tenant files
 
@@ -125,7 +135,7 @@ The processor drains two FIFO queues; each message dispatches through an `EventR
 
 ## Pointers
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — bounded contexts, the webhook→SQS→processor data flow, load-bearing decisions, the identity-rename split, and where the boundaries sit (landing-zone substrate, eks-gitops addons)
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — bounded contexts, the webhook→SQS→processor data flow, load-bearing decisions, the app/team identity split, and where the boundaries sit (landing-zone substrate, eks-gitops addons)
 - [`CLAUDE.md`](CLAUDE.md) — per-module breakdown, configuration, full conventions, test map
 - [`README.md`](README.md) — front door: run, test, deploy
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — the subcommand / SQS-event recipes + the test contract + PR flow
