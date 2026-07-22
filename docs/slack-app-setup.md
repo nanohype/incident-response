@@ -44,7 +44,7 @@ Both the slash command and interactivity Request URLs point at the webhook Deplo
 - Slash commands → `https://<webhook-host>/slack/commands`
 - Interactivity  → `https://<webhook-host>/slack/interactivity`
 
-There is no app-level token and no Socket Mode toggle — leave Socket Mode **off**. The webhook Deployment already terminates public HTTPS (the ingress controller + cert-manager) for the Grafana path; the Slack endpoints ride the same ingress, verified with the signing secret instead of the Grafana HMAC.
+There is no app-level token and no Socket Mode toggle — leave Socket Mode **off**. Public HTTPS is already terminated in front of the webhook Deployment for the Grafana path: the AWS Load Balancer Controller fronts the `alb`-class Ingress with an ALB that serves the ACM certificate named by `ingress.tls.certificateArn` (or the one it matched to `ingress.host`). The Slack endpoints ride the same Ingress and the same certificate — Slack requires HTTPS on a Request URL, so the certificate has to cover the host before you save these. They are verified with the signing secret instead of the Grafana HMAC.
 
 ## 4. Interactivity & Shortcuts
 

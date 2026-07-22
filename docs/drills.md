@@ -31,7 +31,7 @@ The drill harness synthesises the first three into a single command flow. Pod me
 
 The cheapest way to exercise the full P1 path. `scripts/fire-drill.sh`:
 
-1. Resolves the webhook ingress hostname for the env (the cert-manager-issued ingress host).
+1. Resolves the webhook ingress hostname for the env (`ingress.host` in `chart/values-{env}.yaml`, the name external-dns published for the ALB).
 2. Reads the HMAC secret from `incident-response/{env}/grafana/oncall-webhook-hmac`.
 3. Builds a payload that passes the webhook handler's Zod schema.
 4. Signs with HMAC-SHA256 (hex) under header `x-grafana-oncall-signature`.

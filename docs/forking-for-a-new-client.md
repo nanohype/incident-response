@@ -119,7 +119,7 @@ Full step-by-step in [`docs/deployment-guide.md`](deployment-guide.md). Confirm 
 
 ## 5. Wire Grafana OnCall
 
-Use the cert-manager-issued webhook ingress hostname for the env. In your Grafana OnCall:
+Use the webhook ingress hostname for the env — `ingress.host` in `chart/values-{env}.yaml`, published to Route53 by external-dns. HTTPS is terminated by the ALB, so that host needs an ACM certificate covering it: set `ingress.tls.certificateArn` to an ARN from the landing-zone `dns` component (`terragrunt output -json acm_certificate_arns`), or leave it empty and the AWS Load Balancer Controller matches one in ACM by domain. Nothing issues a certificate in-cluster — a host with no ACM match will fail the TLS handshake. In your Grafana OnCall:
 
 - Outgoing webhooks → Create
 - URL: `https://<ingress-host>/webhook/grafana-oncall`

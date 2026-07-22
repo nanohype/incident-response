@@ -126,7 +126,7 @@ helm template incident-response chart -f chart/values-staging.yaml \
 
 ### 6. Register the ApplicationSet entry
 
-`gitops/applicationset-entry.yaml` is added to `nanohype/eks-gitops` (`applicationsets/apps-tenants.yaml`). Once registered, ArgoCD renders the chart per cluster/env and rolls out the webhook Deployment, the public Ingress (cert-manager TLS for the Grafana OnCall HMAC POSTs), and the processor Deployment. New image tags flow through the release workflow → GHCR → ArgoCD picks up the bump in `chart/values-{env}.yaml`.
+`gitops/applicationset-entry.yaml` is added to `nanohype/eks-gitops` (`applicationsets/apps-tenants.yaml`). Once registered, ArgoCD renders the chart per cluster/env and rolls out the webhook Deployment, the public `alb`-class Ingress, and the processor Deployment. The AWS Load Balancer Controller provisions an ALB for that Ingress and terminates TLS for the Grafana OnCall HMAC POSTs against an ACM certificate — set `ingress.tls.certificateArn` in `chart/values-{env}.yaml` to an ARN from the landing-zone `dns` component (`terragrunt output -json acm_certificate_arns`), or leave it empty and the controller picks the ACM certificate whose domain matches `ingress.host`. external-dns publishes the Route53 record for that host off the same object. New image tags flow through the release workflow → GHCR → ArgoCD picks up the bump in `chart/values-{env}.yaml`.
 
 ### 7. Confirm the rollout is healthy
 
@@ -148,7 +148,7 @@ If the processor crash-loops, tail its logs and look for `ZodError: required ...
 
 In **staging** Grafana OnCall → Outgoing webhook:
 
-- **URL:** `https://<ingress-host>/webhook/grafana-oncall` (the cert-manager-issued ingress hostname for staging)
+- **URL:** `https://<ingress-host>/webhook/grafana-oncall` — `<ingress-host>` is `ingress.host` from `chart/values-staging.yaml`, which external-dns has published to Route53. HTTPS is served by the ALB using the ACM certificate from `ingress.tls.certificateArn` (or the host-matched one the controller found). Confirm before you paste it in — an unsigned POST proves both TLS and routing: `curl -s -o /dev/null -w '%{http_code}\n' -X POST https://<ingress-host>/webhook/grafana-oncall` should return `401`, with no TLS warning. Only `/webhook` and `/slack` are routed, so other paths answer `404` from the ALB itself.
 - **HTTP method:** `POST`
 - **Signing secret:** the same value you seeded into `incident-response/staging/grafana/oncall-webhook-hmac`
 - **Trigger:** `Alert group firing`
