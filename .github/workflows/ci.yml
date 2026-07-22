@@ -312,11 +312,75 @@ jobs:
           version: v3.16.0
       - name: helm lint
         run: helm lint chart
-      - name: helm template (staging + production)
+      - name: helm template (every environment, ingress on and off)
         run: |
           mkdir -p rendered
-          helm template incident-response chart -f chart/values-staging.yaml > rendered/staging.yaml
-          helm template incident-response chart -f chart/values-production.yaml > rendered/production.yaml
+          for env in development staging production; do
+            helm template incident-response chart -f "chart/values-${env}.yaml" \
+              > "rendered/${env}.yaml"
+            # The Ingress is the incident flow's only entry point, but the chart
+            # has to render on a cluster that fronts the webhook some other way.
+            # Templating both ways keeps the disabled branch from rotting.
+            helm template incident-response chart -f "chart/values-${env}.yaml" \
+              --set ingress.enabled=false > "rendered/${env}-no-ingress.yaml"
+          done
+      - name: Secret-path parity — the chart only reads secrets the seeder creates
+        run: |
+          # The third parity gate, and the one the other two leave a hole under.
+          # `Env-name parity` checks the *name* of the env var carrying the HMAC
+          # secret id; `Inventory invariant` checks the seeder's key list against
+          # secrets.template.json. Neither looks at the secret *paths* the chart
+          # asks External Secrets for — so a chart pointing at a path nobody
+          # seeds passes both, and fails at first rollout with an ExternalSecret
+          # that never syncs and a webhook that 500s every alert.
+          #
+          # Chart side comes from the rendered manifests, not the templates, so
+          # the values files are in scope and a path assembled at render time
+          # cannot slip past. Seeder side comes from REQUIRED_KEYS, which is what
+          # actually drives the writes.
+          set -uo pipefail
+          fail=0
+
+          chart_paths=$(cat rendered/*.yaml \
+            | sed 's/#.*$//' \
+            | grep -ohE 'incident-response/(development|staging|production)/[A-Za-z0-9/_-]+' \
+            | sed -E 's#^incident-response/(development|staging|production)/##' \
+            | sort -u)
+
+          seeder_keys=$(awk '/^REQUIRED_KEYS=\(/,/^\)/' scripts/seed-secrets.sh \
+            | grep -oE '"[a-z-]+/[a-z-]+(/[a-z-]+)?"' | tr -d '"' | sort -u)
+
+          # Neither side may be empty. A gate that cannot find its inputs must
+          # say so — silently passing on a renamed file or a moved array is the
+          # failure this gate exists to prevent, not one it may commit itself.
+          if [ -z "$chart_paths" ]; then
+            echo "GATE BROKEN: no incident-response/<env>/... secret paths in rendered/ — did the render step or the ExternalSecret template change shape?"
+            fail=1
+          fi
+          if [ -z "$seeder_keys" ]; then
+            echo "GATE BROKEN: could not read REQUIRED_KEYS out of scripts/seed-secrets.sh — did the array move or get renamed?"
+            fail=1
+          fi
+          if [ "$fail" -ne 0 ]; then exit 1; fi
+
+          for p in $chart_paths; do
+            if ! printf '%s\n' "$seeder_keys" | grep -qx "$p"; then
+              echo "drift: the chart reads incident-response/<env>/$p, which scripts/seed-secrets.sh never creates"
+              fail=1
+            fi
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            echo
+            echo "Every secret path the chart references must be one the seeder writes."
+            echo "  chart references : $(printf '%s\n' "$chart_paths" | tr '\n' ' ')"
+            echo "  seeder creates   : $(printf '%s\n' "$seeder_keys" | tr '\n' ' ')"
+            echo
+            echo "Fix the chart's externalSecret.keys / externalSecret.hmacSecretKey, or add the"
+            echo "secret to scripts/seed-secrets.sh REQUIRED_KEYS and secrets.template.json."
+            exit 1
+          fi
+          echo "✅ Chart secret paths all seeded ($(printf '%s\n' "$chart_paths" | wc -l | tr -d ' ') paths)"
       # Source files are gated elsewhere; this asserts the RENDERED chart too — a
       # zero account id, placeholder token, or account-less ARN that only appears
       # after templating.
@@ -365,4 +429,5 @@ jobs:
           echo "✅ Slack adapter discipline verified"
           echo "✅ HTTP-client discipline verified"
           echo "✅ Secret inventory lists agree"
+          echo "✅ Every secret path the chart reads is one the seeder creates"
           echo "✅ Vendored copies byte-identical to nanohype (chart + runtime + config)"

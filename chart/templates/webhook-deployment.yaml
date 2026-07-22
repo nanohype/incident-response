@@ -22,7 +22,10 @@ spec:
         {{- include "tenant-chart-base.labels" . | nindent 8 }}
         incident-response.io/service: webhook
       annotations:
-        checksum/external-secret: {{ printf "%s-%s-%s" .Values.externalSecret.hmacSecret .Values.externalSecret.appSecret .Values.externalSecret.refreshInterval | sha256sum }}
+        # Rolls the pods whenever the ExternalSecret's inputs move — the secret
+        # prefix, the projected key list, or the refresh interval. Hashing the
+        # whole block means a new remoteRef cannot be added without a restart.
+        checksum/external-secret: {{ .Values.externalSecret | toYaml | sha256sum }}
     spec:
       serviceAccountName: {{ include "tenant-chart-base.serviceAccountName" . }}
       securityContext:
@@ -45,9 +48,12 @@ spec:
             - name: PORT
               value: {{ .Values.webhook.port | quote }}
             # webhook handler only needs the HMAC secret name; it fetches +
-            # caches the value at request time (keyed on VersionId, 5-min TTL)
+            # caches the value at request time (keyed on VersionId, 5-min TTL).
+            # Same Secrets Manager path scripts/seed-secrets.sh writes and
+            # scripts/fire-drill.sh signs with — the CI secret-path parity gate
+            # asserts it against the seeder's inventory.
             - name: GRAFANA_ONCALL_HMAC_SECRET_ID
-              value: {{ .Values.externalSecret.hmacSecret | quote }}
+              value: {{ printf "%s/%s" .Values.externalSecret.secretPrefix .Values.externalSecret.hmacSecretKey | quote }}
           envFrom:
             - secretRef:
                 name: {{ include "tenant-chart-base.fullname" . }}-secrets

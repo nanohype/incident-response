@@ -6,11 +6,11 @@ IncidentResponse keeps credentials in **AWS Secrets Manager** — one secret per
 
 ## The secrets (per environment)
 
-Every secret below is operator-provisioned via `scripts/seed-secrets.sh` **before** the first rollout. The chart's ExternalSecret references them by name; the External Secrets Operator (ESO) projects the matching `incident-response/<env>/*` entries into one k8s Secret consumed via `envFrom`. Nothing in this repo owns the secrets' lifecycle — tearing the tenant down leaves the credentials in place, and no secret values are ever baked into images or manifests.
+Every secret below is operator-provisioned via `scripts/seed-secrets.sh` **before** the first rollout. The chart's ExternalSecret references twelve of them by name; the External Secrets Operator (ESO) projects those `incident-response/<env>/*` entries into one k8s Secret consumed via `envFrom`. The remaining two — `grafana/oncall-webhook-hmac` and `grafana-cloud/otlp-auth` — are read through the pod's own `GetSecretValue` grant instead, which is what lets the HMAC secret rotate without a pod restart. Nothing in this repo owns the secrets' lifecycle — tearing the tenant down leaves the credentials in place, and no secret values are ever baked into images or manifests.
 
 The ordering invariant (seed → roll out) is universal: the processor pod can't start cleanly until ESO can resolve every `incident-response/<env>/*` reference, so every row below must exist before the rollout. The seeder's `put-or-create` logic handles both the first-deploy case (none exist) and rotation (some or all exist).
 
-The canonical list is `secrets.template.json`. The seeder's `REQUIRED_KEYS` and the chart's `externalsecret.yaml` remoteRefs are cross-checked by a CI grep-gate so they stay in lockstep — editing one without the others fails the build.
+The canonical list is `secrets.template.json`. Two CI gates keep the three sides in lockstep: one cross-checks the template against the seeder's `REQUIRED_KEYS`, the other renders the chart and asserts every `incident-response/<env>/…` path it reads is one the seeder creates. Editing one side without the others fails the build.
 
 | Secret name (staging / production) | What it is |
 |---|---|

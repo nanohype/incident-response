@@ -170,8 +170,8 @@ One trace spans the whole webhook → SQS → processor flow; the W3C context ri
 2. Verify the key still works:
 
    ```bash
-   KEY=$(aws secretsmanager get-secret-value --secret-id incident-response/<env>/app-secrets \
-     --query SecretString --output text | jq -r '.["workos/api-key"]')
+   KEY=$(aws secretsmanager get-secret-value --secret-id incident-response/<env>/workos/api-key \
+     --query SecretString --output text)
    curl -H "Authorization: Bearer $KEY" https://api.workos.com/directories
    ```
 
@@ -189,10 +189,10 @@ One trace spans the whole webhook → SQS → processor flow; the W3C context ri
 2. Verify the credentials:
 
    ```bash
-   SECRET=$(aws secretsmanager get-secret-value --secret-id incident-response/<env>/app-secrets \
+   KEY=$(aws secretsmanager get-secret-value --secret-id incident-response/<env>/statuspage/api-key \
      --query SecretString --output text)
-   KEY=$(jq -r '.["statuspage/api-key"]' <<<"$SECRET")
-   PAGE_ID=$(jq -r '.["statuspage/page-id"]' <<<"$SECRET")
+   PAGE_ID=$(aws secretsmanager get-secret-value --secret-id incident-response/<env>/statuspage/page-id \
+     --query SecretString --output text)
    curl -H "Authorization: OAuth $KEY" "https://api.statuspage.io/v1/pages/$PAGE_ID"
    ```
 

@@ -49,11 +49,33 @@ Three ways past it, highest precedence first:
 
 | Want | Do |
 |---|---|
-| Fire at a hostname once | `bash scripts/fire-drill.sh --host webhook.staging.acme.io` (or `--url https://…` for a full base URL, `DRILL_WEBHOOK_HOST` / `DRILL_WEBHOOK_URL` to set it for a shell) |
+| Fire at a hostname once | `bash scripts/fire-drill.sh --env staging --host webhook.staging.acme.io` (or `--url https://…` for a full base URL, `DRILL_WEBHOOK_HOST_STAGING` / `DRILL_WEBHOOK_URL_STAGING` to set it for a shell) |
 | Fire at whatever the cluster actually has | `bash scripts/fire-drill.sh --from-cluster` — reads `spec.rules[0].host` off the live webhook Ingress with `kubectl` |
 | Fire at your own deployment, every time | Put the real hostname in `ingress.host`, which is what ArgoCD renders the Ingress from anyway |
 
 The values file is the default source because reading it needs a checkout and nothing else — no kubeconfig, no cluster reachability — so the same command works from a laptop and from CI, which authenticates to AWS and never to the cluster. `--from-cluster` is the one to reach for when you want to prove the drill is talking to the load balancer that exists rather than the one the chart declares.
+
+**An override does not stop being an override once `ingress.host` is set.** `--host`, `--url`, and the scoped variables sit *above* the values file in the precedence list, not below it — a variable exported into your shell keeps winning after you have filled the values file in. That is a live footgun, because a drill signs with `incident-response/<env>/grafana/oncall-webhook-hmac`: a target resolved for one environment and signed for another delivers a production-signed alert to a staging load balancer. So the drill binds the two together before it signs anything:
+
+| Rule | What it refuses |
+|---|---|
+| Overrides are environment-scoped | An unscoped `DRILL_WEBHOOK_HOST` / `DRILL_WEBHOOK_URL` is rejected by name, because one value applies to every `--env`. Use `DRILL_WEBHOOK_HOST_STAGING`, `..._PRODUCTION`, `..._DEVELOPMENT` |
+| No cross-environment targets | A resolved host that is another environment's `ingress.host` is rejected, however it was resolved — flag, scoped variable, or live Ingress |
+| The values file is the environment's identity | Once `chart/values-<env>.yaml` names a real host, an explicit override that disagrees with it is rejected. Change the values file, or use `--from-cluster` |
+
+```
+$ DRILL_WEBHOOK_HOST=webhook.staging.acme.io bash scripts/fire-drill.sh --env production --dry-run
+[drill] FAIL: DRILL_WEBHOOK_HOST is set, and it applies to every --env. Use the
+environment-scoped name instead: DRILL_WEBHOOK_HOST_PRODUCTION …
+
+$ bash scripts/fire-drill.sh --env production --host webhook.staging.acme.io --dry-run
+[drill] FAIL: refusing to fire: --env production signs with
+incident-response/production/grafana/oncall-webhook-hmac, but --host resolves to
+'webhook.staging.acme.io', which chart/values-staging.yaml declares as the staging
+webhook host. Drill staging with --env staging.
+```
+
+`bash scripts/fire-drill.sh --env <env> --print-host` prints the resolved hostname and exits — after all three checks, so it is safe to script against. `test/unit/drill-target-resolution.test.ts` holds the invariant.
 
 ```bash
 # Fire a synthetic P1.
@@ -76,7 +98,7 @@ bash scripts/fire-drill.sh --env staging --state resolved --incident-id drill-17
 
 ```bash
 bash scripts/fire-drill.sh --env staging --host webhook.staging.acme.io --dry-run
-#   [drill] webhook_url=https://webhook.staging.acme.io/webhook/grafana-oncall (resolved from --host / DRILL_WEBHOOK_HOST)
+#   [drill] webhook_url=https://webhook.staging.acme.io/webhook/grafana-oncall (resolved from --host)
 #   [drill] dry run: skipping the Secrets Manager read of incident-response/staging/grafana/oncall-webhook-hmac
 #   [drill] dry run — nothing sent
 ```
@@ -279,8 +301,10 @@ The same scripted drill runs in CI via `.github/workflows/drill.yml` and `script
 | Setting | What it is |
 |---|---|
 | secret `AWS_DRILL_ROLE_ARN` | IAM role with GitHub OIDC trust. Needs `secretsmanager:GetSecretValue` on `incident-response/<env>/grafana/oncall-webhook-hmac` + `incident-response/<env>/slack/bot-token`, and `dynamodb:GetItem/Query/DeleteItem` on `incident-response-<env>-*` |
-| variable `INCIDENT_RESPONSE_DRILL_HOST` | The webhook Ingress hostname. Only needed while `chart/values-<env>.yaml` still carries the placeholder host |
+| variable `INCIDENT_RESPONSE_DRILL_HOST_DEVELOPMENT` / `_STAGING` / `_PRODUCTION` | That one environment's webhook Ingress hostname. Needed only while that environment's `chart/values-<env>.yaml` still carries the placeholder host; once the values file names a real host, a variable that disagrees with it is refused. There is no single unscoped variable on purpose — one hostname applied to every environment choice is one environment's signature delivered to another's load balancer |
 | variable `INCIDENT_RESPONSE_DRILL_REGION` | Optional, defaults to `us-west-2` |
+
+Before it fires, the workflow derives the selected environment's host from the scoped variable (or that environment's values file) *without* going through `fire-drill.sh`, and compares it against what `--print-host` resolved — a resolver that got the target wrong cannot vouch for itself. It then checks the resolved host against every other environment's host, derived the same way, and fails the run on a match.
 
 **There is no cron.** The drill needs a deployed environment, an OIDC role, and a hostname — none of which this repository carries and each fork supplies for itself. A schedule would wake up nightly to report its own missing configuration. Add a `schedule:` trigger to `drill.yml` once the three settings above are in place and the drill passes on demand; the workflow header says where.
 

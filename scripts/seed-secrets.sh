@@ -65,9 +65,11 @@ die()  { printf '[seed] FAIL: %s\n' "$*" >&2; exit 1; }
 ok()   { printf '[seed] OK  : %s\n' "$*"; }
 
 # The canonical list of secret paths IncidentResponse expects. Must stay in lockstep
-# with the `secrets.template.json` keys and the `remoteRefs` in the chart's
-# `externalsecret.yaml`. The "inventory drift" grep-gate in
-# `.github/workflows/ci.yml` enforces this mechanically on every push.
+# with the `secrets.template.json` keys and with the paths the chart reads —
+# `externalSecret.keys` and `externalSecret.hmacSecretKey`. Two gates in
+# `.github/workflows/ci.yml` enforce this mechanically on every push: the
+# "inventory invariant" against the template, and the "secret-path parity" gate
+# against the rendered chart.
 REQUIRED_KEYS=(
   "slack/bot-token"
   "slack/signing-secret"

@@ -18,8 +18,7 @@ ingress:
   host: incident-response-webhook.example.com
 
 externalSecret:
-  hmacSecret: incident-response/production/grafana-oncall-hmac
-  appSecret: incident-response/production/app-secrets
+  secretPrefix: incident-response/production
 
 env:
   OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=incident-response,service.version=0.1.0,deployment.environment=production,agents.tenant=reliability,agents.platform=incident-response'
