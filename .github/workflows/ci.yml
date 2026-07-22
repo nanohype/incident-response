@@ -224,7 +224,7 @@ jobs:
       # attributes in every chart values file.
       #
       # Before any of that it hashes each vendored schema and matches it against
-      # schemas/crd/provenance.json, so a locally edited schema — a widened
+      # schemas/crd/source.json, so a locally edited schema — a widened
       # enum, a dropped `required` — fails here rather than silently relaxing
       # what the gate enforces.
       #

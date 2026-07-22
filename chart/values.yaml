@@ -110,12 +110,38 @@ probes:
       initialDelaySeconds: 10
       periodSeconds: 10
 
+# Public HTTP surface for the webhook Deployment. Grafana OnCall and Slack call
+# these routes from the internet, so this Ingress is load-bearing — the incident
+# flow has no other entry point.
+#
+# The eks-gitops catalog's ingress implementation is the AWS Load Balancer
+# Controller (addons/networking/aws-load-balancer-controller). It creates an
+# `alb` IngressClass and does not mark it the cluster default, so the class is
+# named explicitly here. external-dns runs with `sources: [service, ingress]`
+# and publishes a Route53 record for `host` off this object. On a cluster
+# participating in a VPC it does not own, the Kyverno `inject-adopt-lb-subnets`
+# policy fills in the subnet annotation from the scheme set below.
 ingress:
   enabled: true
-  className: nginx
+  className: alb
+  # internal | internet-facing. The controller defaults to internal when unset;
+  # these routes are called from outside the VPC, so say so.
+  scheme: internet-facing
+  # Cilium runs ENI IPAM with native routing, so pod IPs are VPC IPs and the ALB
+  # registers pods directly. Instance targets would need a NodePort Service.
+  targetType: ip
   tls:
     enabled: true
-    issuer: letsencrypt-prod
+    # ACM certificate for `host`. Left empty, the controller discovers a
+    # certificate in ACM whose domain matches the host on the rule below. TLS
+    # terminates at the ALB — there is no in-cluster certificate and no Secret.
+    certificateArn: ''
+  # ALB target-group health check. The webhook serves /health; the controller
+  # would otherwise probe `/`, which the signed-HTTP handler rejects.
+  healthcheckPath: /health
+  # Set the same value on several Ingresses to put them behind one shared ALB.
+  # Empty gives this Ingress a load balancer of its own.
+  groupName: ''
   host: '' # set per-env
   path: /webhook # Grafana OnCall sends POST here
   # Slack Request URL prefix — the slash-command (/slack/commands) and

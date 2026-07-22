@@ -16,7 +16,7 @@ incident-response is a ceremonial incident commander assistant. It assembles P1 
 
 #### Runtime
 
-- Webhook Deployment behind ingress-nginx ingests Grafana OnCall alerts: HMAC-SHA256 signature verification (timing-safe), Zod payload validation, idempotent DynamoDB write, and enqueue to SQS FIFO. HMAC secret cached by `VersionId` with a 5-min TTL and force-refresh on verification failure so a rotation race recovers without a pod restart.
+- Webhook Deployment behind an internet-facing ALB ingests Grafana OnCall alerts: HMAC-SHA256 signature verification (timing-safe), Zod payload validation, idempotent DynamoDB write, and enqueue to SQS FIFO. HMAC secret cached by `VersionId` with a 5-min TTL and force-refresh on verification failure so a rotation race recovers without a pod restart.
 - Processor Deployment runs the SQS consumer, war-room assembler, nudge scheduler and in-process MCP server as a single-writer singleton (`replicas: 1`, `Recreate` strategy, 60s `terminationGracePeriodSeconds` for in-flight SQS drain), with a typed `CommandRegistry` and `EventRegistry`.
 - `WarRoomAssembler` assembles a Slack private channel in ≤5 min: creates channel, resolves responders via parallel WorkOS directory + Grafana OnCall escalation lookup, attaches a Grafana Cloud context snapshot, pins a checklist, schedules a 15-min status nudge via EventBridge Scheduler.
 - `/incident-response` slash commands: `help`, `status`, `silence`, `resolve`, `checklist`.
