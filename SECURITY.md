@@ -71,11 +71,11 @@ inference logs or third parties**.
 
 ### Network
 
-- Default-deny `NetworkPolicy`: ingress is limited to ingress-nginx reaching the webhook
+- Default-deny `NetworkPolicy`: ingress is limited to the ingress controller's namespace reaching the webhook
   Deployment; egress is DNS plus HTTPS to AWS APIs and the Slack / Grafana / Linear / WorkOS /
   Statuspage endpoints. IMDS is blocked.
 - Public surface is limited to `/health` and the signed Grafana OnCall webhook POST behind
-  ingress-nginx + cert-manager TLS.
+  the cluster's ingress controller + cert-manager TLS.
 
 ## Known limitations
 

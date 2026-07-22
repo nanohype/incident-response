@@ -21,7 +21,7 @@ Plus:
   - `processor-deployment.yaml` — exposes the `http` (health) and `mcp` (MCP server) container ports
   - `mcp-service.yaml` — ClusterIP in front of the processor's MCP port (the mcp-tunnel target)
   - `serviceaccount.yaml` — single SA shared across both workloads
-  - `networkpolicy.yaml` — ingress: ingress-nginx → webhook, mcp-tunnel namespace → processor MCP port; egress: DNS + HTTPS + OTLP
+  - `networkpolicy.yaml` — ingress: the `ingress-nginx` namespace → webhook, mcp-tunnel namespace → processor MCP port; egress: DNS + HTTPS + OTLP
   - `externalsecret.yaml` — pulls incident-response/<env>/grafana-oncall-hmac + app-secrets, composes one Secret consumed by envFrom; the HMAC secret is also referenced by its ARN in env for the handler's VersionId-keyed cache. No OTLP credential is projected — the default export target is the unauthenticated in-cluster Alloy receiver
   - `prometheusrule.yaml` — three alert rules (assembly SLO / directory failures / Statuspage publish failures)
   - `grafana-dashboard.yaml` — GrafanaDashboard CR with the dashboard JSON
@@ -75,7 +75,8 @@ Three layers meet at this chart. Anything in the right-hand column does not belo
 | DynamoDB tables, SQS FIFO queues + DLQs, EventBridge Scheduler group + ScheduleRole, S3 audit bucket, the app IAM role and its Pod Identity association | landing-zone `incident-response-platform` |
 | Secrets Manager entries the ExternalSecret reads | landing-zone `incident-response-platform`, seeded by `scripts/seed-secrets.sh` |
 | Account-level Bedrock invocation-logging-NONE | landing-zone `cluster-bootstrap` |
-| ingress-nginx, cert-manager, External Secrets Operator | eks-gitops |
+| cert-manager, External Secrets Operator, external-dns, the AWS Load Balancer Controller | eks-gitops |
+| An ingress controller serving `ingress.className` (default `nginx`) — the eks-gitops catalog has none, so the rendered `Ingress` gets no address until one is added or the class is changed | **not provided** |
 | Grafana Alloy — OTLP receiver + pod log tail, fanning out traces → Tempo, metrics → Amazon Managed Prometheus, logs → Loki | eks-gitops |
 | The Grafana instance the `GrafanaDashboard` CR reconciles onto, and the grafana-operator that reconciles it | eks-gitops |
 | Namespace, ResourceQuota, LimitRange, default-deny NetworkPolicy, AppProject, tenant IAM role | the eks-agent-platform operator, from `platform.yaml` |

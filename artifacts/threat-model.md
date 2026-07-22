@@ -54,7 +54,7 @@ The most catastrophic threat is unauthorized status page publication. The second
 
 | Threat | Impact | Control | Status |
 |--------|--------|---------|--------|
-| Grafana OnCall floods webhook endpoint | Webhook pods saturate; incident processing delayed | SQS FIFO rate-limits processing; FIFO per-group ordering prevents race; the webhook Deployment is stateless and horizontally scalable; ingress-nginx rate-limit annotations available on the Ingress | ✅ Partial (set the ingress rate limit) |
+| Grafana OnCall floods webhook endpoint | Webhook pods saturate; incident processing delayed | SQS FIFO rate-limits processing; FIFO per-group ordering prevents race; the webhook Deployment is stateless and horizontally scalable; the ingress controller's rate-limit annotations are available on the Ingress | ✅ Partial (set the ingress rate limit) |
 | Slack rate limits war-room invite loop | Responders not invited in time | Per-call timeout + retry-with-jitter; instrument Slack API call latency; alert if Slack rate-limited | ⚠️ Monitor |
 | EventBridge Scheduler limit (10K schedules default) | Nudges fail for incidents > limit | At 10 P1s/month, this is far from limit; auto-delete on resolve | ✅ Low risk |
 | DynamoDB write capacity exhaustion | Audit writes fail | On-demand billing; auto-scales; PITR enabled | ✅ Mitigated |

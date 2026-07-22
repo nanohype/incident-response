@@ -142,9 +142,10 @@ prometheusRule:
   # alerts in Amazon Managed Grafana) doesn't run. Set `enabled: true` on a
   # cluster that runs one.
   enabled: false
-  # Label that the Prometheus operator selector watches for. Match whatever
-  # eks-gitops's kube-prometheus-stack release uses (default in upstream is
-  # `release: <prometheus-release-name>`; matched on prometheus.spec.ruleSelector).
+  # Label a Prometheus operator's `spec.ruleSelector` matches on. There is no
+  # such release in the eks-gitops catalog — it installs prometheus-operator-crds
+  # and no ruler — so this only means something on a cluster that runs one, such
+  # as the local kx cluster. Match that cluster's release name.
   selector:
     release: kube-prometheus-stack
 

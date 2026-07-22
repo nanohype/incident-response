@@ -1,0 +1,23 @@
+{
+  "_README": "Where the vendored CRD schemas in this directory come from. The files are byte-identical copies of the controller-gen output in nanohype/eks-agent-platform at `upstream.ref` — never hand-edit them. `sha256` is verified by scripts/validate-platform-manifests.mjs before any schema is parsed, and `npm run schemas:check` re-verifies the digests and matches the bytes against upstream at that same ref. `npm run schemas:sync -- --ref=<sha>` moves the pin and rewrites the digests together. See README.md in this directory.",
+  "upstream": {
+    "repository": "nanohype/eks-agent-platform",
+    "path": "operators/config/crd/bases",
+    "ref": "3ab89554fc0e79c4596367825eaff540a1a8c89b"
+  },
+  "generator": "controller-gen v0.21.0",
+  "files": [
+    {
+      "file": "platform.nanohype.dev_tenants.yaml",
+      "sha256": "09314d9c472917b3b20fe64e99bcd46d323b7684932fcdedbb923ff2f539fcbc"
+    },
+    {
+      "file": "platform.nanohype.dev_platforms.yaml",
+      "sha256": "57438968a4d80bf64086913153b323accb9c5bef67c2027fbe0e0b48f56ba6e6"
+    },
+    {
+      "file": "governance.nanohype.dev_budgetpolicies.yaml",
+      "sha256": "551183bc44d371656cb39766e48da8b0b9130b7565f6c0fbbf7a2c85f826b2bf"
+    }
+  ]
+}

@@ -5,7 +5,7 @@
  * Four layers:
  *
  *   0. Integrity. Every schema under schemas/crd/ is hashed and matched against
- *      the SHA-256 recorded in schemas/crd/provenance.json before it is parsed.
+ *      the SHA-256 recorded in schemas/crd/source.json before it is parsed.
  *      A vendored schema is a copy of upstream, never a source, so an edit to
  *      one — widening an enum, dropping a `required` — is not a change to
  *      review, it is a gate quietly told to accept more. Any mismatch, missing
@@ -53,7 +53,7 @@ import { parseAllDocuments, parse as parseYaml } from "yaml";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SCHEMA_DIR = join(REPO_ROOT, "schemas", "crd");
-const PROVENANCE_MANIFEST = join(SCHEMA_DIR, "provenance.json");
+const SOURCE_MANIFEST = join(SCHEMA_DIR, "source.json");
 const CHART_DIR = join(REPO_ROOT, "chart");
 
 const args = process.argv.slice(2);
@@ -83,56 +83,62 @@ function abort(message, remedy) {
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 
-function loadProvenance() {
-  if (!existsSync(PROVENANCE_MANIFEST)) {
+function loadSourceManifest() {
+  if (!existsSync(SOURCE_MANIFEST)) {
     abort(
-      `schemas/crd/provenance.json is missing`,
-      "Restore the vendored CRD schemas and their provenance; see schemas/crd/README.md.",
+      `schemas/crd/source.json is missing`,
+      "The vendored CRD schemas and the manifest that pins them travel together; see schemas/crd/README.md.",
     );
   }
 
-  let provenance;
+  let source;
   try {
-    provenance = JSON.parse(readFileSync(PROVENANCE_MANIFEST, "utf8"));
+    source = JSON.parse(readFileSync(SOURCE_MANIFEST, "utf8"));
   } catch (err) {
-    abort(`schemas/crd/provenance.json is not valid JSON — ${err.message}`);
+    abort(`schemas/crd/source.json is not valid JSON — ${err.message}`);
   }
-  if (!Array.isArray(provenance.files) || provenance.files.length === 0) {
-    abort("schemas/crd/provenance.json declares no schema files");
+  if (!source.upstream?.repository || !/^[0-9a-f]{40}$/.test(source.upstream?.ref ?? "")) {
+    abort(
+      "schemas/crd/source.json needs `upstream.repository` and a full 40-character `upstream.ref`",
+      "A branch name pins nothing, and the digests below describe whatever commit that is.",
+    );
   }
-  return provenance;
+  if (!Array.isArray(source.files) || source.files.length === 0) {
+    abort("schemas/crd/source.json declares no schema files");
+  }
+  return source;
 }
 
 /**
  * Compare each declared schema's bytes against its recorded SHA-256, and refuse
- * any schema in the directory that provenance.json does not declare — otherwise
+ * any schema in the directory that source.json does not declare — otherwise
  * a fourth CRD could be dropped in and picked up unrecorded.
  *
  * Split out from the reading so the self-test can drive it over doctored bytes
  * without touching the working tree. `read(file)` returns a Buffer or null.
  */
-function digestFailures(provenance, read) {
+function digestFailures(source, read) {
   const failures = [];
   const declared = new Set();
 
-  for (const entry of provenance.files) {
+  for (const entry of source.files) {
     const { file, sha256: expected } = entry;
     declared.add(file);
 
     if (typeof expected !== "string" || !/^[0-9a-f]{64}$/.test(expected)) {
-      failures.push(`schemas/crd/provenance.json records no usable sha256 for ${file}`);
+      failures.push(`schemas/crd/source.json records no usable sha256 for ${file}`);
       continue;
     }
     const bytes = read(file);
     if (bytes === null) {
-      failures.push(`${file} is declared in schemas/crd/provenance.json but not present`);
+      failures.push(`${file} is declared in schemas/crd/source.json but not present`);
       continue;
     }
     const actual = sha256(bytes);
     if (actual !== expected) {
       failures.push(
         `schemas/crd/${file} does not match its recorded digest — ` +
-          `sha256 ${actual.slice(0, 16)}…, provenance.json says ${expected.slice(0, 16)}…`,
+          `sha256 ${actual.slice(0, 16)}…, source.json says ${expected.slice(0, 16)}…`,
       );
     }
   }
@@ -140,7 +146,7 @@ function digestFailures(provenance, read) {
   for (const file of readdirSync(SCHEMA_DIR)) {
     if (!file.endsWith(".yaml")) continue;
     if (!declared.has(file)) {
-      failures.push(`schemas/crd/${file} is present but not declared in provenance.json`);
+      failures.push(`schemas/crd/${file} is present but not declared in source.json`);
     }
   }
 
@@ -150,20 +156,20 @@ function digestFailures(provenance, read) {
 // ─────────────────────────── schema loading ───────────────────────────
 
 function loadSchemas() {
-  const provenance = loadProvenance();
+  const source = loadSourceManifest();
 
   const readSchema = (file) => {
     const path = join(SCHEMA_DIR, file);
     return existsSync(path) ? readFileSync(path) : null;
   };
 
-  const integrity = digestFailures(provenance, readSchema);
+  const integrity = digestFailures(source, readSchema);
   if (integrity.length > 0) {
     console.error("\n  ✗ cannot validate: the vendored CRD schemas failed their integrity check:");
     for (const failure of integrity) console.error(`      - ${failure}`);
     console.error(
       "\n    These files are copies of controller-gen output in " +
-        `${provenance.repository} — never edit them here.\n` +
+        `${source.upstream.repository} — never edit them here.\n` +
         "    Fix upstream, then re-vendor:\n" +
         "      EKS_AGENT_PLATFORM_DIR=<checkout> npm run schemas:sync\n",
     );
@@ -173,7 +179,7 @@ function loadSchemas() {
   /** @type {Map<string, { kind: string, scope: string, schema: object, file: string }>} */
   const index = new Map();
 
-  for (const { file } of provenance.files) {
+  for (const { file } of source.files) {
     let crd;
     try {
       crd = parseYaml(readSchema(file).toString("utf8"));
@@ -199,7 +205,7 @@ function loadSchemas() {
     }
   }
 
-  return { provenance, index, readSchema };
+  return { source, index, readSchema };
 }
 
 // ─────────────────────────── the strict walker ───────────────────────────
@@ -563,7 +569,7 @@ function parseManifest(path, label) {
  * because a gate that trusts a doctored schema is the failure mode that looks
  * most like success.
  */
-function selfTest(documents, index, provenance, readSchema) {
+function selfTest(documents, index, source, readSchema) {
   const clone = () => JSON.parse(JSON.stringify(documents));
   const find = (docs, kind) => docs.find((d) => d.kind === kind);
 
@@ -609,8 +615,8 @@ function selfTest(documents, index, provenance, readSchema) {
       run: () => {
         // Widen an enum the way a well-meaning edit would: still valid YAML,
         // still a parseable CRD, silently more permissive than upstream.
-        const target = provenance.files[0].file;
-        return digestFailures(provenance, (file) =>
+        const target = source.files[0].file;
+        return digestFailures(source, (file) =>
           file === target
             ? Buffer.concat([readSchema(file), Buffer.from("\n# widened locally\n")])
             : readSchema(file),
@@ -632,7 +638,7 @@ function selfTest(documents, index, provenance, readSchema) {
     }
   }
 
-  const cleanIntegrity = digestFailures(provenance, readSchema);
+  const cleanIntegrity = digestFailures(source, readSchema);
   const clean = gate(clone(), index);
   const accepted = cleanIntegrity.length === 0 && clean.errors.length === 0;
   console.log(`  ${accepted ? "PASS" : "FAIL"}  accepts: the committed platform.yaml + schemas`);
@@ -645,12 +651,12 @@ function selfTest(documents, index, provenance, readSchema) {
 
 // ─────────────────────────── run ───────────────────────────
 
-const { provenance, index, readSchema } = loadSchemas();
+const { source, index, readSchema } = loadSchemas();
 const documents = parseManifest(MANIFEST_PATH, MANIFEST_LABEL);
 
 if (SELF_TEST) {
   console.log(`  platform.yaml gate — self-test (${MANIFEST_LABEL})`);
-  const failures = selfTest(documents, index, provenance, readSchema);
+  const failures = selfTest(documents, index, source, readSchema);
   if (failures.length > 0) {
     console.error("\n  ✗ the gate did not catch what it claims to catch:");
     for (const failure of failures) console.error(`      - ${failure}`);
@@ -669,8 +675,8 @@ if (result.errors.length > 0) {
   );
   for (const error of result.errors) console.error(`      - ${error}`);
   console.error(
-    `\n    Schemas: schemas/crd/ vendored from ${provenance.repository}@` +
-      `${provenance.commit.slice(0, 12)}\n`,
+    `\n    Schemas: schemas/crd/ vendored from ${source.upstream.repository}@` +
+      `${source.upstream.ref.slice(0, 12)}\n`,
   );
   process.exit(1);
 }

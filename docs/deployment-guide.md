@@ -126,7 +126,7 @@ helm template incident-response chart -f chart/values-staging.yaml \
 
 ### 6. Register the ApplicationSet entry
 
-`gitops/applicationset-entry.yaml` is added to `nanohype/eks-gitops` (`applicationsets/apps-tenants.yaml`). Once registered, ArgoCD renders the chart per cluster/env and rolls out the webhook Deployment, the public Ingress (ingress-nginx + cert-manager TLS for the Grafana OnCall HMAC POSTs), and the processor Deployment. New image tags flow through the release workflow → GHCR → ArgoCD picks up the bump in `chart/values-{env}.yaml`.
+`gitops/applicationset-entry.yaml` is added to `nanohype/eks-gitops` (`applicationsets/apps-tenants.yaml`). Once registered, ArgoCD renders the chart per cluster/env and rolls out the webhook Deployment, the public Ingress (cert-manager TLS for the Grafana OnCall HMAC POSTs), and the processor Deployment. New image tags flow through the release workflow → GHCR → ArgoCD picks up the bump in `chart/values-{env}.yaml`.
 
 ### 7. Confirm the rollout is healthy
 

@@ -79,20 +79,20 @@ tasks:
     cmds:
       - npm run platform:validate
 
-  platform:selftest:
-    desc: 'Seed five defects into copies of platform.yaml + a vendored schema and assert each is rejected'
+  schemas:sync:
+    desc: 'Re-vendor schemas/crd/ + digests from the ref pinned in schemas/crd/source.json'
     cmds:
-      - npm run platform:selftest
+      - npm run schemas:sync
 
   schemas:check:
-    desc: 'Check the vendored CRD schemas against their digests, against eks-agent-platform at the pinned commit, and that pin against upstream HEAD (EKS_AGENT_PLATFORM_DIR, default ../eks-agent-platform)'
+    desc: 'Assert the vendored CRD schemas match their digests and eks-agent-platform at the pinned ref'
     cmds:
       - npm run schemas:check
 
-  schemas:sync:
-    desc: 'Re-vendor the CRD schemas from a local eks-agent-platform checkout'
+  schemas:freshness:
+    desc: 'Report whether the pinned operator ref has fallen behind upstream (never a merge gate)'
     cmds:
-      - npm run schemas:sync
+      - npm run schemas:freshness
 
   # === Helm ===
 
