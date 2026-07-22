@@ -20,7 +20,6 @@ ingress:
 externalSecret:
   hmacSecret: incident-response/production/grafana-oncall-hmac
   appSecret: incident-response/production/app-secrets
-  grafanaCloudSecret: incident-response/production/grafana-cloud
 
 env:
   OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=incident-response,service.version=0.1.0,deployment.environment=production,agents.tenant=reliability,agents.platform=incident-response'

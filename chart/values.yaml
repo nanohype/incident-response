@@ -130,9 +130,10 @@ externalSecret:
   # Source secrets in AWS Secrets Manager. The HMAC secret has its own entry
   # because the webhook handler caches it keyed on VersionId (per
   # src/handlers/webhook-ingress.ts).
+  # No OTLP credential is projected: the export path below targets the
+  # in-cluster Alloy receiver, which takes no authentication.
   hmacSecret: '' # incident-response/<env>/grafana-oncall-hmac
   appSecret: '' # incident-response/<env>/app-secrets (Slack, Linear, Grafana, Statuspage, WorkOS)
-  grafanaCloudSecret: '' # incident-response/<env>/grafana-cloud (OTLP basic auth)
 
 prometheusRule:
   # Ships SLO recording rules + burn-rate alerts to a Prometheus Operator

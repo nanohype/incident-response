@@ -8,7 +8,7 @@ Helm chart for the incident-response incident-commander assistant. Renders two w
 
 Plus:
 
-- **PrometheusRule** — three rules under `incident-response.slo`: assembly P99 SLO breach, directory-lookup failure spike, Statuspage publish failures. Operator-side ruleSelector label is configurable in values (`prometheusRule.selector`).
+- **PrometheusRule** — three rules under `incident-response.slo`: assembly P99 SLO breach, directory-lookup failure spike, Statuspage publish failures. Off by default (`prometheusRule.enabled: false`): the CR only does something where a Prometheus Operator ruler watches for it, and the eks-gitops observability catalog runs Alloy remote-writing to Amazon Managed Prometheus with no in-cluster ruler. Turn it on — and set `prometheusRule.selector` to whatever that ruler's `ruleSelector` matches — on a cluster that runs one.
 - **GrafanaDashboard CR** — sourced from `chart/dashboards/incident-response.json`. A `GrafanaDashboard` CR (instanceSelector `dashboards: external`) the grafana-operator reconciles onto the external Amazon Managed Grafana.
 
 ## Files
@@ -22,7 +22,7 @@ Plus:
   - `mcp-service.yaml` — ClusterIP in front of the processor's MCP port (the mcp-tunnel target)
   - `serviceaccount.yaml` — single SA shared across both workloads
   - `networkpolicy.yaml` — ingress: ingress-nginx → webhook, mcp-tunnel namespace → processor MCP port; egress: DNS + HTTPS + OTLP
-  - `externalsecret.yaml` — pulls incident-response/<env>/grafana-oncall-hmac + app-secrets + grafana-cloud, composes one Secret consumed by envFrom; the HMAC secret is also referenced by its ARN in env for the handler's VersionId-keyed cache
+  - `externalsecret.yaml` — pulls incident-response/<env>/grafana-oncall-hmac + app-secrets, composes one Secret consumed by envFrom; the HMAC secret is also referenced by its ARN in env for the handler's VersionId-keyed cache. No OTLP credential is projected — the default export target is the unauthenticated in-cluster Alloy receiver
   - `prometheusrule.yaml` — three alert rules (assembly SLO / directory failures / Statuspage publish failures)
   - `grafana-dashboard.yaml` — GrafanaDashboard CR with the dashboard JSON
 
@@ -42,7 +42,7 @@ Single-tenant component `components/aws/incident-response-platform/` provisions 
 
 Bedrock invocation-logging-NONE is a Bedrock account+region scoped policy, so it belongs to landing-zone's `cluster-bootstrap` component rather than to any single tenant; the reasoning is in `eks-agent-platform/ARCHITECTURE.md`.
 
-Secrets Manager entries (`incident-response/<env>/grafana-oncall-hmac`, `app-secrets`, `grafana-cloud`) are seeded by this repo's own `scripts/seed-secrets.sh`.
+Secrets Manager entries (`incident-response/<env>/grafana-oncall-hmac`, `app-secrets`, `grafana-cloud/otlp-auth`) are seeded by this repo's own `scripts/seed-secrets.sh`. The ExternalSecret projects the first two; `grafana-cloud/otlp-auth` is read through the AWS SDK by `src/handlers/webhook-otel-init.ts` and only when the OTLP endpoint has been repointed at an authenticated gateway.
 
 ## Pod identity
 

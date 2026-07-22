@@ -38,8 +38,8 @@ Your Grafana Cloud stack publishes at least three **different numeric IDs**. The
 | Field in seed file | What it is | Where to find it | Authenticates |
 |---|---|---|---|
 | `grafana/cloud-org-id` | **Mimir tenant ID** | grafana.com → your stack → Connections → **Hosted Prometheus Metrics** → "Username / Instance ID" | Queries to `prometheus-prod-XX-prod-<region>.grafana.net` (Mimir metrics read) |
-| `grafana-cloud/otlp-auth.instance_id` | **Stack instance ID** (your Grafana stack's top-level numeric identifier) | grafana.com → your stack → **Details** or **Instance** page → "Instance ID" | OTLP basic-auth username against `otlp-gateway-prod-<region>.grafana.net` (cluster collector push) |
-| `grafana-cloud/otlp-auth.loki_username` | **Loki tenant ID** | grafana.com → your stack → Connections → **Hosted Logs (Loki)** → "User" | Loki push/query against `logs-prod-XXX.grafana.net` (cluster log forwarder) |
+| `grafana-cloud/otlp-auth.instance_id` | **Stack instance ID** (your Grafana stack's top-level numeric identifier) | grafana.com → your stack → **Details** or **Instance** page → "Instance ID" | OTLP basic-auth username against `otlp-gateway-prod-<region>.grafana.net`, used only by `src/handlers/webhook-otel-init.ts` when the export endpoint is repointed off the in-cluster Alloy |
+| `grafana-cloud/otlp-auth.loki_username` | **Loki tenant ID** | grafana.com → your stack → Connections → **Hosted Logs (Loki)** → "User" | Loki push/query against `logs-prod-XXX.grafana.net`, for the same repointed-export case — the default path ships logs to the in-cluster Loki via Alloy's pod tail |
 
 **They are frequently three different numbers.** On some stacks the Mimir tenant ID and stack instance ID coincide; on others they don't. Always read each panel independently — don't assume one ID works everywhere.
 
@@ -121,7 +121,7 @@ BASIC_AUTH=$(printf '%s:%s' "$OTLP_INSTANCE_ID" "$OTLP_API_TOKEN" | base64)
 aws secretsmanager create-secret \
   --region us-west-2 \
   --name incident-response/staging/grafana-cloud/otlp-auth \
-  --description 'Grafana Cloud (staging): OTLP + Loki + pre-computed basic_auth for the cluster collector.' \
+  --description 'Grafana Cloud (staging): OTLP + Loki + pre-computed basic_auth for an authenticated OTLP gateway.' \
   --secret-string "{
     \"instance_id\":   \"$OTLP_INSTANCE_ID\",
     \"api_token\":     \"$OTLP_API_TOKEN\",
@@ -258,7 +258,7 @@ Rotation cadence guidance:
 | Slack bot / signing / app token | 90 days | Or when personnel change. |
 | Grafana service account (OnCall) | 90 days | Created in the Grafana stack UI; rotate by adding a new token to the same SA, seeding it, and deleting the old one. |
 | Grafana Cloud read access policy (`cloud-token`) | 90 days | Created at grafana.com org level; rotate token on the existing policy. |
-| Grafana Cloud write access policy (`otlp-auth.api_token`) | 90 days | Same flow as the read token. When rotating, **regenerate `basic_auth` from the new `instance_id:api_token`** (the seeder does this automatically if you omit `basic_auth`). The cluster OTel Collector + log forwarder (eks-gitops) pick up the new value on their next ExternalSecret sync / restart. |
+| Grafana Cloud write access policy (`otlp-auth.api_token`) | 90 days | Same flow as the read token. When rotating, **regenerate `basic_auth` from the new `instance_id:api_token`** (the seeder does this automatically if you omit `basic_auth`). Only matters on a deployment that has repointed `OTEL_EXPORTER_OTLP_ENDPOINT` at an authenticated gateway; the webhook pod reads the secret through the AWS SDK on first request, so a `kubectl rollout restart` picks up the new value. On the default in-cluster path nothing reads this token. |
 | OnCall webhook HMAC | 90 days | Generate a fresh `openssl rand -base64 32`, seed it, paste the same value into Grafana OnCall's outgoing-webhook config. |
 | Statuspage | 180 days | Or immediately if a publish-gate alarm ever fires. |
 | Linear | 180 days | Non-critical (postmortem is best-effort). |
