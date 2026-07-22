@@ -2,7 +2,7 @@
 
 Every concrete error this app has surfaced during bring-up, with root cause and fix. Keyed on the exact error text where possible so you (or the next operator) can grep-find the answer instead of re-diagnosing.
 
-The app runs as a Platform tenant in namespace `tenants-incident-response`: a `incident-response-webhook` Deployment (behind ingress-nginx — Grafana HMAC + signed-HTTP Slack) and a `incident-response-processor` Deployment (single-writer singleton — SQS consumer + MCP server). All `kubectl` examples assume `-n tenants-incident-response`.
+The app runs as a Platform tenant in namespace `tenants-incident-response`: a `incident-response-webhook` Deployment (behind the cluster's ingress controller — Grafana HMAC + signed-HTTP Slack) and a `incident-response-processor` Deployment (single-writer singleton — SQS consumer + MCP server). All `kubectl` examples assume `-n tenants-incident-response`.
 
 Sections:
 - [Rollout / sync errors](#rollout--sync-errors)
@@ -178,7 +178,7 @@ Specific known cases:
 
 **Cause:** The HMAC signature in the `x-grafana-oncall-signature` header doesn't match what the webhook handler computes from `HMAC-SHA256(body, secret)`. Either:
 - The secret the sender used ≠ the secret the handler cached
-- The body was mutated in transit (unlikely — ingress-nginx passes the body through)
+- The body was mutated in transit (unlikely — the ingress controller passes the body through)
 
 **Fix:**
 

@@ -214,7 +214,7 @@ This query must always return 0 rows. This is the 100% approval-gate metric.
 - Postmortem draft created in Linear: ≤2 min after resolution event
 
 ### Reliability
-- IncidentResponse webhook ingress: 99.9% uptime (stateless Deployment, 2+ replicas behind ingress-nginx)
+- IncidentResponse webhook ingress: 99.9% uptime (stateless Deployment, 2+ replicas behind the cluster's ingress controller)
 - War room assembly: idempotent — re-processing the same alert_group_id must not create duplicate war rooms
 - All external client calls: timeout ≤5s, retry-with-jitter 2 attempts max; fast-fail preferred
 

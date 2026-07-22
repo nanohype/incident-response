@@ -1,6 +1,6 @@
 # Slack app setup
 
-IncidentResponse talks to Slack via a custom Slack app using **signed-HTTP Request URLs** — Slack POSTs slash commands and Block Kit interactions to endpoints on the webhook Deployment (behind ingress-nginx), and each request is verified against the Slack **signing secret**. There is no socket mode and no app-level token. You need one Slack app per environment (staging + production should have separate apps pointing at separate workspaces).
+IncidentResponse talks to Slack via a custom Slack app using **signed-HTTP Request URLs** — Slack POSTs slash commands and Block Kit interactions to endpoints on the webhook Deployment (behind the cluster's ingress controller), and each request is verified against the Slack **signing secret**. There is no socket mode and no app-level token. You need one Slack app per environment (staging + production should have separate apps pointing at separate workspaces).
 
 This doc is a single-pass walkthrough from "blank account at api.slack.com" to "`/incident-response help` works in your workspace". Estimated time: 15 minutes.
 
@@ -44,7 +44,7 @@ Both the slash command and interactivity Request URLs point at the webhook Deplo
 - Slash commands → `https://<webhook-host>/slack/commands`
 - Interactivity  → `https://<webhook-host>/slack/interactivity`
 
-There is no app-level token and no Socket Mode toggle — leave Socket Mode **off**. The webhook Deployment already terminates public HTTPS (ingress-nginx + cert-manager) for the Grafana path; the Slack endpoints ride the same ingress, verified with the signing secret instead of the Grafana HMAC.
+There is no app-level token and no Socket Mode toggle — leave Socket Mode **off**. The webhook Deployment already terminates public HTTPS (the ingress controller + cert-manager) for the Grafana path; the Slack endpoints ride the same ingress, verified with the signing secret instead of the Grafana HMAC.
 
 ## 4. Interactivity & Shortcuts
 
@@ -120,7 +120,7 @@ In any channel the bot has been added to (add it manually via channel settings �
 /incident-response help
 ```
 
-If it responds, the full path is working: Slack → ingress-nginx → webhook (`/slack/commands`, signature verified) → `CommandRegistry` → the help handler → `response_url` reply. Any error means one of the eight prior steps has a gap.
+If it responds, the full path is working: Slack → ingress controller → webhook (`/slack/commands`, signature verified) → `CommandRegistry` → the help handler → `response_url` reply. Any error means one of the eight prior steps has a gap.
 
 Common verify failures:
 

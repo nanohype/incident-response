@@ -87,14 +87,22 @@ round-trip, and the `agents.tenant` / `agents.platform` OTel resource attributes
 in every chart values file. Run it locally with `npm run platform:validate`.
 
 Those schemas are copies, so two things guard them. The validator hashes each one
-against the SHA-256 in `schemas/crd/provenance.json` before parsing, which rejects
-a locally edited schema offline. `npm run schemas:check` covers the rest in the
+against the SHA-256 in `schemas/crd/source.json` before parsing, which rejects a
+locally edited schema offline. `npm run schemas:check` covers the rest in the
 `crd-schema-drift` CI job: it reads `nanohype/eks-agent-platform` at the pinned
-commit and asserts the vendored bytes match it, then asserts that pin is still
-current with upstream's tip — so an edit that also updated its digest, and a pin
-left behind by an operator API change, both fail. Neither check has a skip path;
-an unreachable upstream exits `2`. `npm run platform:selftest` seeds five defects
-and fails unless every one is rejected.
+commit — from a checkout whose HEAD must be that commit, or from
+raw.githubusercontent.com — and asserts the vendored bytes match, so an edit that
+also updated its digest fails there. Neither check has a skip path; an
+unreachable upstream exits non-zero.
+
+Both questions are answerable from the commit under test, which is what makes
+them safe to block on. Whether the pin has fallen behind upstream is not: that
+answer changes when someone pushes to the operator repo, and nothing here is
+broken when it comes back "behind". `npm run schemas:freshness` asks it weekly in
+`.github/workflows/crd-schema-freshness.yml`, never on a pull request.
+
+`npm run platform:validate` also runs the gate's `--self-test`, which seeds five
+defects and fails unless every one is rejected.
 
 `tenants-reliability` is the team's control-plane namespace — it holds these CRs. The workload namespace is a different one: the operator derives `tenants-incident-response` from `Platform.metadata.name` and provisions it along with the ResourceQuota, LimitRange, default-deny NetworkPolicy, an ArgoCD AppProject named `incident-response`, and the per-Platform IAM role `<env>-incident-response-tenant`. **That operator role is the one incident-response's app pods run as** — the chart's `incident-response` ServiceAccount is bound to it by an EKS Pod Identity association the landing-zone `incident-response-platform` component creates, so app pods and AgentFleet pods (`tenant-runtime` SA) share one privilege domain. The app's substrate grants arrive on that same role through `spec.identity.extraPolicyArns`, which carries the managed policy landing-zone emits as `app_access_policy_arn` (account-scoped, so it is filled per environment at apply time).
 
@@ -105,12 +113,12 @@ Two workloads in one chart — the webhook ingress and the processor — plus ev
 | Template                                                | Owns                                                                                                                                                                  |
 | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `webhook-deployment.yaml` + `webhook-service.yaml`      | The public-ingress webhook (`dist/bin/webhook-server.js`) — Grafana OnCall HMAC verifier + SQS FIFO enqueue, and the signed-HTTP Slack slash + interactivity endpoints, ClusterIP :3001, 2 replicas for rolling restarts |
-| `webhook-ingress.yaml`                                  | ingress-nginx + cert-manager TLS, `POST /webhook` for Grafana OnCall + `/slack` prefix for the Slack Request URLs                                                     |
+| `webhook-ingress.yaml`                                  | cert-manager TLS, `POST /webhook` for Grafana OnCall + `/slack` prefix for the Slack Request URLs                                                     |
 | `processor-deployment.yaml`                             | The single-writer singleton (`dist/index.js`) — SQS consumer + war-room assembler + in-process MCP server (`http` + `mcp` container ports). `Recreate` strategy + 60s `terminationGracePeriodSeconds` for in-flight SQS drain |
 | `mcp-service.yaml`                                      | ClusterIP in front of the processor's MCP port — the mcp-tunnel target; NetworkPolicy locks the port to the `mcp-tunnel` namespace                                    |
 | `serviceaccount.yaml`                                   | Shared SA across both workloads, name pinned to the app; bound to the landing-zone IAM role by a Pod Identity association                                                                      |
 | `externalsecret.yaml`                                   | ESO syncs `incident-response/<env>/grafana-oncall-hmac` + `app-secrets` into one Secret consumed via `envFrom`; HMAC secret id also passed as env for the VersionId-keyed cache refresh. No OTLP credential — the default export target is the unauthenticated in-cluster Alloy receiver |
-| `networkpolicy.yaml`                                    | Default-deny + ingress (ingress-nginx → webhook only) + egress (DNS + HTTPS)                                                                                           |
+| `networkpolicy.yaml`                                    | Default-deny + ingress (the ingress controller's namespace → webhook only) + egress (DNS + HTTPS)                                                                                           |
 | `prometheusrule.yaml`                                   | SLO + reliability alerts. `enabled: false` by default — inert without a Prometheus Operator ruler, which the eks-gitops observability stack (Alloy → Amazon Managed Prometheus) does not run |
 | `grafana-dashboard.yaml`                                | `GrafanaDashboard` CR (`grafana.integreatly.org/v1beta1`, instanceSelector `dashboards: external`) inlining `chart/dashboards/incident-response.json`; the grafana-operator from the eks-gitops catalog reconciles it onto Amazon Managed Grafana |
 

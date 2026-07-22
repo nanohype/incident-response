@@ -15,7 +15,7 @@ Two Deployments in one tenant namespace, fed by AWS data services the tenant doe
 
 ```
 Grafana OnCall ─┐
-Slack ──────────┴─► ingress-nginx ─► webhook Deployment (2+ replicas, stateless)
+Slack ──────────┴─► ingress controller ─► webhook Deployment (2+ replicas, stateless)
                                              │ HMAC / Slack signature verify
                                              │ idempotent DynamoDB write
                                              ▼

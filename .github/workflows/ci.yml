@@ -245,25 +245,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       # The upstream source of the vendored schemas. The platform-manifests job
       # verifies the vendored copies against digests recorded in the same
       # commit, which catches a hand-edited schema but not a hand-edited schema
-      # whose digest was updated to match. This job is the other half: it reads
-      # upstream and answers both remaining questions — do the vendored bytes
-      # match nanohype/eks-agent-platform at the commit provenance.json pins,
-      # and has that commit fallen behind the branch tip? Full history is
-      # required so the pinned commit is reachable; a shallow clone makes the
-      # script exit 2 rather than skip the comparison.
+      # whose digest was updated to match. This job is the other half: do the
+      # vendored bytes match nanohype/eks-agent-platform at the commit
+      # source.json pins?
+      #
+      # It checks that exact SHA out rather than the branch tip. The comparison
+      # is then a pure function of the commit under test — no push to the
+      # operator repo can turn this red, and the script refuses to run if the
+      # checkout's HEAD is not the pin. Whether the pin has fallen behind is a
+      # real question with a different shape, asked by the scheduled
+      # crd-schema-freshness workflow.
+      - name: Read the pinned operator ref
+        id: pin
+        run: |
+          echo "repo=$(jq -r .upstream.repository schemas/crd/source.json)" >> "$GITHUB_OUTPUT"
+          echo "ref=$(jq -r .upstream.ref schemas/crd/source.json)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
         with:
-          repository: nanohype/eks-agent-platform
+          repository: ${{ steps.pin.outputs.repo }}
+          ref: ${{ steps.pin.outputs.ref }}
           path: .eks-agent-platform-src
-          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: sync-crd-schemas --check (digest + pinned ref + upstream tip)
-        run: node scripts/sync-crd-schemas.mjs --check
+      - name: Vendored CRD schemas match the pinned upstream commit
+        run: npm run schemas:check
         env:
           EKS_AGENT_PLATFORM_DIR: .eks-agent-platform-src
 

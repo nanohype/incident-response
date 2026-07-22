@@ -1,7 +1,7 @@
 /**
  * Webhook server — the stateless ingress Deployment's entrypoint.
  *
- * Serves three signature-verified HTTP surfaces behind ingress-nginx, all on
+ * Serves three signature-verified HTTP surfaces behind the cluster ingress, all on
  * PORT (default 3001):
  *   - Grafana OnCall webhook (HMAC-SHA256) → the src/handlers/webhook-ingress.ts
  *     handler → SQS enqueue.

@@ -92,7 +92,7 @@ Directory resolution failing is an explicit IC error plus a `DIRECTORY_LOOKUP_FA
 
 - **Not its own cloud substrate.** It does not provision DynamoDB, SQS, EventBridge Scheduler, S3, KMS, or the IAM role. Those are landing-zone (see Boundaries). The chart consumes their outputs.
 - **Not a model host.** Bedrock runs Claude inference outside the cluster on-account. No self-hosted models, no AI framework (no LangChain) — direct Bedrock SDK via `IncidentResponseAI`.
-- **Not a cluster bootstrap.** The EKS cluster, ArgoCD, and the cluster addons it depends on (ESO, ingress-nginx, cert-manager, the observability stack) must already exist (eks-gitops).
+- **Not a cluster bootstrap.** The EKS cluster, ArgoCD, and the cluster addons it depends on (ESO, cert-manager, external-dns, the AWS Load Balancer Controller, the observability stack) must already exist (eks-gitops).
 - **Not the tenant operator.** It declares a `Platform` CR; the `eks-agent-platform` operator reconciles the namespace, IAM role, and AppProject.
 - **Not the owner of Bedrock invocation logging.** Bedrock invocation logging is set to NONE so IC↔AI conversations never reach CloudWatch — but that is an **account-level control owned by landing-zone**, not enforced by app code. The app relies on it being in place.
 
@@ -119,5 +119,5 @@ Its IAM role is the role incident-response's app pods assume, bound to the chart
 The chart assumes these cluster-level capabilities are already installed and reconciled by `eks-gitops`:
 
 - **External Secrets Operator** — backs `externalsecret.yaml` (syncs the three `incident-response/<env>/*` Secrets Manager entries into one Secret; the HMAC secret id is also passed as env for the webhook handler's VersionId-keyed cache refresh)
-- **ingress-nginx** + **cert-manager** — back `webhook-ingress.yaml` (TLS for `POST /webhook`)
+- **an ingress controller** + **cert-manager** — back `webhook-ingress.yaml` (TLS for `POST /webhook`). cert-manager is in the eks-gitops bootstrap catalog. A controller serving the class this chart requests (`ingress.className`, default `nginx`) is **not**: the networking addons are the AWS Load Balancer Controller, Cilium, external-dns, and the mcp-tunnel. Until that gap closes, the rendered `Ingress` gets no address on an eks-gitops cluster — set `ingress.className` to a class the target cluster serves, or add a controller for `nginx` to the catalog
 - **observability stack** — Grafana Alloy in the `monitoring` namespace, doing both jobs: it receives OTLP on `:4318` and tails pod stdout/stderr, then fans out to the in-cluster Tempo (traces), Amazon Managed Prometheus via SigV4 remote-write (metrics), and the in-cluster Loki (logs). The app emits OTLP and structured Pino JSON to stderr; there are no per-pod sidecars. The `grafana-dashboard.yaml` `GrafanaDashboard` CR (`chart/dashboards/incident-response.json`) loads into the org Grafana and queries the `incident-response`-namespaced telemetry. `prometheusrule.yaml` is off by default — eks-gitops ships the prometheus-operator CRDs but no operator to act on them.
