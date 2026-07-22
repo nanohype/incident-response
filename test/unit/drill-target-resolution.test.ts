@@ -55,7 +55,10 @@
  * loopback spellings that resolve without DNS on every platform this suite runs
  * on — `127.0.0.1`, `localhost`, `[::1]` and `[0:0:0:0:0:0:0:1]` — each carrying
  * its listener's port, so two environments differ in hostname the way two real
- * deployments do.
+ * deployments do. They also share addresses across ports the way two listeners
+ * on one load balancer do: `127.0.0.1` reaches every one of them given the right
+ * port, which is what makes a port left out of a check a real delivery to the
+ * wrong environment rather than a connection that fails.
  */
 
 import { execFile, execFileSync } from "node:child_process";
@@ -84,7 +87,13 @@ type Place = Env | "drifted";
 const PLACES: Place[] = [...ENVS, "drifted"];
 
 const upper = (env: Env) => env.toUpperCase();
-const secretIdOf = (env: Env) => `incident-response/${env}/grafana/oncall-webhook-hmac`;
+/**
+ * A secret id names an environment's tree. `shouted` spells that environment in
+ * upper case — the same tree, named the way a fork that capitalises its
+ * environment segments would name it.
+ */
+const secretIdOf = (env: Env, shouted = false) =>
+  `incident-response/${shouted ? upper(env) : env}/grafana/oncall-webhook-hmac`;
 const secretOf = (env: Env) => `hmac-secret-for-${env}`;
 
 /** The placeholder this repository ships in every values file. */
@@ -117,15 +126,39 @@ const WORLD: Record<Place, Site> = {
   drifted: { owner: null, host: "[0:0:0:0:0:0:0:1]", bind: "::1", port: 0, hostPort: "" },
 };
 
-/** The comparison form of a hostname: lower-cased, no port, no trailing dot. */
-function canonical(hostPort: string): string {
+/** Everything after the scheme and before the path — the authority, verbatim. */
+function authorityOf(hostPort: string): string {
   let v = hostPort.replace(/^[a-z]+:\/\//i, "");
   v = v.split("/")[0] ?? "";
   v = v.split("?")[0] ?? "";
   const at = v.lastIndexOf("@");
   if (at !== -1) v = v.slice(at + 1);
-  v = v.startsWith("[") ? `${v.slice(0, v.indexOf("]"))}]` : (v.split(":")[0] ?? "");
-  return v.replace(/\.$/, "").toLowerCase();
+  return v;
+}
+
+/** The comparison form of a hostname: lower-cased, no port, no trailing dot. */
+function canonical(hostPort: string): string {
+  const v = authorityOf(hostPort);
+  const host = v.startsWith("[") ? `${v.slice(0, v.indexOf("]"))}]` : (v.split(":")[0] ?? "");
+  return host.replace(/\.$/, "").toLowerCase();
+}
+
+/**
+ * The port an authority addresses. The drill speaks https and nothing else, so
+ * a bare host and the same host written `:443` address one listener and compare
+ * equal here.
+ */
+function canonicalPort(hostPort: string): string {
+  const v = authorityOf(hostPort);
+  const port = v.startsWith("[")
+    ? v.slice(v.indexOf("]") + 1).replace(/^:/, "")
+    : (v.split(":")[1] ?? "");
+  return port === "" ? "443" : port;
+}
+
+/** Host and port together — what has to match for a request to reach one listener. */
+function canonicalAuthority(hostPort: string): string {
+  return `${canonical(hostPort)}:${canonicalPort(hostPort)}`;
 }
 
 interface Delivery {
@@ -201,12 +234,18 @@ function buildFixture(): void {
 
   // A Secrets Manager that hands out one secret per environment tree, so the
   // signature on the wire says which environment the drill signed for.
+  //
+  // It answers to the spelling it is asked for, so an id naming a tree in upper
+  // case reads that tree's secret. That models the fork whose secrets are named
+  // that way rather than a store that folds case — the point being that a
+  // mixed-case id is a working id, and a run that accepts one signs with
+  // whatever tree it named.
   fs.writeFileSync(
     path.join(binDir, "aws"),
     [
       "#!/usr/bin/env bash",
       'for arg in "$@"; do',
-      '  case "$arg" in',
+      "  case \"$(printf '%s' \"$arg\" | tr '[:upper:]' '[:lower:]')\" in",
       ...ENVS.map((env) => `    ${secretIdOf(env)}) printf '${secretOf(env)}\\n'; exit 0 ;;`),
       "  esac",
       "done",
@@ -224,29 +263,36 @@ function buildFixture(): void {
     { mode: 0o755 },
   );
 
-  // curl, with a seam. It passes everything through untouched unless a test asks
-  // it to misdirect, and then it really does send the request somewhere else and
-  // really does report the effective URL it used — which is what a construction
-  // defeated somewhere upstream looks like from the outside. Nothing but the
-  // final check on the connection can see that, so nothing but this can prove
-  // the final check works.
+  // curl, with two seams.
+  //
+  // DRILL_TEST_MISDIRECT_TO rewrites the URL, so the request really does go
+  // somewhere else and curl really does report the effective URL it used —
+  // which is what a construction defeated somewhere upstream looks like from
+  // the outside. Nothing but the final check on the connection can see that, so
+  // nothing but this can prove the final check works.
+  //
+  // DRILL_TEST_CONNECT_TO leaves the URL alone and pins where its authority
+  // resolves. It is how a case can address a port this suite cannot bind — 443
+  // needs privileges no test run has — while the URL, every check, and the
+  // effective URL curl reports all still read the port the configuration named.
   const realCurl = execFileSync("sh", ["-c", "command -v curl"], { encoding: "utf8" }).trim();
   fs.writeFileSync(
     path.join(binDir, "curl"),
     `#!/usr/bin/env bash
 set -eu
 misdirect="\${DRILL_TEST_MISDIRECT_TO:-}"
-if [[ -n "$misdirect" ]]; then
-  args=()
-  for a in "$@"; do
-    case "$a" in
-      https://*) a="https://$misdirect/webhook/grafana-oncall" ;;
-    esac
-    args+=("$a")
-  done
-  exec ${realCurl} "\${args[@]}"
+connect_to="\${DRILL_TEST_CONNECT_TO:-}"
+args=()
+if [[ -n "$connect_to" ]]; then
+  args+=(--connect-to "$connect_to")
 fi
-exec ${realCurl} "$@"
+for a in "$@"; do
+  case "$a" in
+    https://*) if [[ -n "$misdirect" ]]; then a="https://$misdirect/webhook/grafana-oncall"; fi ;;
+  esac
+  args+=("$a")
+done
+exec ${realCurl} "\${args[@]}"
 `,
     { mode: 0o755 },
   );
@@ -324,6 +370,13 @@ const DEAD_PORT = "19999";
 const DELIVERABLE_SPELLINGS: Spelling[] = ["asIs"];
 /** Every spelling — used where a case must refuse, so resolution never matters. */
 const ALL_SPELLINGS: Spelling[] = ["asIs", "upperCase", "trailingDot", "otherPort", "userinfo"];
+/**
+ * Spellings aimed at the drilled environment's own host. `asIs` is the whole
+ * host and must deliver; the other two name that host and address something
+ * else — a port the environment does not answer on, and an authority whose
+ * host is decided by what follows an `@`.
+ */
+const OWN_HOST_SPELLINGS: Spelling[] = ["asIs", "otherPort", "userinfo"];
 
 function spell(place: Place, spelling: Spelling): string {
   const { host, port } = WORLD[place];
@@ -337,10 +390,10 @@ function spell(place: Place, spelling: Spelling): string {
     case "otherPort":
       return `${host}:${DEAD_PORT}`;
     // curl connects to what follows the last `@` and ignores what precedes it,
-    // so userinfo is a way to spell a hostname that a naive check misreads. It
-    // is only legal in a URL.
+    // so userinfo is a way to spell an authority that a naive check misreads:
+    // the text says one host and the connection goes to another.
     case "userinfo":
-      return `${host}:${port}`;
+      return `drill@${host}:${port}`;
   }
 }
 
@@ -376,6 +429,8 @@ const shippedPlaceholder = (): Sources => ({
 interface SecretChoice {
   via: "--hmac-secret-id" | "scoped-id-var" | "unscoped-id-var" | "scoped-value-var";
   of: Env;
+  /** Name the environment segment in upper case. Same tree, louder. */
+  shouted?: boolean;
 }
 
 interface Case {
@@ -410,7 +465,7 @@ const allEnvs = (make: (env: Env) => Sources): Record<Env, Sources> => ({
 // script.
 
 type Identity =
-  | { state: "known"; host: string }
+  | { state: "known"; host: string; authority: string }
   | { state: "absent" }
   | { state: "unknown" }
   | { state: "conflict" };
@@ -428,6 +483,7 @@ function identityOf(c: Case, env: Env): Identity {
 
   let state: "unknown" | "known" | "absent" = "unknown";
   let host = "";
+  let authority = "";
   for (const claim of ordered) {
     if (claim.says === "nothing" || claim.says === "placeholder" || claim.says === "no-file") {
       continue;
@@ -437,14 +493,19 @@ function identityOf(c: Case, env: Env): Identity {
       state = "absent";
       continue;
     }
-    const named = canonical(spell(claim.at, claim.spelling ?? "asIs"));
+    const spelled = spell(claim.at, claim.spelling ?? "asIs");
     if (state === "absent") return { state: "conflict" };
-    if (state === "known" && host !== named) return { state: "conflict" };
+    // An identity is a host *and* a port: two sources that agree on the host and
+    // disagree about the port disagree about which listener the environment is,
+    // so they contradict each other exactly as two hostnames would.
+    if (state === "known" && authority !== canonicalAuthority(spelled))
+      return { state: "conflict" };
     state = "known";
-    host = named;
+    host = canonical(spelled);
+    authority = canonicalAuthority(spelled);
   }
 
-  if (state === "known") return { state: "known", host };
+  if (state === "known") return { state: "known", host, authority };
   if (state === "absent") return { state: "absent" };
   return { state: "unknown" };
 }
@@ -493,7 +554,12 @@ function refusalReason(c: Case): string | null {
   }
 
   if (c.target) {
-    const aimed = canonical(spell(c.target.at, c.target.spelling));
+    const spelled = spell(c.target.at, c.target.spelling);
+    // Userinfo is not a way of spelling a host. Whatever precedes the `@` is
+    // read as a host by a text comparison and dropped by everything that
+    // connects, so a value carrying one names two different things at once.
+    if (c.target.spelling === "userinfo") return "an authority carrying userinfo names two hosts";
+    const aimed = canonical(spelled);
     if (c.target.via === "--from-cluster") {
       for (const env of ENVS) {
         if (env === c.drillEnv) continue;
@@ -504,7 +570,11 @@ function refusalReason(c: Case): string | null {
       }
       return null;
     }
-    if (aimed !== own.host) return "the named target is not the drilled environment's host";
+    // Host and port both: a flag naming the drilled environment's host on a port
+    // it does not answer on names a listener that is not that environment's.
+    if (canonicalAuthority(spelled) !== own.authority) {
+      return "the named target is not the drilled environment's host and port";
+    }
   }
 
   return null;
@@ -577,10 +647,7 @@ function materialize(c: Case): { args: string[]; env: Record<string, string> } {
   if (c.target) {
     const spelled = spell(c.target.at, c.target.spelling);
     if (c.target.via === "--host") args.push("--host", spelled);
-    if (c.target.via === "--url") {
-      const userinfo = c.target.spelling === "userinfo" ? "drill@" : "";
-      args.push("--url", `https://${userinfo}${spelled}`);
-    }
+    if (c.target.via === "--url") args.push("--url", `https://${spelled}`);
     if (c.target.via === "--from-cluster") {
       args.push("--from-cluster");
       env.STUB_INGRESS_HOST = spelled;
@@ -589,9 +656,10 @@ function materialize(c: Case): { args: string[]; env: Record<string, string> } {
 
   if (c.secret) {
     const { via, of } = c.secret;
-    if (via === "--hmac-secret-id") args.push("--hmac-secret-id", secretIdOf(of));
-    if (via === "scoped-id-var") env[`DRILL_HMAC_SECRET_ID_${upper(c.drillEnv)}`] = secretIdOf(of);
-    if (via === "unscoped-id-var") env.DRILL_HMAC_SECRET_ID = secretIdOf(of);
+    const id = secretIdOf(of, c.secret.shouted === true);
+    if (via === "--hmac-secret-id") args.push("--hmac-secret-id", id);
+    if (via === "scoped-id-var") env[`DRILL_HMAC_SECRET_ID_${upper(c.drillEnv)}`] = id;
+    if (via === "unscoped-id-var") env.DRILL_HMAC_SECRET_ID = id;
     if (via === "scoped-value-var") env[`DRILL_HMAC_SECRET_${upper(c.drillEnv)}`] = secretOf(of);
   }
 
@@ -651,6 +719,14 @@ async function assertCase(c: Case): Promise<void> {
   const printed = await run([...args, "--print-host"], env);
   expect(printed.code).toBe(0);
   expect(printed.stdout.trim()).toBe(canonical(WORLD[delivery.place].host));
+
+  // `--print-url` has to be the whole request, port included — the host alone
+  // does not say which listener a drill reached when two of them share a name.
+  const printedUrl = await run([...args, "--print-url"], env);
+  expect(printedUrl.code).toBe(0);
+  expect(printedUrl.stdout.trim()).toBe(
+    `https://${canonical(WORLD[delivery.place].host)}:${WORLD[delivery.place].port}${delivery.path}`,
+  );
 }
 
 // ── Cases ───────────────────────────────────────────────────────────────────
@@ -759,11 +835,21 @@ for (const drillEnv of ENVS) {
       // A case that has to reach a listener has to be spelled in a way that
       // resolves; one that has to refuse never opens a socket, so any spelling
       // will do — and a foreign host spelled five ways is the point.
-      const delivers = at === drillEnv || (at === "drifted" && via === "--from-cluster");
-      const spellings = delivers ? DELIVERABLE_SPELLINGS : ALL_SPELLINGS;
+      //
+      // The drilled environment's own host gets the two spellings that name it
+      // and address something else: a port it does not answer on, and an
+      // authority whose host is whatever follows the `@`. Neither may fire.
+      const reachable = at === drillEnv || (at === "drifted" && via === "--from-cluster");
+      const spellings = !reachable
+        ? ALL_SPELLINGS
+        : at === drillEnv
+          ? OWN_HOST_SPELLINGS
+          : DELIVERABLE_SPELLINGS;
       for (const spelling of spellings) {
-        if (spelling === "userinfo" && via !== "--url") continue;
-        if (at === "drifted" && !delivers && spelling !== "asIs") continue;
+        // A live Ingress carries `spec.rules[0].host`, which is a hostname with
+        // no port at all — a port drift there is not a shape this reads.
+        if (via === "--from-cluster" && spelling === "otherPort") continue;
+        if (at === "drifted" && !reachable && spelling !== "asIs") continue;
         push({
           title: `named world | --env ${drillEnv} | ${via} at ${at} (${spelling})`,
           drillEnv,
@@ -828,6 +914,24 @@ for (const drillEnv of ENVS) {
       values: { says: "host", at: env },
       hostVar: { says: "host", at: env === "staging" ? "production" : "staging" },
       urlVar: NOTHING,
+    })),
+  });
+  push({
+    title: `identity | --env ${drillEnv} | variable and values file agree on the host, differ on the port`,
+    drillEnv,
+    sources: allEnvs((env) => ({
+      values: { says: "host", at: env },
+      hostVar: { says: "host", at: env, spelling: "otherPort" },
+      urlVar: NOTHING,
+    })),
+  });
+  push({
+    title: `identity | --env ${drillEnv} | the two variables differ only in the port`,
+    drillEnv,
+    sources: allEnvs((env) => ({
+      values: { says: "placeholder" },
+      hostVar: { says: "host", at: env },
+      urlVar: { says: "host", at: env, spelling: "otherPort" },
     })),
   });
   push({
@@ -951,6 +1055,20 @@ for (const drillEnv of ENVS) {
         ...(via === "unscoped-id-var"
           ? { unscoped: { DRILL_HMAC_SECRET_ID: secretIdOf(of) } }
           : {}),
+      });
+    }
+  }
+  // The same id, with the environment segment shouted. Case is not what makes a
+  // secret id name a tree, so a check that reads `/staging/` and misses
+  // `/STAGING/` is a check on the spelling rather than on the tree.
+  for (const via of ["--hmac-secret-id", "scoped-id-var"] as const) {
+    for (const of of ENVS) {
+      if (of === drillEnv) continue;
+      push({
+        title: `secret | --env ${drillEnv} | ${via} names ${of} in upper case`,
+        drillEnv,
+        sources: allEnvs(truthful),
+        secret: { via, of, shouted: true },
       });
     }
   }
@@ -1165,6 +1283,26 @@ describe("what the drill says when it refuses", () => {
 
     expect(code).toBe(0);
     expect(output).toContain("hmac   acme/webhook-hmac");
+  });
+
+  // Every host comparison folds case, because `WEBHOOK.ACME.IO` and
+  // `webhook.acme.io` are one load balancer. A secret id names a tree the same
+  // way, so reading `/STAGING/` as a different tree from `/staging/` is one
+  // half of a rule checking the spelling instead of the thing.
+  it("refuses a secret id that names another environment's tree in upper case", async () => {
+    writeValues({ title: "", drillEnv: "production", sources: allEnvs(truthful) });
+    const before = deliveries.length;
+    const { code, output } = await run([
+      "--env",
+      "production",
+      "--hmac-secret-id",
+      secretIdOf("staging", true),
+    ]);
+
+    expect(deliveries.slice(before)).toEqual([]);
+    expect(code).not.toBe(0);
+    expect(output).toContain("names the staging secret tree");
+    expect(output).not.toContain("[drill] HTTP ");
   });
 
   it("refuses a variable that names the shipped placeholder", async () => {
@@ -1445,6 +1583,161 @@ describe("an authority is a host and a port, and nothing else", () => {
     });
     expect(r.fresh.map((d) => d.place)).toEqual(["production"]);
     expect(r.code).toBe(0);
+  });
+
+  // Userinfo naming the environment's *own* host is the shape the rest of this
+  // block cannot catch: every text comparison reads the drilled environment's
+  // hostname, the derivation has nothing to object to, and what connects is
+  // whatever follows the `@`. A bare host has no legitimate reading of one, so
+  // it is refused for the same reason a base URL carrying one is.
+  it("refuses DRILL_WEBHOOK_HOST_<ENV> carrying userinfo in front of its own host", async () => {
+    const r = await runNamedWorld("staging", {
+      sources: shippedPlaceholder(),
+      envVars: { DRILL_WEBHOOK_HOST_STAGING: `drill@${WORLD.staging.hostPort}` },
+    });
+    expectRefusedOutright(r, "DRILL_WEBHOOK_HOST_STAGING carrying userinfo");
+    expect(r.output).toContain("userinfo");
+  });
+
+  it("refuses a --host carrying userinfo in front of the host it drills", async () => {
+    writeValues({ title: "", drillEnv: "staging", sources: allEnvs(truthful) });
+    const before = deliveries.length;
+    const { code, output } = await run([
+      "--env",
+      "staging",
+      "--host",
+      `drill@${WORLD.staging.hostPort}`,
+    ]);
+
+    expect(deliveries.slice(before)).toEqual([]);
+    expect(code).not.toBe(0);
+    expect(output).toContain("userinfo");
+    expect(output).not.toContain("[drill] HTTP ");
+  });
+
+  it("refuses an ingress.host carrying userinfo in front of its own host", async () => {
+    const c: Case = { title: "", drillEnv: "staging", sources: allEnvs(truthful) };
+    writeValues(c);
+    fs.writeFileSync(
+      path.join(fixtureRoot, "chart/values-staging.yaml"),
+      `ingress:\n  host: 'drill@${WORLD.staging.hostPort}'\n`,
+    );
+    const { args, env } = materialize(c);
+    const before = deliveries.length;
+    const result = await run(args, env);
+    const checked = await run([...args, "--check-target"], env);
+
+    expectRefusedOutright(
+      {
+        code: result.code,
+        output: result.output,
+        fresh: deliveries.slice(before),
+        checked: checked.code,
+      },
+      "ingress.host carrying userinfo",
+    );
+  });
+});
+
+describe("a port is half of an authority, not a detail of one", () => {
+  // `:443` is the port an https URL does not print, so a parser reads it back
+  // as no port at all. A check that compares the parser's answer against the
+  // digits a source wrote refuses the most ordinary deployment there is.
+  //
+  // No test run can bind 443, so the name is pinned to where the listener
+  // actually is. The URL, every check and curl's own effective URL still read
+  // `:443` — only the socket goes elsewhere, which is what a DNS record does.
+  it("drills an environment declared on the https default port, end to end", async () => {
+    const c: Case = {
+      title: "",
+      drillEnv: "staging",
+      sources: { ...allEnvs(truthful), staging: shippedPlaceholder() },
+    };
+    writeValues(c);
+    const { args, env } = materialize(c);
+    env.DRILL_WEBHOOK_HOST_STAGING = `${WORLD.staging.host}:443`;
+    env.DRILL_TEST_CONNECT_TO = `${WORLD.staging.host}:443:127.0.0.1:${WORLD.staging.port}`;
+
+    const before = deliveries.length;
+    const result = await run(args, env);
+    const fresh = deliveries.slice(before);
+
+    expect(fresh.map((d) => d.place)).toEqual(["staging"]);
+    expect(fresh[0]?.signedFor).toBe("staging");
+    expect(fresh[0]?.path).toBe("/webhook/grafana-oncall");
+    expect(result.code).toBe(0);
+    expect(result.output).toContain("accepted — webhook ingress queued");
+    expect(result.output).not.toContain("DEFECT");
+
+    // Every mode reads the same authority, including the two that send nothing.
+    const checked = await run([...args, "--check-target"], env);
+    expect(checked.code).toBe(0);
+    expect(checked.stdout).toContain(`${canonical(WORLD.staging.host)}:443`);
+
+    const printedHost = await run([...args, "--print-host"], env);
+    expect(printedHost.code).toBe(0);
+    expect(printedHost.stdout.trim()).toBe(canonical(WORLD.staging.host));
+
+    const printedUrl = await run([...args, "--print-url"], env);
+    expect(printedUrl.code).toBe(0);
+    expect(printedUrl.stdout.trim()).toBe(
+      `https://${canonical(WORLD.staging.host)}:443/webhook/grafana-oncall`,
+    );
+  });
+
+  // Two environments can share a loopback address and differ only in the port,
+  // which is exactly how this suite's own world is built. A check that reads the
+  // host and not the port cannot tell those two listeners apart — so `--host`
+  // naming the drilled environment's hostname on another listener's port passes
+  // every host comparison and lands on the other listener.
+  it("refuses a --host on a port the drilled environment does not answer on", async () => {
+    const c: Case = { title: "", drillEnv: "development", sources: allEnvs(truthful) };
+    writeValues(c);
+    const { args, env } = materialize(c);
+    // development is 127.0.0.1; staging binds 127.0.0.1 too, on its own port.
+    const aimed = `${WORLD.development.host}:${WORLD.staging.port}`;
+    const before = deliveries.length;
+    const result = await run([...args, "--host", aimed], env);
+    const checked = await run([...args, "--host", aimed, "--check-target"], env);
+
+    expectRefusedOutright(
+      {
+        code: result.code,
+        output: result.output,
+        fresh: deliveries.slice(before),
+        checked: checked.code,
+      },
+      `--host ${aimed} while drilling development`,
+    );
+    expect(result.output).toContain(String(WORLD.development.port));
+  });
+
+  // The same disagreement one layer up: two sources that name one host and two
+  // ports do not agree about where the environment is, and first-read-wins is
+  // the drill picking one of them without saying so.
+  it("reports two sources that disagree about the port as a conflict", async () => {
+    const c: Case = { title: "", drillEnv: "production", sources: allEnvs(truthful) };
+    writeValues(c);
+    const { args, env } = materialize(c);
+    env.DRILL_WEBHOOK_HOST_PRODUCTION = `${WORLD.production.host}:${DEAD_PORT}`;
+
+    const before = deliveries.length;
+    const { code, output } = await run(args, env);
+
+    expect(deliveries.slice(before)).toEqual([]);
+    expect(code).not.toBe(0);
+    expect(output).toContain("two sources");
+    expect(output).toContain(`${canonical(WORLD.production.host)}:${DEAD_PORT}`);
+    expect(output).toContain(`${canonical(WORLD.production.host)}:${WORLD.production.port}`);
+    expect(output).toContain("environment identities:");
+  });
+
+  it("refuses two output modes at once rather than picking one", async () => {
+    writeValues({ title: "", drillEnv: "staging", sources: allEnvs(truthful) });
+    const { code, output } = await run(["--env", "staging", "--print-host", "--print-url"]);
+
+    expect(code).not.toBe(0);
+    expect(output).toContain("[drill] FAIL:");
   });
 });
 
