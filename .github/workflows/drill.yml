@@ -15,14 +15,19 @@ name: drill
 #       incident-response/<env>/slack/bot-token, plus
 #       dynamodb:GetItem/Query/DeleteItem on incident-response-<env>-*.
 #   variable INCIDENT_RESPONSE_DRILL_HOST_{DEVELOPMENT,STAGING,PRODUCTION}
-#       The webhook Ingress hostname for that one environment. Needed only
-#       while that environment's chart/values-<env>.yaml still carries the
-#       placeholder host this repository ships; once the values file names your
-#       own hostname the drill reads it from there, and a variable that
-#       disagrees with it is refused.
+#       Each environment's webhook Ingress hostname — all three of them, not
+#       only the one being drilled. A drill signs with
+#       incident-response/<env>/grafana/oncall-webhook-hmac, so it has to prove
+#       the request is missing the other two environments' load balancers, and
+#       an environment nobody names is one nothing can be proved to miss.
+#       fire-drill.sh refuses rather than guess.
 #
-#       There is deliberately no single INCIDENT_RESPONSE_DRILL_HOST. A drill
-#       signs with incident-response/<env>/grafana/oncall-webhook-hmac, so one
+#       An environment whose chart/values-<env>.yaml already names your own
+#       hostname needs no variable — the values file establishes it, and a
+#       variable that disagrees with it is refused. An environment with no
+#       webhook deployment is declared, not omitted: set its variable to `none`.
+#
+#       There is deliberately no single INCIDENT_RESPONSE_DRILL_HOST. One
 #       hostname shared across every environment choice is one signature
 #       delivered to another environment's load balancer. fire-drill.sh refuses
 #       an unscoped DRILL_WEBHOOK_HOST by name for the same reason.
@@ -74,28 +79,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Two questions, deliberately asked in two ways.
+      # Whether a drill would fire where it signs is one question with one
+      # answer, and `fire-drill.sh --check-target` is where that answer lives: it
+      # builds the identity map for every environment, holds the target against
+      # it, and exits non-zero with the reason and what to configure. It contacts
+      # nothing and needs no credentials, which is why it runs before the role is
+      # assumed.
       #
-      # "Is the drill configured" is fire-drill.sh's own question, and --dry-run
-      # answers it without contacting anything or needing credentials.
-      #
-      # "Does it target the environment it signs for" cannot be delegated to the
-      # same resolver, because a resolver that got the target wrong would report
-      # the wrong target as a success. So this step derives the expected host
-      # itself — the environment-scoped variable, else ingress.host straight out
-      # of that environment's values file — and compares it against what
-      # --print-host actually resolved. It then checks the resolved host against
-      # every *other* environment's host, derived the same independent way. A
-      # production dispatch that would reach staging fails here even if the
-      # script's own checks did not fire.
-      #
-      # What this step does NOT restate is how two hostnames are compared. A port,
-      # a path, letter case or a trailing root dot can differ between two strings
-      # naming the same load balancer, and a second implementation of that rule in
-      # YAML is a second implementation to drift. So the comparison form comes
-      # from `fire-drill.sh --canonical-host`, the same primitive the script's own
-      # checks use. Reading configuration stays independent; agreeing on what a
-      # hostname is does not.
+      # This step deliberately re-derives none of it. A preflight that read the
+      # repository variables itself would be a second opinion about which host
+      # belongs to which environment — and two opinions disagree, which is how a
+      # run gets blessed by one and misfired by the other. The AWS role is the
+      # only thing checked here, because it is the only requirement the script
+      # has no way to see.
       - name: Check the drill is configured, and targets the environment it signs for
         env:
           DRILL_ROLE_ARN: ${{ secrets.AWS_DRILL_ROLE_ARN }}
@@ -112,69 +108,13 @@ jobs:
             missing=1
           fi
 
-          upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
-
-          # The comparison form of a hostname, asked of the drill rather than
-          # reimplemented here. Prints nothing for the placeholder this
-          # repository ships, which is how "not configured" is spelled below.
-          canonical() { bash scripts/fire-drill.sh --canonical-host "$1"; }
-
-          # This environment's host, without going through fire-drill.sh's own
-          # resolver: the scoped repository variable if set, else ingress.host as
-          # the values file declares it.
-          configured_host() {
-            local env="$1" var raw
-            var="DRILL_WEBHOOK_HOST_$(upper "$env")"
-            raw="${!var:-}"
-            if [[ -z "$raw" && -f "chart/values-${env}.yaml" ]]; then
-              raw=$(awk '
-                /^[^ \t#]/ { inblock = ($0 == "ingress:") }
-                inblock && index($0, "  host:") == 1 {
-                  sub("^  host:[ \t]*", ""); sub("[ \t]+#.*$", ""); sub("[ \t]+$", "")
-                  gsub("[\"'\'']", ""); print; exit
-                }' "chart/values-${env}.yaml")
-            fi
-            canonical "$raw"
-          }
-
-          ENV_UPPER=$(upper "$ENVIRONMENT")
-
-          if ! bash scripts/fire-drill.sh --env "$ENVIRONMENT" --dry-run >/dev/null; then
-            echo "missing: a webhook target for $ENVIRONMENT — set repository variable INCIDENT_RESPONSE_DRILL_HOST_${ENV_UPPER}, or put the real hostname in chart/values-${ENVIRONMENT}.yaml"
-            missing=1
-          fi
-
-          resolved=$(bash scripts/fire-drill.sh --env "$ENVIRONMENT" --print-host 2>/dev/null) || resolved=""
-          expected=$(configured_host "$ENVIRONMENT")
-
-          if [[ -z "$resolved" ]]; then
-            echo "unresolved: the drill could not name a webhook host for $ENVIRONMENT"
-            missing=1
-          elif [[ -z "$expected" ]]; then
-            echo "unconfigured: nothing in this repository declares a $ENVIRONMENT webhook host, yet the drill resolved '$resolved'"
-            missing=1
-          elif [[ "$resolved" != "$expected" ]]; then
-            echo "target mismatch: a $ENVIRONMENT drill signs with incident-response/${ENVIRONMENT}/grafana/oncall-webhook-hmac"
-            echo "  configured host: $expected"
-            echo "  resolved host:   $resolved"
-            missing=1
-          fi
-
-          for other in development staging production; do
-            [[ "$other" == "$ENVIRONMENT" ]] && continue
-            other_host=$(configured_host "$other")
-            if [[ -n "$other_host" && -n "$resolved" && "$resolved" == "$other_host" ]]; then
-              echo "cross-environment target: a $ENVIRONMENT drill would deliver a $ENVIRONMENT-signed alert to the $other webhook host '$resolved'"
-              missing=1
-            fi
-          done
+          bash scripts/fire-drill.sh --env "$ENVIRONMENT" --check-target || missing=1
 
           if (( missing )); then
             echo
             echo "The drill is not configured for this repository. See the header of .github/workflows/drill.yml."
             exit 1
           fi
-          echo "drill configuration present — $ENVIRONMENT signs for and targets $resolved"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4

@@ -8,6 +8,12 @@ The app token is `incident-response` (npm package, image, OTel `service.namespac
 
 ## [Unreleased]
 
+### Changed
+
+- `scripts/fire-drill.sh` establishes every environment's webhook host before it resolves a target, from one identity map built out of `DRILL_WEBHOOK_URL_<ENV>`, `DRILL_WEBHOOK_HOST_<ENV>` and `chart/values-<env>.yaml` (falling back to `chart/values.yaml`). An environment whose host cannot be established, two sources that name it differently, and two environments that claim one host are each a refusal that prints the map and what to configure — a drill that cannot prove where it is firing does not fire. An environment with no webhook deployment is declared with `DRILL_WEBHOOK_HOST_<ENV>=none`, and every run that leans on such a declaration says so on stderr.
+- `scripts/fire-drill.sh --check-target` prints the identity map, the resolved request and the secret id, and exits non-zero with the reason when a drill would not fire where it signs. It contacts nothing and needs no credentials. `.github/workflows/drill.yml` runs it as its whole preflight verdict and derives no hostnames of its own; `--canonical-host`, which existed for the workflow to compare with, is gone with it.
+- Drill runs need a webhook hostname for every environment, not only the one being drilled: `INCIDENT_RESPONSE_DRILL_HOST_{DEVELOPMENT,STAGING,PRODUCTION}` for a fork whose values files still carry the shipped placeholder.
+
 ## [0.1.0] — Initial standalone release
 
 incident-response is a ceremonial incident commander assistant. It assembles P1 war rooms from Grafana OnCall alerts, keeps an approval-gated Statuspage pipeline, and drafts postmortems in Linear. It ships as a Platform tenant on the `eks-agent-platform` operator.

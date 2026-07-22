@@ -18,12 +18,14 @@
 #   ENVIRONMENT         default staging
 #   POLL_SEC            default 90 — how long to wait for ROOM_ASSEMBLED
 #   DRILL_WEBHOOK_HOST_<ENV>
-#                       the webhook Ingress hostname for that one environment,
-#                       when chart/values-<env>.yaml still carries the
-#                       placeholder. Read by fire-drill.sh, which resolves the
-#                       target and refuses any host belonging to an environment
-#                       other than the one it signs for — see its header.
-#                       Nothing here needs cluster access.
+#                       each environment's webhook Ingress hostname, for every
+#                       environment whose chart/values-<env>.yaml still carries
+#                       the placeholder — or `none` for one that has no webhook
+#                       deployment. fire-drill.sh builds an identity map from
+#                       these plus the values files and refuses to fire while
+#                       any environment's host is unknown, because a host it
+#                       cannot name is a host it cannot prove it is missing.
+#                       See its header. Nothing here needs cluster access.
 #
 # Requires: aws CLI with Secrets Manager read + DynamoDB read/delete, plus
 #           curl, jq, openssl (fire-drill.sh's own deps).
