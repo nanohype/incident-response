@@ -41,7 +41,7 @@
  * rather than once by hand.
  *
  * Usage:
- *   node scripts/validate-platform-manifests.mjs [manifest] [--no-chart-values]
+ *   node scripts/validate-platform-manifests.mjs [manifest]
  *   node scripts/validate-platform-manifests.mjs --self-test
  */
 
@@ -58,7 +58,6 @@ const CHART_DIR = join(REPO_ROOT, "chart");
 
 const args = process.argv.slice(2);
 const SELF_TEST = args.includes("--self-test");
-const checkChartValues = !args.includes("--no-chart-values");
 const manifestArg = args.find((a) => !a.startsWith("--"));
 const MANIFEST_PATH = resolve(manifestArg ?? join(REPO_ROOT, "platform.yaml"));
 
@@ -520,7 +519,7 @@ function validateChartValues({ tenantName, platformName }) {
  * @param {unknown[]} rawDocuments plain JS objects, one per YAML document
  * @returns {{ errors: string[], docs: object[], chartFileCount: number }}
  */
-function gate(rawDocuments, index, { chartValues = true } = {}) {
+function gate(rawDocuments, index) {
   errors.length = 0;
 
   const docs = [];
@@ -533,7 +532,7 @@ function gate(rawDocuments, index, { chartValues = true } = {}) {
   }
 
   const names = validateWiring(docs);
-  const chartFileCount = chartValues ? validateChartValues(names) : 0;
+  const chartFileCount = validateChartValues(names);
 
   return { errors: [...errors], docs, chartFileCount };
 }
@@ -667,7 +666,7 @@ if (SELF_TEST) {
   process.exit(0);
 }
 
-const result = gate(documents, index, { chartValues: checkChartValues });
+const result = gate(documents, index);
 
 if (result.errors.length > 0) {
   console.error(
