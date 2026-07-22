@@ -4,31 +4,58 @@
  *
  * The invariant, stated once:
  *
- *   A payload signed for environment X is delivered only to environment X's
- *   webhook host, or nothing is sent at all.
+ *   A payload signed for environment X reaches only environment X's webhook
+ *   host, or nothing is sent at all.
  *
- * Every case here asserts that on the wire, not on the script's own account of
- * itself. Each environment gets a stub webhook that verifies signatures with the
- * repository's own `verifyHmacSignature` and validates bodies with its own
+ * ── Two facts, kept apart ───────────────────────────────────────────────────
+ *
+ * The world and the configuration are separate things here, and that separation
+ * is what makes this a test rather than a restatement.
+ *
+ * The **world** is four HTTPS listeners this file starts. Three are owned by an
+ * environment — that ownership is ground truth, because this file created them —
+ * and the fourth is owned by nobody and stands for an Ingress the chart does not
+ * know about. Each listener records what arrived and which environment's secret
+ * signed it, using the repository's own `verifyHmacSignature` and
  * `GrafanaOnCallPayloadSchema`, so "delivered" means a real request arrived and
- * "refused" means no listener saw anything. A stub `aws` on PATH hands out a
- * different secret per environment, so the stub that receives a request can say
- * which environment's secret signed it.
+ * "refused" means no listener saw anything.
  *
- * The combinations are generated, not hand-picked. A suite that supplies one
- * target-naming input per case stays green while `--url` and `--host` disagree
- * about where the POST goes, so the generator enumerates every way a target or a
- * signing identity can be named and runs them in pairs and triples, including
- * pairs that disagree. Expected outcomes come from a small oracle that states
- * the rules in the abstract — never from what the script happens to do.
+ * The **configuration** is what a case writes into the fixture: values files,
+ * scoped variables, flags. Configuration is allowed to lie about the world —
+ * that is precisely what a misfire is, and the shipped exploits below are
+ * nothing but a variable naming another environment's host.
  *
- * Fixture notes: the stubs are HTTPS, because a hostname resolves to an `https`
- * base URL and the drill has no insecure switch; the certificate is generated
- * per run and trusted through `CURL_CA_BUNDLE`. Each environment's hostname is a
- * loopback name carrying its listening port (`localhost:PORT`, `127.0.0.1:PORT`)
- * so two environments differ in hostname the way two real deployments do.
- * `development` is deliberately given a host nothing listens on: it exists to be
- * a foreign environment, and a delivery there would be a failure either way.
+ * So the primary assertion consults no oracle at all: whatever a case
+ * configured, a `--env X` run may only ever be observed at the listener this
+ * file owns for X, signed with X's secret. A resolver that agrees with a bug
+ * cannot talk its way past that, because the check never reads the resolver's
+ * inputs.
+ *
+ * Two secondary assertions need a specification, and it is derived from the
+ * sources an environment's identity can come from — not from what the script
+ * does with them:
+ *
+ *   fail closed  when a case leaves any environment's identity unestablishable,
+ *                contradictory, or shared with another environment, the run must
+ *                refuse and deliver nothing. This is the property the invariant
+ *                rests on: a host nobody can name is a host nothing can be
+ *                proved to miss.
+ *   liveness     when a case establishes every identity and aims at the drilled
+ *                environment's own host, a request must actually arrive. A suite
+ *                of nothing but refusals would pass against a drill that never
+ *                fires.
+ *
+ * `--check-target` is asserted against observed behaviour on every case: it is
+ * the verdict `.github/workflows/drill.yml` runs on, so a disagreement between
+ * it and the wire is a workflow that blesses a misfire or blocks a good drill.
+ *
+ * Fixture notes: the listeners are HTTPS, because a hostname resolves to an
+ * `https` base URL and the drill has no insecure switch; the certificate is
+ * generated per run and trusted through `CURL_CA_BUNDLE`. The four hostnames are
+ * loopback spellings that resolve without DNS on every platform this suite runs
+ * on — `127.0.0.1`, `localhost`, `[::1]` and `[0:0:0:0:0:0:0:1]` — each carrying
+ * its listener's port, so two environments differ in hostname the way two real
+ * deployments do.
  */
 
 import { execFile, execFileSync } from "node:child_process";
@@ -44,7 +71,7 @@ import { GrafanaOnCallPayloadSchema } from "../../src/types/index.js";
 const SCRIPT = path.resolve(__dirname, "../../scripts/fire-drill.sh");
 const BASE_VALUES = path.resolve(__dirname, "../../chart/values.yaml");
 
-// The stub webhooks live in this process, so the drill has to be spawned without
+// The listeners live in this process, so the drill has to be spawned without
 // blocking the event loop — a synchronous spawn would deadlock against the
 // listener it is talking to.
 const execFileAsync = promisify(execFile);
@@ -52,34 +79,60 @@ const execFileAsync = promisify(execFile);
 type Env = "development" | "staging" | "production";
 const ENVS: Env[] = ["development", "staging", "production"];
 
-/** Environments a drill is run for here. `development` is only ever a foreign target. */
-const DRILL_ENVS: Env[] = ["staging", "production"];
+/** Somewhere a request can land. `drifted` belongs to no environment. */
+type Place = Env | "drifted";
+const PLACES: Place[] = [...ENVS, "drifted"];
 
 const upper = (env: Env) => env.toUpperCase();
 const secretIdOf = (env: Env) => `incident-response/${env}/grafana/oncall-webhook-hmac`;
 const secretOf = (env: Env) => `hmac-secret-for-${env}`;
 
-/** `host:port` as each environment declares it. Ports arrive once the stubs are up. */
-const HOSTS: Record<Env, string> = {
-  development: "127.0.0.55",
-  staging: "localhost",
-  production: "127.0.0.1",
+/** The placeholder this repository ships in every values file. */
+const PLACEHOLDER = "incident-response-webhook.example.com";
+
+// ── The world ───────────────────────────────────────────────────────────────
+
+interface Site {
+  /** The environment that owns this listener, or null for the unowned one. */
+  owner: Env | null;
+  /** Hostname as anything addressing it spells it, without the port. */
+  host: string;
+  /** Loopback address the listener binds. */
+  bind: string;
+  port: number;
+  /** `host:port` — what a values file or a variable would carry. */
+  hostPort: string;
+}
+
+const WORLD: Record<Place, Site> = {
+  development: {
+    owner: "development",
+    host: "127.0.0.1",
+    bind: "127.0.0.1",
+    port: 0,
+    hostPort: "",
+  },
+  staging: { owner: "staging", host: "localhost", bind: "127.0.0.1", port: 0, hostPort: "" },
+  production: { owner: "production", host: "[::1]", bind: "::1", port: 0, hostPort: "" },
+  drifted: { owner: null, host: "[0:0:0:0:0:0:0:1]", bind: "::1", port: 0, hostPort: "" },
 };
 
-/** Hostname only — the form the cross-environment checks compare. */
-const bareHost = (hostPort: string) => (hostPort.split(":")[0] ?? "").toLowerCase();
-
-/** A host no environment claims, for the "values file is the identity" rule. */
-const FOREIGN_HOST = "webhook.someone-elses-zone.invalid";
-
-/** A port nothing listens on, for showing that a port cannot hide a collision. */
-const DEAD_PORT = "19999";
+/** The comparison form of a hostname: lower-cased, no port, no trailing dot. */
+function canonical(hostPort: string): string {
+  let v = hostPort.replace(/^[a-z]+:\/\//i, "");
+  v = v.split("/")[0] ?? "";
+  v = v.split("?")[0] ?? "";
+  const at = v.lastIndexOf("@");
+  if (at !== -1) v = v.slice(at + 1);
+  v = v.startsWith("[") ? `${v.slice(0, v.indexOf("]"))}]` : (v.split(":")[0] ?? "");
+  return v.replace(/\.$/, "").toLowerCase();
+}
 
 interface Delivery {
-  listener: Env;
+  place: Place;
+  owner: Env | null;
   method: string;
   path: string;
-  hostHeader: string;
   /** Which environment's secret produced the signature, or null if none did. */
   signedFor: Env | null;
   payloadEnvironment: string | null;
@@ -93,7 +146,7 @@ let fixtureRoot = "";
 let binDir = "";
 let certPath = "";
 
-function stubHandler(listener: Env) {
+function handlerFor(place: Place) {
   return (req: http.IncomingMessage, res: http.ServerResponse) => {
     let body = "";
     req.on("data", (chunk) => {
@@ -117,22 +170,27 @@ function stubHandler(listener: Env) {
       }
 
       deliveries.push({
-        listener,
+        place,
+        owner: WORLD[place].owner,
         method: req.method ?? "",
         path: req.url ?? "",
-        hostHeader: String(req.headers.host ?? ""),
         signedFor,
         payloadEnvironment,
         schemaValid,
       });
 
-      res.writeHead(signedFor === listener ? 200 : 401, { "content-type": "application/json" });
-      res.end(JSON.stringify({ stub: listener }));
+      // Each environment's listener accepts only its own signature, the way the
+      // webhook handler does. The unowned one belongs to whichever environment
+      // the cluster serves it for, so any real signature is good enough there.
+      const owner = WORLD[place].owner;
+      const accepted = owner === null ? signedFor !== null : signedFor === owner;
+      res.writeHead(accepted ? 200 : 401, { "content-type": "application/json" });
+      res.end(JSON.stringify({ listener: place }));
     });
   };
 }
 
-/** One throwaway repo root shared by the generated cases: the real script, the real base values. */
+/** One throwaway repo root: the real script, the real base values, stub tools. */
 function buildFixture(): void {
   fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "drill-wire-"));
   binDir = path.join(fixtureRoot, "bin");
@@ -140,7 +198,6 @@ function buildFixture(): void {
   fs.mkdirSync(path.join(fixtureRoot, "chart"));
   fs.mkdirSync(binDir);
   fs.copyFileSync(SCRIPT, path.join(fixtureRoot, "scripts/fire-drill.sh"));
-  fs.copyFileSync(BASE_VALUES, path.join(fixtureRoot, "chart/values.yaml"));
 
   // A Secrets Manager that hands out one secret per environment tree, so the
   // signature on the wire says which environment the drill signed for.
@@ -185,7 +242,7 @@ function buildFixture(): void {
       "-subj",
       "/CN=localhost",
       "-addext",
-      "subjectAltName=DNS:localhost,IP:127.0.0.1",
+      "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1",
     ],
     { stdio: "ignore" },
   );
@@ -198,30 +255,26 @@ interface RunResult {
 }
 
 /**
- * Run the drill in a fixture. The environment is built from scratch rather than
- * inherited: a DRILL_* variable set by whoever ran the suite deciding the
+ * Run the drill in the fixture. The environment is built from scratch rather
+ * than inherited: a DRILL_* variable set by whoever ran the suite deciding the
  * outcome is the exact class of bug under test.
  */
-async function run(
-  args: string[],
-  extraEnv: Record<string, string> = {},
-  root: string = fixtureRoot,
-): Promise<RunResult> {
+async function run(args: string[], extraEnv: Record<string, string> = {}): Promise<RunResult> {
   const env: NodeJS.ProcessEnv = {
     PATH: `${binDir}:${process.env.PATH ?? "/usr/bin:/bin"}`,
-    HOME: root,
-    // Trust the stub webhooks' certificate, and nothing else.
+    HOME: fixtureRoot,
+    // Trust the listeners' certificate, and nothing else.
     CURL_CA_BUNDLE: certPath,
     SSL_CERT_FILE: certPath,
     ...extraEnv,
   };
   try {
-    const { stdout } = await execFileAsync(
+    const { stdout, stderr } = await execFileAsync(
       "bash",
-      [path.join(root, "scripts/fire-drill.sh"), ...args],
+      [path.join(fixtureRoot, "scripts/fire-drill.sh"), ...args],
       { env, encoding: "utf8" },
     );
-    return { code: 0, stdout, output: stdout };
+    return { code: 0, stdout, output: `${stdout}${stderr}` };
   } catch (err) {
     const e = err as { code?: number; stdout?: string; stderr?: string };
     return {
@@ -232,392 +285,666 @@ async function run(
   }
 }
 
-// ── The ways a target can be named ──────────────────────────────────────────
+// ── What a case says ────────────────────────────────────────────────────────
 
-type Mutation = "asIs" | "upperCase" | "otherPort" | "trailingDot" | "noPort" | "userinfo";
-const SPELLINGS: Mutation[] = [
-  "asIs",
-  "upperCase",
-  "otherPort",
-  "trailingDot",
-  "noPort",
-  "userinfo",
-];
+/** How a hostname can be spelled without changing which host it names. */
+type Spelling = "asIs" | "upperCase" | "trailingDot" | "otherPort" | "userinfo";
 
-/** Spellings of one host. None of them may change which environment it belongs to. */
-function mutate(hostPort: string, mutation: Mutation): string {
-  const host = bareHost(hostPort);
-  const port = hostPort.split(":")[1];
-  switch (mutation) {
+/** A port nothing listens on, for showing that a port cannot hide a collision. */
+const DEAD_PORT = "19999";
+
+/** Spellings that survive a real connection — used where a case must deliver. */
+const DELIVERABLE_SPELLINGS: Spelling[] = ["asIs"];
+/** Every spelling — used where a case must refuse, so resolution never matters. */
+const ALL_SPELLINGS: Spelling[] = ["asIs", "upperCase", "trailingDot", "otherPort", "userinfo"];
+
+function spell(place: Place, spelling: Spelling): string {
+  const { host, port } = WORLD[place];
+  switch (spelling) {
     case "asIs":
-      return hostPort;
+      return `${host}:${port}`;
     case "upperCase":
-      return port ? `${host.toUpperCase()}:${port}` : host.toUpperCase();
+      return `${host.toUpperCase()}:${port}`;
+    case "trailingDot":
+      return host.startsWith("[") ? `${host}:${port}` : `${host}.:${port}`;
     case "otherPort":
       return `${host}:${DEAD_PORT}`;
-    case "trailingDot":
-      return port ? `${host}.:${port}` : `${host}.`;
-    case "noPort":
-      return host;
     // curl connects to what follows the last `@` and ignores what precedes it,
-    // so userinfo is a way to spell a hostname that a naive check misreads.
+    // so userinfo is a way to spell a hostname that a naive check misreads. It
+    // is only legal in a URL.
     case "userinfo":
-      return `drill@${hostPort}`;
+      return `${host}:${port}`;
   }
 }
 
-interface BuiltInput {
-  args: string[];
-  env: Record<string, string>;
+/** One thing a source can say about an environment. */
+type Claim =
+  | { says: "nothing" }
+  | { says: "placeholder" }
+  | { says: "no-file" }
+  | { says: "absent" }
+  | { says: "host"; at: Place; spelling?: Spelling };
+
+interface Sources {
+  /** chart/values-<env>.yaml */
+  values: Claim;
+  /** DRILL_WEBHOOK_HOST_<ENV> */
+  hostVar: Claim;
+  /** DRILL_WEBHOOK_URL_<ENV> */
+  urlVar: Claim;
 }
 
-interface TargetInput {
-  name: string;
-  /** False for the unscoped variables the drill refuses by name. */
-  scoped: boolean;
-  build(target: Env, drillEnv: Env, mutation: Mutation): BuiltInput;
+const NOTHING: Claim = { says: "nothing" };
+const truthful = (env: Env): Sources => ({
+  values: { says: "host", at: env },
+  hostVar: NOTHING,
+  urlVar: NOTHING,
+});
+const shippedPlaceholder = (): Sources => ({
+  values: { says: "placeholder" },
+  hostVar: NOTHING,
+  urlVar: NOTHING,
+});
+
+interface SecretChoice {
+  via: "--hmac-secret-id" | "scoped-id-var" | "unscoped-id-var" | "scoped-value-var";
+  of: Env;
 }
 
-const URL_FLAG: TargetInput = {
-  name: "--url",
-  scoped: true,
-  build: (target, _drillEnv, mutation) => ({
-    args: ["--url", `https://${mutate(HOSTS[target], mutation)}`],
-    env: {},
-  }),
-};
-
-const HOST_FLAG: TargetInput = {
-  name: "--host",
-  scoped: true,
-  build: (target, _drillEnv, mutation) => ({
-    args: ["--host", mutate(HOSTS[target], mutation)],
-    env: {},
-  }),
-};
-
-const SCOPED_URL_VAR: TargetInput = {
-  name: "DRILL_WEBHOOK_URL_<ENV>",
-  scoped: true,
-  build: (target, drillEnv, mutation) => ({
-    args: [],
-    env: { [`DRILL_WEBHOOK_URL_${upper(drillEnv)}`]: `https://${mutate(HOSTS[target], mutation)}` },
-  }),
-};
-
-const SCOPED_HOST_VAR: TargetInput = {
-  name: "DRILL_WEBHOOK_HOST_<ENV>",
-  scoped: true,
-  build: (target, drillEnv, mutation) => ({
-    args: [],
-    env: { [`DRILL_WEBHOOK_HOST_${upper(drillEnv)}`]: mutate(HOSTS[target], mutation) },
-  }),
-};
-
-const FROM_CLUSTER: TargetInput = {
-  name: "--from-cluster",
-  scoped: true,
-  build: (target, _drillEnv, mutation) => ({
-    args: ["--from-cluster"],
-    env: { STUB_INGRESS_HOST: mutate(HOSTS[target], mutation) },
-  }),
-};
-
-const UNSCOPED_URL_VAR: TargetInput = {
-  name: "DRILL_WEBHOOK_URL",
-  scoped: false,
-  build: (target, _drillEnv, mutation) => ({
-    args: [],
-    env: { DRILL_WEBHOOK_URL: `https://${mutate(HOSTS[target], mutation)}` },
-  }),
-};
-
-const UNSCOPED_HOST_VAR: TargetInput = {
-  name: "DRILL_WEBHOOK_HOST",
-  scoped: false,
-  build: (target, _drillEnv, mutation) => ({
-    args: [],
-    env: { DRILL_WEBHOOK_HOST: mutate(HOSTS[target], mutation) },
-  }),
-};
-
-const SCOPED_TARGET_INPUTS: TargetInput[] = [
-  URL_FLAG,
-  HOST_FLAG,
-  SCOPED_URL_VAR,
-  SCOPED_HOST_VAR,
-  FROM_CLUSTER,
-];
-const ALL_TARGET_INPUTS: TargetInput[] = [
-  ...SCOPED_TARGET_INPUTS,
-  UNSCOPED_URL_VAR,
-  UNSCOPED_HOST_VAR,
-];
-
-// ── The ways a signing identity can be named ────────────────────────────────
-
-interface IdentityInput {
-  name: string;
-  scoped: boolean;
-  /** True when the value names an environment the drill can read; false for a pasted literal. */
-  attributable: boolean;
-  build(secretEnv: Env, drillEnv: Env): BuiltInput;
-}
-
-const SECRET_ID_FLAG: IdentityInput = {
-  name: "--hmac-secret-id",
-  scoped: true,
-  attributable: true,
-  build: (secretEnv) => ({ args: ["--hmac-secret-id", secretIdOf(secretEnv)], env: {} }),
-};
-
-const SCOPED_SECRET_ID_VAR: IdentityInput = {
-  name: "DRILL_HMAC_SECRET_ID_<ENV>",
-  scoped: true,
-  attributable: true,
-  build: (secretEnv, drillEnv) => ({
-    args: [],
-    env: { [`DRILL_HMAC_SECRET_ID_${upper(drillEnv)}`]: secretIdOf(secretEnv) },
-  }),
-};
-
-const UNSCOPED_SECRET_ID_VAR: IdentityInput = {
-  name: "DRILL_HMAC_SECRET_ID",
-  scoped: false,
-  attributable: true,
-  build: (secretEnv) => ({ args: [], env: { DRILL_HMAC_SECRET_ID: secretIdOf(secretEnv) } }),
-};
-
-const SCOPED_SECRET_VAR: IdentityInput = {
-  name: "DRILL_HMAC_SECRET_<ENV>",
-  scoped: true,
-  attributable: false,
-  build: (secretEnv, drillEnv) => ({
-    args: [],
-    env: { [`DRILL_HMAC_SECRET_${upper(drillEnv)}`]: secretOf(secretEnv) },
-  }),
-};
-
-const UNSCOPED_SECRET_VAR: IdentityInput = {
-  name: "DRILL_HMAC_SECRET",
-  scoped: false,
-  attributable: false,
-  build: (secretEnv) => ({ args: [], env: { DRILL_HMAC_SECRET: secretOf(secretEnv) } }),
-};
-
-const IDENTITY_INPUTS: IdentityInput[] = [
-  SECRET_ID_FLAG,
-  SCOPED_SECRET_ID_VAR,
-  UNSCOPED_SECRET_ID_VAR,
-  SCOPED_SECRET_VAR,
-  UNSCOPED_SECRET_VAR,
-];
-
-// ── The oracle ──────────────────────────────────────────────────────────────
-
-interface Combination {
+interface Case {
   title: string;
   drillEnv: Env;
-  /** One entry per input that names a target. Empty means the values file decides. */
-  targets: Array<{ input: TargetInput; target: Env; mutation: Mutation }>;
-  identity?: { input: IdentityInput; secretEnv: Env };
+  sources: Record<Env, Sources>;
+  /** chart/values.yaml ingress.host — the fallback Helm applies. */
+  baseValues?: Claim;
+  target?: { via: "--host" | "--url" | "--from-cluster"; at: Place; spelling: Spelling };
+  secret?: SecretChoice;
+  /** Unscoped DRILL_* variables, which apply to every --env. */
+  unscoped?: Record<string, string>;
 }
 
-type Outcome = { delivered: false } | { delivered: true; to: Env; signedFor: Env };
+const allEnvs = (make: (env: Env) => Sources): Record<Env, Sources> => ({
+  development: make("development"),
+  staging: make("staging"),
+  production: make("production"),
+});
+
+// ── The specification, read off the sources ─────────────────────────────────
+//
+// Identity is what an environment's sources establish about it, and it is the
+// same question for every environment: the two scoped variables and the values
+// file Helm renders that environment's Ingress from. Nothing here consults the
+// script.
+
+type Identity =
+  | { state: "known"; host: string }
+  | { state: "absent" }
+  | { state: "unknown" }
+  | { state: "conflict" };
+
+function claimHost(claim: Claim, baseValues: Claim | undefined, isValues: boolean): Claim {
+  if (isValues && (claim.says === "no-file" || claim.says === "nothing")) {
+    return baseValues ?? { says: "nothing" };
+  }
+  return claim;
+}
+
+function identityOf(c: Case, env: Env): Identity {
+  const s = c.sources[env];
+  const ordered: Claim[] = [s.urlVar, s.hostVar, claimHost(s.values, c.baseValues, true)];
+
+  let state: "unknown" | "known" | "absent" = "unknown";
+  let host = "";
+  for (const claim of ordered) {
+    if (claim.says === "nothing" || claim.says === "placeholder" || claim.says === "no-file") {
+      continue;
+    }
+    if (claim.says === "absent") {
+      if (state === "known") return { state: "conflict" };
+      state = "absent";
+      continue;
+    }
+    const named = canonical(spell(claim.at, claim.spelling ?? "asIs"));
+    if (state === "absent") return { state: "conflict" };
+    if (state === "known" && host !== named) return { state: "conflict" };
+    state = "known";
+    host = named;
+  }
+
+  if (state === "known") return { state: "known", host };
+  if (state === "absent") return { state: "absent" };
+  return { state: "unknown" };
+}
 
 /**
- * What must happen, derived from the rules rather than from the script: an
- * unscoped override is refused by name; a target named twice is refused; a
- * target or a readable secret id belonging to another environment is refused;
- * anything else is delivered to this environment, signed with its secret.
+ * Why a case must not put anything on the wire. Null means it must fire.
+ *
+ * Everything here is a statement about the sources a case declares, in the
+ * terms the invariant needs: an identity that cannot be established, two
+ * environments that cannot be told apart, and a destination that is not the
+ * drilled environment's.
  */
-function oracle(c: Combination): Outcome {
-  if (c.targets.some((t) => !t.input.scoped)) return { delivered: false };
-  if (c.targets.length > 1) return { delivered: false };
-  if (c.identity && !c.identity.input.scoped) return { delivered: false };
-  if (c.identity?.input.attributable && c.identity.secretEnv !== c.drillEnv) {
-    return { delivered: false };
+function refusalReason(c: Case): string | null {
+  if (c.unscoped && Object.keys(c.unscoped).length > 0) {
+    return "an unscoped override applies to every --env";
   }
-  const target = c.targets[0]?.target ?? c.drillEnv;
-  if (target !== c.drillEnv) return { delivered: false };
-  return { delivered: true, to: c.drillEnv, signedFor: c.identity?.secretEnv ?? c.drillEnv };
+
+  const identities = new Map<Env, Identity>();
+  for (const env of ENVS) identities.set(env, identityOf(c, env));
+
+  for (const env of ENVS) {
+    const id = identities.get(env) as Identity;
+    if (id.state === "conflict") return `${env}'s sources contradict each other`;
+  }
+  for (const a of ENVS) {
+    for (const b of ENVS) {
+      if (a >= b) continue;
+      const ia = identities.get(a) as Identity;
+      const ib = identities.get(b) as Identity;
+      if (ia.state === "known" && ib.state === "known" && ia.host === ib.host) {
+        return `${a} and ${b} claim the same host`;
+      }
+    }
+  }
+  for (const env of ENVS) {
+    const id = identities.get(env) as Identity;
+    if (id.state === "unknown") return `${env} has no establishable host`;
+  }
+
+  const own = identities.get(c.drillEnv) as Identity;
+  if (own.state === "absent") return `${c.drillEnv} is declared to have no host`;
+  if (own.state !== "known") return `${c.drillEnv} has no establishable host`;
+
+  if (c.secret && c.secret.via !== "scoped-value-var" && c.secret.of !== c.drillEnv) {
+    return "the HMAC secret id names another environment's tree";
+  }
+
+  if (c.target) {
+    const aimed = canonical(spell(c.target.at, c.target.spelling));
+    if (c.target.via === "--from-cluster") {
+      for (const env of ENVS) {
+        if (env === c.drillEnv) continue;
+        const id = identities.get(env) as Identity;
+        if (id.state === "known" && id.host === aimed) {
+          return `the live Ingress serves ${env}'s host`;
+        }
+      }
+      return null;
+    }
+    if (aimed !== own.host) return "the named target is not the drilled environment's host";
+  }
+
+  return null;
 }
 
-function materialize(c: Combination): BuiltInput {
+/** Where a firing case must land, in world terms. */
+function expectedPlace(c: Case): Place {
+  if (c.target) return c.target.at;
+  const own = identityOf(c, c.drillEnv);
+  const host = own.state === "known" ? own.host : "";
+  const place = PLACES.find((p) => canonical(WORLD[p].host) === host);
+  if (place === undefined) throw new Error(`no listener owns '${host}' — case is not expressible`);
+  return place;
+}
+
+// ── Materializing a case ────────────────────────────────────────────────────
+
+function writeValues(c: Case): void {
+  const base = fs.readFileSync(BASE_VALUES, "utf8");
+  const baseClaim = c.baseValues;
+  const baseHost =
+    baseClaim === undefined || baseClaim.says !== "host"
+      ? ""
+      : spell(baseClaim.at, baseClaim.spelling ?? "asIs");
+  fs.writeFileSync(
+    path.join(fixtureRoot, "chart/values.yaml"),
+    baseHost === "" ? base : base.replace(/^ {2}host: ''.*$/m, `  host: '${baseHost}'`),
+  );
+
+  for (const env of ENVS) {
+    const file = path.join(fixtureRoot, `chart/values-${env}.yaml`);
+    const claim = c.sources[env].values;
+    if (claim.says === "no-file") {
+      fs.rmSync(file, { force: true });
+      continue;
+    }
+    let host = "";
+    if (claim.says === "placeholder") host = PLACEHOLDER;
+    if (claim.says === "host") host = spell(claim.at, claim.spelling ?? "asIs");
+    if (claim.says === "absent") {
+      throw new Error("a values file cannot declare an environment absent");
+    }
+    // Quoted, because an IPv6 literal with a port is a flow sequence to a YAML
+    // parser and a hostname to everything else.
+    fs.writeFileSync(file, `ingress:\n  host: '${host}'\n`);
+  }
+}
+
+function materialize(c: Case): { args: string[]; env: Record<string, string> } {
   const args = ["--env", c.drillEnv];
-  const env: Record<string, string> = {};
-  for (const t of c.targets) {
-    const built = t.input.build(t.target, c.drillEnv, t.mutation);
-    args.push(...built.args);
-    Object.assign(env, built.env);
+  const env: Record<string, string> = { ...(c.unscoped ?? {}) };
+
+  for (const e of ENVS) {
+    const s = c.sources[e];
+    if (s.hostVar.says === "absent") env[`DRILL_WEBHOOK_HOST_${upper(e)}`] = "none";
+    if (s.hostVar.says === "host") {
+      env[`DRILL_WEBHOOK_HOST_${upper(e)}`] = spell(s.hostVar.at, s.hostVar.spelling ?? "asIs");
+    }
+    if (s.urlVar.says === "absent") env[`DRILL_WEBHOOK_URL_${upper(e)}`] = "none";
+    if (s.urlVar.says === "host") {
+      env[`DRILL_WEBHOOK_URL_${upper(e)}`] =
+        `https://${spell(s.urlVar.at, s.urlVar.spelling ?? "asIs")}`;
+    }
   }
-  if (c.identity) {
-    const built = c.identity.input.build(c.identity.secretEnv, c.drillEnv);
-    args.push(...built.args);
-    Object.assign(env, built.env);
+
+  if (c.target) {
+    const spelled = spell(c.target.at, c.target.spelling);
+    if (c.target.via === "--host") args.push("--host", spelled);
+    if (c.target.via === "--url") {
+      const userinfo = c.target.spelling === "userinfo" ? "drill@" : "";
+      args.push("--url", `https://${userinfo}${spelled}`);
+    }
+    if (c.target.via === "--from-cluster") {
+      args.push("--from-cluster");
+      env.STUB_INGRESS_HOST = spelled;
+    }
   }
+
+  if (c.secret) {
+    const { via, of } = c.secret;
+    if (via === "--hmac-secret-id") args.push("--hmac-secret-id", secretIdOf(of));
+    if (via === "scoped-id-var") env[`DRILL_HMAC_SECRET_ID_${upper(c.drillEnv)}`] = secretIdOf(of);
+    if (via === "unscoped-id-var") env.DRILL_HMAC_SECRET_ID = secretIdOf(of);
+    if (via === "scoped-value-var") env[`DRILL_HMAC_SECRET_${upper(c.drillEnv)}`] = secretOf(of);
+  }
+
   return { args, env };
 }
 
-/**
- * Run one combination and hold the invariant against what reached the wire, then
- * check that `--print-host` describes that same request and no other.
- */
-async function assertInvariant(c: Combination): Promise<void> {
-  const expected = oracle(c);
-  const { args, env } = materialize(c);
-  const before = deliveries.length;
+// ── The three assertions ────────────────────────────────────────────────────
 
+async function assertCase(c: Case): Promise<void> {
+  writeValues(c);
+  const { args, env } = materialize(c);
+
+  const before = deliveries.length;
   const result = await run(args, env);
   const fresh = deliveries.slice(before);
-  const printed = await run([...args, "--print-host"], env);
+  const checked = await run([...args, "--check-target"], env);
 
-  if (!expected.delivered) {
-    expect(fresh, `nothing may reach any listener: ${JSON.stringify(fresh)}`).toHaveLength(0);
-    expect(result.code).not.toBe(0);
+  // 1. The invariant, against the world. No case, however configured, may put a
+  //    request on a listener belonging to an environment other than the one it
+  //    signed for. This reads only what arrived.
+  for (const delivery of fresh) {
+    const where = JSON.stringify(delivery);
+    expect(delivery.owner === null || delivery.owner === c.drillEnv, where).toBe(true);
+    expect(delivery.signedFor, where).toBe(c.drillEnv);
+    expect(delivery.payloadEnvironment, where).toBe(c.drillEnv);
+    expect(delivery.schemaValid, where).toBe(true);
+    // An unowned listener is only reachable by asking for it explicitly.
+    if (delivery.owner === null) expect(c.target?.via).toBe("--from-cluster");
+  }
+
+  const reason = refusalReason(c);
+
+  if (reason !== null) {
+    // 2. Fail closed: nothing on the wire, a non-zero exit, and a refusal that
+    //    happened before any request rather than after one.
+    expect(fresh, `${reason}: nothing may reach any listener — ${JSON.stringify(fresh)}`).toEqual(
+      [],
+    );
+    expect(result.code, reason).not.toBe(0);
     expect(result.output).toContain("[drill] FAIL:");
-    // A refusal happens before the request, so no status line is ever printed.
     expect(result.output).not.toContain("[drill] HTTP ");
-    expect(printed.code).not.toBe(0);
-    expect(printed.stdout.trim()).toBe("");
+    expect(checked.code, `--check-target must agree: ${reason}`).not.toBe(0);
     return;
   }
 
-  expect(fresh, `exactly one request: ${JSON.stringify(fresh)}`).toHaveLength(1);
+  // 3. Liveness: a configured drill actually fires, exactly once, where the
+  //    world says the drilled environment lives.
+  expect(fresh, `expected exactly one request — ${JSON.stringify(fresh)}`).toHaveLength(1);
   const delivery = fresh[0] as Delivery;
-  expect(delivery.listener).toBe(expected.to);
-  expect(delivery.signedFor).toBe(expected.signedFor);
-  expect(delivery.payloadEnvironment).toBe(c.drillEnv);
-  expect(delivery.schemaValid).toBe(true);
+  expect(delivery.place).toBe(expectedPlace(c));
   expect(delivery.method).toBe("POST");
   expect(delivery.path).toBe("/webhook/grafana-oncall");
-  expect(bareHost(delivery.hostHeader)).toBe(bareHost(HOSTS[expected.to]));
-  // The webhook answers 200 only to its own environment's signature, and the
-  // drill exits non-zero on anything else.
-  expect(result.code).toBe(expected.signedFor === expected.to ? 0 : 1);
+  expect(result.code).toBe(0);
+  expect(checked.code, "--check-target must agree that this fires").toBe(0);
+
   // `--print-host` has to name the host of the request that was actually made.
+  const printed = await run([...args, "--print-host"], env);
   expect(printed.code).toBe(0);
-  expect(printed.stdout.trim()).toBe(bareHost(delivery.hostHeader));
+  expect(printed.stdout.trim()).toBe(canonical(WORLD[delivery.place].host));
 }
 
-// ── Case generation ─────────────────────────────────────────────────────────
+// ── Cases ───────────────────────────────────────────────────────────────────
 
-const combinations: Combination[] = [];
+const cases: Case[] = [];
+const push = (c: Case) => cases.push(c);
 
-function push(c: Combination): void {
-  combinations.push(c);
+// The state of a fresh clone: every values file carries the shipped
+// placeholder, and nothing else names a host. Naming a target does not rescue
+// it — an environment nobody can name is an environment nothing can be proved
+// to miss.
+for (const drillEnv of ENVS) {
+  push({
+    title: `fresh clone | --env ${drillEnv} | no target named`,
+    drillEnv,
+    sources: allEnvs(shippedPlaceholder),
+  });
+  for (const via of ["--host", "--url", "--from-cluster"] as const) {
+    push({
+      title: `fresh clone | --env ${drillEnv} | ${via} at its own host`,
+      drillEnv,
+      sources: allEnvs(shippedPlaceholder),
+      target: { via, at: drillEnv, spelling: "asIs" },
+    });
+  }
 }
 
-// One input at a time, against its own environment and against each foreign one.
-// A foreign target is spelled five ways: a port, letter case, a trailing root
-// dot and a missing port must not change which environment a host belongs to.
-for (const drillEnv of DRILL_ENVS) {
-  for (const input of ALL_TARGET_INPUTS) {
-    for (const target of ENVS) {
-      const spellings: Mutation[] = target === drillEnv ? ["asIs"] : SPELLINGS;
-      for (const mutation of spellings) {
+// The exploits that shipped, in the two shapes that need no flags at all. Both
+// are a scoped variable naming another environment's load balancer, which is
+// exactly what a repository variable holding the wrong hostname looks like.
+push({
+  title: "exploit | DRILL_WEBHOOK_HOST_PRODUCTION names staging's host, nothing else set",
+  drillEnv: "production",
+  sources: {
+    development: shippedPlaceholder(),
+    staging: shippedPlaceholder(),
+    production: {
+      values: { says: "placeholder" },
+      hostVar: { says: "host", at: "staging" },
+      urlVar: NOTHING,
+    },
+  },
+});
+push({
+  title: "exploit | DRILL_WEBHOOK_URL_PRODUCTION names staging's host, nothing else set",
+  drillEnv: "production",
+  sources: {
+    development: shippedPlaceholder(),
+    staging: shippedPlaceholder(),
+    production: {
+      values: { says: "placeholder" },
+      hostVar: NOTHING,
+      urlVar: { says: "host", at: "staging" },
+    },
+  },
+});
+push({
+  title: "exploit | both scoped host variables name staging's host",
+  drillEnv: "production",
+  sources: {
+    development: shippedPlaceholder(),
+    staging: {
+      values: { says: "placeholder" },
+      hostVar: { says: "host", at: "staging" },
+      urlVar: NOTHING,
+    },
+    production: {
+      values: { says: "placeholder" },
+      hostVar: { says: "host", at: "staging" },
+      urlVar: NOTHING,
+    },
+  },
+});
+push({
+  title: "exploit | every other environment named, production's variable still points at staging",
+  drillEnv: "production",
+  sources: {
+    development: truthful("development"),
+    staging: truthful("staging"),
+    production: {
+      values: { says: "placeholder" },
+      hostVar: { says: "host", at: "staging" },
+      urlVar: NOTHING,
+    },
+  },
+});
+push({
+  title: "exploit | --host at staging while drilling production, everything named",
+  drillEnv: "production",
+  sources: allEnvs(truthful),
+  target: { via: "--host", at: "staging", spelling: "asIs" },
+});
+
+// A fully named world: every way of naming a target, at every place, in every
+// spelling. A drill fires at its own environment and refuses everywhere else,
+// and no spelling of a foreign host changes which environment it belongs to.
+for (const drillEnv of ENVS) {
+  push({
+    title: `named world | --env ${drillEnv} | values files decide`,
+    drillEnv,
+    sources: allEnvs(truthful),
+  });
+
+  for (const via of ["--host", "--url", "--from-cluster"] as const) {
+    for (const at of PLACES) {
+      // A case that has to reach a listener has to be spelled in a way that
+      // resolves; one that has to refuse never opens a socket, so any spelling
+      // will do — and a foreign host spelled five ways is the point.
+      const delivers = at === drillEnv || (at === "drifted" && via === "--from-cluster");
+      const spellings = delivers ? DELIVERABLE_SPELLINGS : ALL_SPELLINGS;
+      for (const spelling of spellings) {
+        if (spelling === "userinfo" && via !== "--url") continue;
+        if (at === "drifted" && !delivers && spelling !== "asIs") continue;
         push({
-          title: `--env ${drillEnv} | ${input.name} -> ${target} (${mutation})`,
+          title: `named world | --env ${drillEnv} | ${via} at ${at} (${spelling})`,
           drillEnv,
-          targets: [{ input, target, mutation }],
+          sources: allEnvs(truthful),
+          target: { via, at, spelling },
         });
       }
     }
   }
-  // No target-naming input at all: the values file decides.
-  push({ title: `--env ${drillEnv} | chart/values-${drillEnv}.yaml`, drillEnv, targets: [] });
 }
 
-// Two inputs at a time — agreeing and disagreeing, in both orders. The exploit
-// that shipped was a disagreeing pair whose checks read one input and whose POST
-// read the other.
-for (const drillEnv of DRILL_ENVS) {
-  for (let i = 0; i < SCOPED_TARGET_INPUTS.length; i++) {
-    for (let j = i + 1; j < SCOPED_TARGET_INPUTS.length; j++) {
-      const first = SCOPED_TARGET_INPUTS[i] as TargetInput;
-      const second = SCOPED_TARGET_INPUTS[j] as TargetInput;
-      for (const foreign of ENVS) {
-        push({
-          title: `--env ${drillEnv} | ${first.name} -> ${drillEnv} + ${second.name} -> ${foreign}`,
-          drillEnv,
-          targets: [
-            { input: first, target: drillEnv, mutation: "asIs" },
-            { input: second, target: foreign, mutation: "asIs" },
-          ],
-        });
-        push({
-          title: `--env ${drillEnv} | ${second.name} -> ${foreign} + ${first.name} -> ${drillEnv}`,
-          drillEnv,
-          targets: [
-            { input: second, target: foreign, mutation: "asIs" },
-            { input: first, target: drillEnv, mutation: "asIs" },
-          ],
-        });
-      }
-    }
+// Identity from each source in turn, and from sources that disagree.
+for (const drillEnv of ENVS) {
+  push({
+    title: `identity | --env ${drillEnv} | every host from DRILL_WEBHOOK_HOST_<ENV>`,
+    drillEnv,
+    sources: allEnvs((env) => ({
+      values: { says: "placeholder" },
+      hostVar: { says: "host", at: env },
+      urlVar: NOTHING,
+    })),
+  });
+  push({
+    title: `identity | --env ${drillEnv} | every host from DRILL_WEBHOOK_URL_<ENV>`,
+    drillEnv,
+    sources: allEnvs((env) => ({
+      values: { says: "placeholder" },
+      hostVar: NOTHING,
+      urlVar: { says: "host", at: env },
+    })),
+  });
+  push({
+    title: `identity | --env ${drillEnv} | one source each: values, host variable, URL variable`,
+    drillEnv,
+    sources: {
+      development: truthful("development"),
+      staging: {
+        values: { says: "placeholder" },
+        hostVar: { says: "host", at: "staging" },
+        urlVar: NOTHING,
+      },
+      production: {
+        values: { says: "placeholder" },
+        hostVar: NOTHING,
+        urlVar: { says: "host", at: "production" },
+      },
+    },
+  });
+  push({
+    title: `identity | --env ${drillEnv} | variable agrees with the values file`,
+    drillEnv,
+    sources: allEnvs((env) => ({
+      values: { says: "host", at: env },
+      hostVar: { says: "host", at: env },
+      urlVar: NOTHING,
+    })),
+  });
+  push({
+    title: `identity | --env ${drillEnv} | variable contradicts the values file`,
+    drillEnv,
+    sources: allEnvs((env) => ({
+      values: { says: "host", at: env },
+      hostVar: { says: "host", at: env === "staging" ? "production" : "staging" },
+      urlVar: NOTHING,
+    })),
+  });
+  push({
+    title: `identity | --env ${drillEnv} | the two variables contradict each other`,
+    drillEnv,
+    sources: {
+      ...allEnvs(truthful),
+      staging: {
+        values: { says: "placeholder" },
+        hostVar: { says: "host", at: "staging" },
+        urlVar: { says: "host", at: "drifted" },
+      },
+    },
+  });
+  push({
+    title: `identity | --env ${drillEnv} | a variable says absent while the values file names a host`,
+    drillEnv,
+    sources: {
+      ...allEnvs(truthful),
+      development: {
+        values: { says: "host", at: "development" },
+        hostVar: { says: "absent" },
+        urlVar: NOTHING,
+      },
+    },
+  });
+  push({
+    title: `identity | --env ${drillEnv} | values file with no host at all`,
+    drillEnv,
+    sources: {
+      ...allEnvs(truthful),
+      development: { values: { says: "no-file" }, hostVar: NOTHING, urlVar: NOTHING },
+    },
+  });
+}
+
+// chart/values.yaml is the fallback Helm applies, so it is the fallback here —
+// and two environments inheriting one host from it is two environments that
+// cannot be told apart.
+push({
+  title: "base values | one environment inherits ingress.host from chart/values.yaml",
+  drillEnv: "production",
+  sources: {
+    development: truthful("development"),
+    staging: truthful("staging"),
+    production: { values: { says: "no-file" }, hostVar: NOTHING, urlVar: NOTHING },
+  },
+  baseValues: { says: "host", at: "production" },
+});
+push({
+  title: "base values | two environments inherit the same host from chart/values.yaml",
+  drillEnv: "production",
+  sources: {
+    development: truthful("development"),
+    staging: { values: { says: "no-file" }, hostVar: NOTHING, urlVar: NOTHING },
+    production: { values: { says: "no-file" }, hostVar: NOTHING, urlVar: NOTHING },
+  },
+  baseValues: { says: "host", at: "production" },
+});
+
+// An environment with no webhook deployment is declared, not omitted. The
+// declaration is a claim about a host that does not exist, so it collides with
+// nothing — and drilling the environment that made it has nowhere to go.
+for (const absent of ENVS) {
+  for (const drillEnv of ENVS) {
+    push({
+      title: `absent | ${absent} declared to have no deployment | --env ${drillEnv}`,
+      drillEnv,
+      sources: {
+        ...allEnvs(truthful),
+        [absent]: { values: { says: "placeholder" }, hostVar: { says: "absent" }, urlVar: NOTHING },
+      } as Record<Env, Sources>,
+    });
   }
 }
 
-// An unscoped variable alongside a perfectly good scoped one: the unscoped name
-// is refused rather than quietly losing a precedence contest.
-for (const drillEnv of DRILL_ENVS) {
-  for (const unscoped of [UNSCOPED_URL_VAR, UNSCOPED_HOST_VAR]) {
-    for (const scoped of SCOPED_TARGET_INPUTS) {
-      push({
-        title: `--env ${drillEnv} | ${scoped.name} -> ${drillEnv} + ${unscoped.name} -> ${drillEnv}`,
-        drillEnv,
-        targets: [
-          { input: scoped, target: drillEnv, mutation: "asIs" },
-          { input: unscoped, target: drillEnv, mutation: "asIs" },
-        ],
-      });
-    }
+// One environment degraded while another is drilled: the fail-closed matrix.
+// Every one of these leaves the drilled environment perfectly well named, and
+// every one of them still has to refuse.
+for (const drillEnv of ENVS) {
+  for (const degraded of ENVS) {
+    if (degraded === drillEnv) continue;
+    push({
+      title: `fail closed | --env ${drillEnv} | ${degraded} left on the placeholder`,
+      drillEnv,
+      sources: { ...allEnvs(truthful), [degraded]: shippedPlaceholder() } as Record<Env, Sources>,
+    });
+    push({
+      title: `fail closed | --env ${drillEnv} | ${degraded} has no values file and no variable`,
+      drillEnv,
+      sources: {
+        ...allEnvs(truthful),
+        [degraded]: { values: { says: "no-file" }, hostVar: NOTHING, urlVar: NOTHING },
+      } as Record<Env, Sources>,
+    });
+    push({
+      title: `fail closed | --env ${drillEnv} | ${degraded} claims the ${drillEnv} host`,
+      drillEnv,
+      sources: {
+        ...allEnvs(truthful),
+        [degraded]: {
+          values: { says: "placeholder" },
+          hostVar: { says: "host", at: drillEnv },
+          urlVar: NOTHING,
+        },
+      } as Record<Env, Sources>,
+    });
   }
 }
 
-// Three inputs at a time, each naming a different environment.
-for (let i = 0; i < SCOPED_TARGET_INPUTS.length; i++) {
-  for (let j = i + 1; j < SCOPED_TARGET_INPUTS.length; j++) {
-    for (let k = j + 1; k < SCOPED_TARGET_INPUTS.length; k++) {
-      const trio = [
-        SCOPED_TARGET_INPUTS[i] as TargetInput,
-        SCOPED_TARGET_INPUTS[j] as TargetInput,
-        SCOPED_TARGET_INPUTS[k] as TargetInput,
-      ];
+// The signing identity, crossed with a named world. A secret id that names
+// another environment's tree is the same misfire read backwards.
+for (const drillEnv of ENVS) {
+  for (const via of ["--hmac-secret-id", "scoped-id-var", "unscoped-id-var"] as const) {
+    for (const of of ENVS) {
       push({
-        title: `--env production | ${trio.map((t) => t.name).join(" + ")} (mixed targets)`,
-        drillEnv: "production",
-        targets: [
-          { input: trio[0] as TargetInput, target: "production", mutation: "asIs" },
-          { input: trio[1] as TargetInput, target: "staging", mutation: "asIs" },
-          { input: trio[2] as TargetInput, target: "development", mutation: "asIs" },
-        ],
+        title: `secret | --env ${drillEnv} | ${via} names ${of}`,
+        drillEnv,
+        sources: allEnvs(truthful),
+        secret: { via, of },
+        ...(via === "unscoped-id-var"
+          ? { unscoped: { DRILL_HMAC_SECRET_ID: secretIdOf(of) } }
+          : {}),
       });
     }
   }
+  // A pasted secret value carries no environment to check — it is the caller's
+  // own assertion, and nothing in a checkout can contradict it. So it is only
+  // ever paired with its own environment.
+  push({
+    title: `secret | --env ${drillEnv} | DRILL_HMAC_SECRET_<ENV> holds its own secret`,
+    drillEnv,
+    sources: allEnvs(truthful),
+    secret: { via: "scoped-value-var", of: drillEnv },
+  });
 }
 
-// A signing identity crossed with a target. The secret is the other half of the
-// pair: the right host signed with another environment's secret is the same
-// misfire read backwards. A pasted literal secret is the caller's assertion and
-// carries no environment to check, so it is only ever paired with its own.
-for (const drillEnv of DRILL_ENVS) {
-  for (const identity of IDENTITY_INPUTS) {
-    const secretEnvs = identity.attributable ? ENVS : [drillEnv];
-    for (const secretEnv of secretEnvs) {
-      push({
-        title: `--env ${drillEnv} | values file + ${identity.name} -> ${secretEnv}`,
-        drillEnv,
-        targets: [],
-        identity: { input: identity, secretEnv },
-      });
-      push({
-        title: `--env ${drillEnv} | --url -> ${drillEnv} + ${identity.name} -> ${secretEnv}`,
-        drillEnv,
-        targets: [{ input: URL_FLAG, target: drillEnv, mutation: "asIs" }],
-        identity: { input: identity, secretEnv },
-      });
-    }
+// An unscoped variable applies to every --env, which is one environment's
+// signature delivered to another's load balancer waiting to happen.
+for (const drillEnv of ENVS) {
+  for (const name of ["DRILL_WEBHOOK_HOST", "DRILL_WEBHOOK_URL", "DRILL_HMAC_SECRET"] as const) {
+    push({
+      title: `unscoped | --env ${drillEnv} | ${name} is set`,
+      drillEnv,
+      sources: allEnvs(truthful),
+      unscoped: {
+        [name]:
+          name === "DRILL_WEBHOOK_URL"
+            ? `https://${spell(drillEnv, "asIs")}`
+            : name === "DRILL_WEBHOOK_HOST"
+              ? spell(drillEnv, "asIs")
+              : secretOf(drillEnv),
+      },
+    });
   }
 }
 
@@ -627,20 +954,15 @@ beforeAll(async () => {
   buildFixture();
   const key = fs.readFileSync(path.join(fixtureRoot, "stub-key.pem"));
   const cert = fs.readFileSync(certPath);
-  for (const env of DRILL_ENVS) {
-    const server = https.createServer({ key, cert }, stubHandler(env));
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  for (const place of PLACES) {
+    const site = WORLD[place];
+    const server = https.createServer({ key, cert }, handlerFor(place));
+    await new Promise<void>((resolve) => server.listen(0, site.bind, resolve));
     const address = server.address();
-    if (address === null || typeof address === "string") throw new Error("stub has no port");
-    HOSTS[env] = `${HOSTS[env]}:${address.port}`;
+    if (address === null || typeof address === "string") throw new Error("listener has no port");
+    site.port = address.port;
+    site.hostPort = `${site.host}:${address.port}`;
     servers.push(server);
-  }
-  // The values files name the ports, so they are written once the stubs are up.
-  for (const env of ENVS) {
-    fs.writeFileSync(
-      path.join(fixtureRoot, `chart/values-${env}.yaml`),
-      `ingress:\n  host: ${HOSTS[env]}\n`,
-    );
   }
 });
 
@@ -649,137 +971,111 @@ afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
   fs.rmSync(fixtureRoot, { recursive: true, force: true });
-  for (const f of extraFixtures) fs.rmSync(f.root, { recursive: true, force: true });
 });
 
 describe("fire-drill.sh delivers only where it signs for", () => {
-  it("covers pairs and triples, not just singletons", async () => {
-    expect(combinations.filter((c) => c.targets.length === 2)).not.toHaveLength(0);
-    expect(combinations.filter((c) => c.targets.length === 3)).not.toHaveLength(0);
-    expect(combinations.filter((c) => c.identity !== undefined)).not.toHaveLength(0);
-    // Every case where two inputs disagree must be a refusal — if the oracle
-    // ever says otherwise, the invariant has been weakened by accident.
-    const disagreeing = combinations.filter(
-      (c) => new Set(c.targets.map((t) => t.target)).size > 1,
-    );
-    expect(disagreeing).not.toHaveLength(0);
-    expect(disagreeing.every((c) => !oracle(c).delivered)).toBe(true);
+  it("holds a matrix that both fires and refuses", () => {
+    const firing = cases.filter((c) => refusalReason(c) === null);
+    const refusing = cases.filter((c) => refusalReason(c) !== null);
     // A matrix of nothing but refusals would pass against a drill that never
-    // fires at all, so some of it has to reach a listener.
-    expect(combinations.filter((c) => oracle(c).delivered).length).toBeGreaterThan(10);
+    // fires at all, and one of nothing but firings would prove no safety.
+    expect(firing.length).toBeGreaterThan(20);
+    expect(refusing.length).toBeGreaterThan(50);
+    // The shipped state of this repository is a refusal, and so is every shape
+    // of the exploit.
+    for (const c of cases.filter((x) => x.title.startsWith("fresh clone"))) {
+      expect(refusalReason(c), c.title).not.toBeNull();
+    }
+    for (const c of cases.filter((x) => x.title.startsWith("exploit"))) {
+      expect(refusalReason(c), c.title).not.toBeNull();
+    }
   });
 
-  it.each(combinations)("$title", async (combination) => {
-    await assertInvariant(combination);
+  it.each(cases)("$title", async (c) => {
+    await assertCase(c);
   });
 });
 
-// ── The rules the generated cases lean on ───────────────────────────────────
+describe("what an absence declaration costs", () => {
+  // `none` is the one claim a checkout cannot check: a hostname can be compared
+  // against another hostname, "there is no host here" cannot be compared against
+  // anything. An operator who declares an environment absent *and* names that
+  // environment's real host as another environment's gets a delivery, and the
+  // drill says so on the way out rather than pretending otherwise.
+  it("says out loud that nothing held the request against the absent environment", async () => {
+    const c: Case = {
+      title: "absence declared, and believed",
+      drillEnv: "production",
+      sources: {
+        development: truthful("development"),
+        staging: { values: { says: "placeholder" }, hostVar: { says: "absent" }, urlVar: NOTHING },
+        production: truthful("production"),
+      },
+    };
+    writeValues(c);
+    const { args, env } = materialize(c);
+    const before = deliveries.length;
+    const { code, output } = await run(args, env);
 
-/** A fixture with hand-written values files, for cases the generator cannot express. */
-interface Fixture {
-  root: string;
-  run(args: string[], env?: Record<string, string>): Promise<RunResult>;
-}
+    expect(code).toBe(0);
+    expect(deliveries.slice(before)).toHaveLength(1);
+    expect(output).toContain("WARNING: staging is declared to have no webhook deployment");
+    expect(output).toContain("this is the one place the drill takes the operator's word");
+  });
+});
 
-const extraFixtures: Fixture[] = [];
-
-function fixture(hosts: Partial<Record<Env, string>>, baseHost?: string): Fixture {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "drill-values-"));
-  fs.mkdirSync(path.join(root, "scripts"));
-  fs.mkdirSync(path.join(root, "chart"));
-  fs.copyFileSync(SCRIPT, path.join(root, "scripts/fire-drill.sh"));
-  const base = fs.readFileSync(BASE_VALUES, "utf8");
-  fs.writeFileSync(
-    path.join(root, "chart/values.yaml"),
-    baseHost === undefined ? base : base.replace(/^ {2}host: ''.*$/m, `  host: ${baseHost}`),
-  );
-  for (const [env, host] of Object.entries(hosts)) {
-    fs.writeFileSync(path.join(root, `chart/values-${env}.yaml`), `ingress:\n  host: ${host}\n`);
-  }
-  const f: Fixture = { root, run: (args, env = {}) => run(args, env, root) };
-  extraFixtures.push(f);
-  return f;
-}
-
-const REAL: Record<Env, string> = {
-  development: "webhook-development.example-corp.io",
-  staging: "webhook-staging.example-corp.io",
-  production: "webhook.example-corp.io",
-};
-
-describe("what a values file means", () => {
-  it("refuses to fire at the placeholder this repository ships", async () => {
-    const f = fixture({ staging: "webhook-staging.example.com" });
-    const { code, output } = await f.run(["--env", "staging", "--dry-run"]);
+describe("what the drill says when it refuses", () => {
+  // A refusal is only useful if it names what to change, so the map goes out
+  // with it.
+  it("prints the identity map and what to configure on a fresh clone", async () => {
+    const c: Case = {
+      title: "fresh clone",
+      drillEnv: "staging",
+      sources: allEnvs(shippedPlaceholder),
+    };
+    writeValues(c);
+    const { args, env } = materialize(c);
+    const { code, output } = await run(args, env);
 
     expect(code).not.toBe(0);
-    expect(output).toContain("placeholder host");
+    expect(output).toContain("environment identities:");
+    expect(output).toContain("UNKNOWN");
+    expect(output).toContain(PLACEHOLDER);
+    // The drilled environment is the one named first: "I do not know where you
+    // are firing" is plainer than "I cannot rule out somewhere else".
+    expect(output).toContain("nothing establishes a webhook host for staging");
+    expect(output).toContain("DRILL_WEBHOOK_HOST_STAGING=none");
   });
 
-  it("refuses an override that disagrees with the declared host", async () => {
-    const f = fixture(REAL);
-    const { code, output } = await f.run(["--env", "staging", "--host", FOREIGN_HOST, "--dry-run"]);
+  it("names both environments when two claim one host", async () => {
+    const c: Case = {
+      title: "collision",
+      drillEnv: "production",
+      sources: {
+        development: truthful("development"),
+        staging: truthful("staging"),
+        production: {
+          values: { says: "placeholder" },
+          hostVar: { says: "host", at: "staging" },
+          urlVar: NOTHING,
+        },
+      },
+    };
+    writeValues(c);
+    const { args, env } = materialize(c);
+    const { code, output } = await run(args, env);
 
     expect(code).not.toBe(0);
-    expect(output).toContain("refusing to fire");
-    expect(output).toContain(REAL.staging);
-  });
-
-  it("accepts an override that agrees with the declared host in another spelling", async () => {
-    const f = fixture(REAL);
-    const spelled = `${REAL.staging.toUpperCase()}.`;
-    const { code, output } = await f.run(["--env", "staging", "--host", spelled, "--dry-run"]);
-
-    expect(code).toBe(0);
-    expect(output).toContain(`POST   https://${spelled}/webhook/grafana-oncall`);
-  });
-
-  it("allows an override when that environment ships only the placeholder", async () => {
-    // A fork that has deployed staging but not production: there is no
-    // production identity to contradict, so a scoped variable is how the target
-    // is named. The cross-environment check still applies.
-    const f = fixture({ staging: REAL.staging, production: "webhook.example.com" });
-    const { code, output } = await f.run(["--env", "production", "--dry-run"], {
-      DRILL_WEBHOOK_HOST_PRODUCTION: REAL.production,
-    });
-
-    expect(code).toBe(0);
-    expect(output).toContain(`https://${REAL.production}/webhook/grafana-oncall`);
-  });
-
-  it("falls back to the base values file when an environment has no file of its own", async () => {
-    const f = fixture({ staging: REAL.staging }, REAL.production);
-    const { code, stdout } = await f.run(["--env", "production", "--print-host"]);
-
-    expect(code).toBe(0);
-    expect(stdout.trim()).toBe(REAL.production);
-  });
-
-  it("prefers the per-environment file over the base file", async () => {
-    const f = fixture(REAL, "webhook-from-base.example-corp.io");
-    const { code, stdout } = await f.run(["--env", "production", "--print-host"]);
-
-    expect(code).toBe(0);
-    expect(stdout.trim()).toBe(REAL.production);
-  });
-
-  it("refuses when no file names a host at all", async () => {
-    const f = fixture({});
-    const { code, output } = await f.run(["--env", "production", "--dry-run"]);
-
-    expect(code).not.toBe(0);
-    expect(output).toContain("ingress.host is empty");
+    expect(output).toContain("staging and production both claim the webhook host");
   });
 
   it("refuses a --host that is really a URL, rather than pasting it into one", async () => {
-    const f = fixture(REAL);
-    const { code, output } = await f.run([
+    writeValues({ title: "", drillEnv: "staging", sources: allEnvs(truthful) });
+    const { code, output } = await run([
       "--env",
       "staging",
       "--host",
-      `https://${REAL.staging}`,
-      "--dry-run",
+      `https://${WORLD.staging.hostPort}`,
     ]);
 
     expect(code).not.toBe(0);
@@ -787,17 +1083,32 @@ describe("what a values file means", () => {
   });
 
   it("refuses a --url without a scheme, rather than guessing one", async () => {
-    const f = fixture(REAL);
-    const { code, output } = await f.run(["--env", "staging", "--url", REAL.staging, "--dry-run"]);
+    writeValues({ title: "", drillEnv: "staging", sources: allEnvs(truthful) });
+    const { code, output } = await run(["--env", "staging", "--url", WORLD.staging.hostPort]);
 
     expect(code).not.toBe(0);
     expect(output).toContain("which has no scheme");
   });
 
+  it("refuses a target named twice", async () => {
+    writeValues({ title: "", drillEnv: "staging", sources: allEnvs(truthful) });
+    const { code, output } = await run([
+      "--env",
+      "staging",
+      "--host",
+      WORLD.staging.hostPort,
+      "--url",
+      `https://${WORLD.staging.hostPort}`,
+    ]);
+
+    expect(code).not.toBe(0);
+    expect(output).toContain("named 2 times");
+  });
+
   it("refuses an HMAC secret id named twice", async () => {
-    const f = fixture(REAL);
-    const { code, output } = await f.run(
-      ["--env", "staging", "--hmac-secret-id", "acme/webhook-hmac", "--dry-run"],
+    writeValues({ title: "", drillEnv: "staging", sources: allEnvs(truthful) });
+    const { code, output } = await run(
+      ["--env", "staging", "--hmac-secret-id", "acme/webhook-hmac", "--check-target"],
       { DRILL_HMAC_SECRET_ID_STAGING: "acme/other-webhook-hmac" },
     );
 
@@ -806,89 +1117,79 @@ describe("what a values file means", () => {
   });
 
   it("keeps a custom secret id that names no environment", async () => {
-    const f = fixture(REAL);
-    const { code, output } = await f.run([
+    writeValues({ title: "", drillEnv: "staging", sources: allEnvs(truthful) });
+    const { code, output } = await run([
       "--env",
       "staging",
       "--hmac-secret-id",
       "acme/webhook-hmac",
-      "--dry-run",
+      "--check-target",
     ]);
 
     expect(code).toBe(0);
     expect(output).toContain("hmac   acme/webhook-hmac");
   });
+
+  it("refuses a variable that names the shipped placeholder", async () => {
+    writeValues({ title: "", drillEnv: "staging", sources: allEnvs(truthful) });
+    const { code, output } = await run(["--env", "staging", "--check-target"], {
+      DRILL_WEBHOOK_HOST_DEVELOPMENT: PLACEHOLDER,
+    });
+
+    expect(code).not.toBe(0);
+    expect(output).toContain("the placeholder this repository ships");
+  });
 });
 
 describe("the URL curl parses is the URL the checks read", () => {
-  // A fork that has deployed staging but not production: production's values
-  // file still carries the placeholder, so neither the declared-host rule nor
-  // anything else has a production hostname to compare against. All that stands
-  // between a production-signed alert and the staging load balancer is the
-  // cross-environment check reading the hostname curl will actually connect to.
-  const halfDeployed = () => fixture({ staging: HOSTS.staging, production: "webhook.example.com" });
-
-  it("reads the host after the userinfo, the way curl does", async () => {
-    const f = halfDeployed();
-    const before = deliveries.length;
-    const { code, output } = await f.run([
-      "--env",
-      "production",
-      "--url",
-      `https://drill@${HOSTS.staging}`,
-    ]);
-
-    expect(deliveries.slice(before)).toHaveLength(0);
-    expect(code).not.toBe(0);
-    expect(output).toContain("refusing to fire");
-    expect(output).not.toContain("[drill] HTTP ");
-  });
-
   it("does not let a globbed URL address a host nothing checked", async () => {
-    const f = halfDeployed();
+    writeValues({ title: "", drillEnv: "production", sources: allEnvs(truthful) });
     const before = deliveries.length;
-    const { code, output } = await f.run([
+    const { code, output } = await run([
       "--env",
       "production",
       "--url",
-      `https://{${bareHost(HOSTS.staging)},nowhere.invalid}:${HOSTS.staging.split(":")[1]}`,
+      `https://{${WORLD.staging.host},nowhere.invalid}:${WORLD.staging.port}`,
     ]);
 
     expect(deliveries.slice(before)).toHaveLength(0);
     expect(code).not.toBe(0);
-    expect(output).toContain("which is not a hostname");
+    expect(output).toContain("not a hostname");
     expect(output).not.toContain("[drill] HTTP ");
   });
 });
 
-describe("--canonical-host", () => {
-  // The comparison form the cross-environment rules use, and the primitive
-  // .github/workflows/drill.yml compares with so the two cannot drift apart.
-  const cases: Array<[string, string]> = [
-    ["webhook.example-corp.io", "webhook.example-corp.io"],
-    ["WEBHOOK.Example-Corp.IO", "webhook.example-corp.io"],
-    ["webhook.example-corp.io.", "webhook.example-corp.io"],
-    ["webhook.example-corp.io:8443", "webhook.example-corp.io"],
-    ["https://webhook.example-corp.io", "webhook.example-corp.io"],
-    ["http://webhook.example-corp.io:8443/webhook", "webhook.example-corp.io"],
-    ["https://WEBHOOK.example-corp.io.:8443/webhook?x=1", "webhook.example-corp.io"],
-    ["https://[::1]:8443/webhook", "[::1]"],
-    ["127.0.0.1:19001", "127.0.0.1"],
-    // curl splits userinfo on the last `@` and connects to what follows it.
-    ["https://drill@webhook.example-corp.io/webhook", "webhook.example-corp.io"],
-    ["https://user:pa@ss@webhook.example-corp.io:8443", "webhook.example-corp.io"],
-    // The shipped placeholder is a stand-in, not an identity.
-    ["example.com", ""],
-    ["webhook.example.com", ""],
-    ["https://webhook.example.com:8443/webhook", ""],
-    ["", ""],
-  ];
-
-  it.each(cases)("%s -> %s", async (input, expected) => {
-    const f = fixture({ staging: REAL.staging });
-    const { code, stdout } = await f.run(["--canonical-host", input]);
+describe("--check-target is the whole verdict", () => {
+  // .github/workflows/drill.yml runs this and nothing else. It has to print the
+  // map, the request and the secret, so a failed run says what to fix without a
+  // second reading of the configuration anywhere.
+  it("prints the map, the target and the secret when a drill would fire", async () => {
+    writeValues({ title: "", drillEnv: "production", sources: allEnvs(truthful) });
+    const { code, stdout } = await run(["--env", "production", "--check-target"]);
 
     expect(code).toBe(0);
-    expect(stdout.trim()).toBe(expected);
+    expect(stdout).toContain("environment identities:");
+    expect(stdout).toContain(canonical(WORLD.staging.host));
+    expect(stdout).toContain(canonical(WORLD.production.host));
+    expect(stdout).toContain("production drills");
+    expect(stdout).toContain("incident-response/production/grafana/oncall-webhook-hmac");
+  });
+
+  it("needs no aws CLI, no cluster and no payload tooling", async () => {
+    writeValues({ title: "", drillEnv: "staging", sources: allEnvs(truthful) });
+    const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), "drill-nobin-"));
+    try {
+      const { stdout } = await execFileAsync(
+        "bash",
+        [path.join(fixtureRoot, "scripts/fire-drill.sh"), "--env", "staging", "--check-target"],
+        {
+          env: { PATH: `${emptyBin}:/usr/bin:/bin`, HOME: fixtureRoot },
+          encoding: "utf8",
+        },
+      );
+      expect(stdout).toContain("staging drills");
+    } finally {
+      fs.rmSync(emptyBin, { recursive: true, force: true });
+    }
   });
 });

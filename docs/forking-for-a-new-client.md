@@ -129,6 +129,8 @@ Use the webhook ingress hostname for the env — `ingress.host` in `chart/values
 
 ## 6. Fire a drill
 
+The drill signs with one environment's HMAC secret and has to prove it is reaching that environment's load balancer and no other, so it needs a webhook hostname for *every* environment before it fires — `ingress.host` in each `chart/values-<env>.yaml`, or `DRILL_WEBHOOK_HOST_<ENV>`, or `DRILL_WEBHOOK_HOST_<ENV>=none` for one your fork does not deploy. `bash scripts/fire-drill.sh --env staging --check-target` prints the map and says what is missing without contacting anything.
+
 ```bash
 npm run drill:staging
 npm run drill:join:staging -- --user <your Slack member ID>

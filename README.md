@@ -125,7 +125,7 @@ First-time deployers should stand staging up, run the scripted drill (`npm run d
 
 **Secret seeding + rotation** — env-scoped inventory (`incident-response/staging/*`, `incident-response/production/*`), `put-secret-value` commands, rotation cadence — [`docs/secrets.md`](docs/secrets.md).
 
-**CI drill** — `.github/workflows/drill.yml` fires `scripts/ci-drill.sh` at a deployed environment on demand. Its first step checks the OIDC role and the webhook hostname and fails with the list of what is missing, so an unconfigured drill says so instead of quietly passing. No cron until a fork has an environment to point it at — see [`docs/drills.md`](docs/drills.md) § CI drill.
+**CI drill** — `.github/workflows/drill.yml` fires `scripts/ci-drill.sh` at a deployed environment on demand. Its first step checks the OIDC role and asks `fire-drill.sh --check-target` whether the drill would fire where it signs, failing with the identity map and what to configure, so an unconfigured drill says so instead of quietly passing. No cron until a fork has an environment to point it at — see [`docs/drills.md`](docs/drills.md) § CI drill.
 
 ## Configuration
 

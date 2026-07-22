@@ -13,79 +13,97 @@
 #                         [--title <text>]
 #                         [--url <base-url>] [--host <hostname>] [--from-cluster]
 #                         [--namespace <ns>] [--region <region>]
-#                         [--hmac-secret-id <id>] [--dry-run] [--print-host]
-#                         [--canonical-host <value>]
+#                         [--hmac-secret-id <id>] [--dry-run]
+#                         [--check-target] [--print-host]
 #
 # Defaults: --env staging, --state firing, auto-generated incident ID.
 #
-# ── One target, resolved once ───────────────────────────────────────────────
+# ── A drill signs for one environment and has to reach that one ─────────────
 #
-# A drill is a pair: a signing identity — this environment's HMAC secret — and a
-# destination. Sign for one environment and deliver to another and a production
-# signature lands on a staging load balancer.
+# The drill signs with incident-response/<env>/grafana/oncall-webhook-hmac. Sign
+# for one environment, deliver to another, and a production signature lands on a
+# staging load balancer. The invariant, stated once:
 #
-# So the drill resolves exactly one target URL, and everything downstream reads
-# that one value: the environment checks, `--print-host`, and the POST. The
-# hostname the checks inspect is derived from that URL rather than carried
-# beside it, so there is no second variable a request can be sent to instead.
+#   A payload signed for environment X reaches only X's webhook host, or
+#   nothing is sent.
 #
-# Ways to name the target. Naming it twice is an error rather than a precedence
-# puzzle, because two inputs that disagree are exactly the pair that misfires:
+# Holding that needs an authoritative answer to "which host belongs to which
+# environment" — for every environment, not just the one being drilled. A drill
+# that cannot name staging's host cannot prove it is missing staging's load
+# balancer. So the drill builds one identity map before it resolves anything,
+# and an identity it cannot establish is a refusal. There is no path where an
+# unknown identity means "carry on".
 #
-#   --url <base-url>          a full base URL, scheme included, no path
-#   --host <hostname>         a hostname, optionally with a port; scheme https
-#   DRILL_WEBHOOK_URL_<ENV>   the same as --url, for that environment only
-#   DRILL_WEBHOOK_HOST_<ENV>  the same as --host, for that environment only
-#   --from-cluster            the live Ingress, read with kubectl
+# ── The identity map ────────────────────────────────────────────────────────
 #
-# Name none of them and the target is `ingress.host` from
-# chart/values-<env>.yaml. The values file is the default because it is the same
-# object ArgoCD renders the Ingress from, and reading it needs nothing but a
-# checkout: no kubeconfig, no cluster reachability. That is what lets one command
-# work from a laptop and from CI, where the drill authenticates to AWS and never
-# to the cluster. `--from-cluster` is there for when you want to prove the drill
-# is hitting the load balancer that exists rather than the one the chart
-# declares.
+# Environment X's identity comes from the same three sources, for every X — the
+# environment being drilled and the ones being avoided alike:
 #
-# ── Signature and destination stay in the same environment ──────────────────
+#   DRILL_WEBHOOK_URL_<X>     a base URL, scheme included, no path
+#   DRILL_WEBHOOK_HOST_<X>    a hostname, optionally with a port
+#   chart/values-<X>.yaml     ingress.host, falling back to chart/values.yaml —
+#                             the same two files in the same order that Helm
+#                             renders X's Ingress from, so this needs nothing
+#                             but a checkout: no kubeconfig, no cluster
 #
-# Five rules, all checked before anything is signed or sent:
+# Hosts compare canonically. A scheme, a port, a path, userinfo, letter case and
+# a trailing root dot can all differ between two strings naming one load
+# balancer, so none of them survives into the comparison. `example.com` is the
+# placeholder this repository ships so the chart renders without naming anyone's
+# DNS zone — a stand-in, never an identity.
 #
-#   1. The target is named once. Two inputs that name it are refused with both
-#      names, whether or not they agree.
-#   2. Overrides are environment-scoped. An unscoped DRILL_WEBHOOK_URL,
+# Each environment lands in exactly one state:
+#
+#   known     one canonical host, agreed by every source that named one
+#   absent    DRILL_WEBHOOK_HOST_<X> or DRILL_WEBHOOK_URL_<X> is `none` — X has
+#             no webhook deployment, so it claims no host and collides with
+#             nothing. The one way to say "not deployed" out loud
+#   unknown   no source names a host. A fresh checkout is three unknowns
+#   conflict  two sources name different hosts
+#
+# ── What has to hold before anything is signed ──────────────────────────────
+#
+#   1. Every environment is `known` or `absent`, this one included. An unknown
+#      or a conflict anywhere refuses the run and prints the map — a target
+#      that cannot be proved to miss staging's load balancer is a target that
+#      might be hitting it.
+#   2. No two environments claim the same host. One host that is two
+#      environments is a host where one environment's signature lands on the
+#      other's listener.
+#   3. The drilled environment is `known`. There is no drilling an environment
+#      declared to have no webhook host.
+#   4. The request goes to the drilled environment's host. `--url`, `--host`
+#      and the scoped variables are ways to spell that host; one that spells a
+#      different host is refused, whether or not the different host belongs to
+#      anybody. `--from-cluster` is the deliberate exception: it fires at the
+#      Ingress the cluster serves, which still has to miss every other
+#      environment's host, and warns when the chart and the cluster disagree.
+#   5. Overrides are environment-scoped. An unscoped DRILL_WEBHOOK_URL,
 #      DRILL_WEBHOOK_HOST, DRILL_HMAC_SECRET_ID or DRILL_HMAC_SECRET is refused
-#      by name, not ignored — one variable that applies to every `--env` is
-#      exactly how the misfire happens, and a caller who set it deserves to be
-#      told rather than silently overruled.
-#   3. A resolved host that is another environment's `ingress.host` is refused,
-#      whichever way it was resolved. Hosts are compared canonically: a scheme,
-#      a port, a path, letter case and a trailing root dot can all differ while
-#      naming the same load balancer, so none of them survives the comparison.
-#   4. Once `chart/values-<env>.yaml` names a real host, that host is the
-#      environment's identity: an explicit override that disagrees with it is
-#      refused. Change the values file, or use `--from-cluster`.
-#   5. The secret the drill signs with belongs to `--env`. A secret id naming
+#      by name rather than ignored — one variable that applies to every `--env`
+#      is exactly how the misfire happens, and a caller who set it deserves to
+#      be told rather than silently overruled.
+#   6. The secret the drill signs with belongs to `--env`. A secret id naming
 #      another environment's tree is refused for the same reason a host is.
 #
+# `--check-target` runs all of it, prints the map and the resolved target, and
+# exits — zero when a drill would fire where it signs, non-zero with the reason
+# and what to configure otherwise. It contacts nothing and needs no credentials,
+# so it is the whole verdict a caller needs; .github/workflows/drill.yml asks
+# exactly this and holds no second opinion of its own.
+#
 # `--print-host` prints the canonical hostname of the request the drill would
-# send, and exits, after all five. It is the hook a caller uses to assert the
-# target independently — the drill workflow derives the expected host from its
-# own configuration and compares.
+# send, and nothing else, after the same checks. TARGET_HOST is derived from the
+# one resolved URL rather than carried beside it, so what this prints and what
+# curl connects to cannot come apart.
 #
-# `--canonical-host <value>` prints the comparison form of a hostname or a base
-# URL and exits, and prints nothing at all for the placeholder host this
-# repository ships. It is the same primitive rules 3 and 4 compare with, exposed
-# so a caller can check `--print-host` against its own configuration without
-# restating the rule in a second language.
-#
-# The request path comes from `ingress.path` too, so the drill follows the
-# listener rule instead of assuming one. (`ingress.healthcheckPath` is the ALB
+# The request path comes from `ingress.path`, so the drill follows the listener
+# rule instead of assuming one. (`ingress.healthcheckPath` is the ALB
 # target-group probe, not a listener rule — it is not reachable from outside the
 # load balancer and is no use as a liveness check from here.)
 #
 # What it does:
-#   1. Resolves the webhook base URL (above) and the routed path
+#   1. Builds the identity map and resolves one target URL (above)
 #   2. Reads the HMAC secret from Secrets Manager
 #      (incident-response/${env}/grafana/oncall-webhook-hmac), or takes the
 #      value straight from DRILL_HMAC_SECRET_<ENV>
@@ -124,8 +142,7 @@ HMAC_SECRET_ID_FLAG=""
 FROM_CLUSTER=0
 DRY_RUN=0
 PRINT_HOST=0
-CANONICALIZE=0
-CANONICAL_INPUT=""
+CHECK_TARGET=0
 
 usage() {
   cat <<EOF
@@ -133,11 +150,10 @@ Usage: $0 [--env development|staging|production] [--state firing|resolved|silenc
            [--incident-id <id>] [--title <text>]
            [--url <base-url>] [--host <hostname>] [--from-cluster]
            [--namespace <ns>] [--region <region>]
-           [--hmac-secret-id <id>] [--dry-run] [--print-host]
-           [--canonical-host <value>]
+           [--hmac-secret-id <id>] [--dry-run] [--check-target] [--print-host]
 
-See the header of this file for how the webhook target is resolved and what each
-firing produces in your environment.
+See the header of this file for how an environment's webhook host is
+established, and what each firing produces in your environment.
 EOF
   exit "${1:-1}"
 }
@@ -155,17 +171,36 @@ while (( $# > 0 )); do
     --region)         REGION="${2:?}"; shift 2 ;;
     --hmac-secret-id) HMAC_SECRET_ID_FLAG="${2:?}"; shift 2 ;;
     --dry-run)        DRY_RUN=1; shift ;;
+    --check-target)   CHECK_TARGET=1; shift ;;
     --print-host)     PRINT_HOST=1; shift ;;
-    # Its value is allowed to be empty: a caller pipes whatever its own
-    # configuration holds through this, and "nothing configured" is an answer.
-    --canonical-host) (( $# >= 2 )) || usage 1; CANONICALIZE=1; CANONICAL_INPUT="$2"; shift 2 ;;
     -h|--help)        usage 0 ;;
     *)                printf 'unknown flag: %s\n' "$1" >&2; usage 1 ;;
   esac
 done
 
 log() { printf '[drill] %s\n' "$*"; }
+# Warnings go to stderr: `--print-host` promises a hostname on stdout and
+# nothing else, and a caller piping it should not have to filter prose out.
+warn() { printf '[drill] WARNING: %s\n' "$*" >&2; }
 die() { printf '[drill] FAIL: %s\n' "$*" >&2; exit 1; }
+
+ENVIRONMENTS=(development staging production)
+
+case "$ENVIRONMENT" in development|staging|production) ;; *) printf '[drill] --env must be development, staging, or production\n' >&2; exit 1 ;; esac
+case "$STATE" in firing|resolved|silenced) ;; *) printf '[drill] --state must be firing, resolved, or silenced\n' >&2; exit 1 ;; esac
+# `--check-target` and `--print-host` stop before the payload, so they need none
+# of the payload tooling. Everything else does.
+if (( PRINT_HOST == 0 && CHECK_TARGET == 0 )); then
+  command -v openssl >/dev/null || { printf '[drill] openssl required\n' >&2; exit 1; }
+  command -v jq      >/dev/null || { printf '[drill] jq required\n' >&2; exit 1; }
+  command -v curl    >/dev/null || { printf '[drill] curl required\n' >&2; exit 1; }
+fi
+
+[[ -z "$INCIDENT_ID" ]] && INCIDENT_ID="drill-$(date +%s)-$$"
+[[ -z "$TITLE" ]] && TITLE="DRILL: synthetic P1 — do not page"
+
+BASE_VALUES="$REPO_ROOT/chart/values.yaml"
+ENV_VALUES="$REPO_ROOT/chart/values-${ENVIRONMENT}.yaml"
 
 # The comparison form of anything that names a host: a bare hostname, a hostname
 # with a port, or a full base URL. A scheme, a path, a query, a fragment, userinfo,
@@ -191,35 +226,18 @@ canonical_host() {
 
 # `example.com` is the placeholder this repository ships so the chart renders
 # without naming anyone's DNS zone. It resolves to a parked IANA address, so
-# firing at it would hang rather than fail. A placeholder is also not an
-# identity, so it never counts as an environment's declared host below.
+# firing at it would hang rather than fail. A placeholder is a stand-in, not an
+# identity, so it never establishes one.
 is_placeholder_host() {
   case "$1" in ''|example.com|*.example.com) return 0 ;; *) return 1 ;; esac
 }
 
-# A pure string question, answered before anything else so it needs no --env, no
-# values files, and none of the payload tooling.
-if (( CANONICALIZE == 1 )); then
-  CANONICAL_OUTPUT=$(canonical_host "$CANONICAL_INPUT")
-  is_placeholder_host "$CANONICAL_OUTPUT" || printf '%s\n' "$CANONICAL_OUTPUT"
-  exit 0
-fi
-
-case "$ENVIRONMENT" in development|staging|production) ;; *) printf '[drill] --env must be development, staging, or production\n' >&2; exit 1 ;; esac
-case "$STATE" in firing|resolved|silenced) ;; *) printf '[drill] --state must be firing, resolved, or silenced\n' >&2; exit 1 ;; esac
-# `--print-host` resolves and checks the target and prints nothing else, so it
-# needs none of the payload tooling. Everything else does.
-if (( PRINT_HOST == 0 )); then
-  command -v openssl >/dev/null || { printf '[drill] openssl required\n' >&2; exit 1; }
-  command -v jq      >/dev/null || { printf '[drill] jq required\n' >&2; exit 1; }
-  command -v curl    >/dev/null || { printf '[drill] curl required\n' >&2; exit 1; }
-fi
-
-[[ -z "$INCIDENT_ID" ]] && INCIDENT_ID="drill-$(date +%s)-$$"
-[[ -z "$TITLE" ]] && TITLE="DRILL: synthetic P1 — do not page"
-
-BASE_VALUES="$REPO_ROOT/chart/values.yaml"
-ENV_VALUES="$REPO_ROOT/chart/values-${ENVIRONMENT}.yaml"
+# `none` in a scoped variable is the one way to say an environment has no
+# webhook deployment. It is a claim, not a silence: an environment nobody claims
+# is `unknown`, and unknown refuses.
+is_absent_declaration() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in none) return 0 ;; *) return 1 ;; esac
+}
 
 # Read `<block>.<key>` out of a Helm values file. Everything read here sits one
 # level under a top-level block in hand-written, two-space-indented YAML with no
@@ -253,18 +271,41 @@ values_lookup() {
   printf '%s' "$v"
 }
 
-ENVIRONMENTS=(development staging production)
 ENV_UPPER=$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')
 
-SCOPED_URL_VAR="DRILL_WEBHOOK_URL_${ENV_UPPER}"
-SCOPED_HOST_VAR="DRILL_WEBHOOK_HOST_${ENV_UPPER}"
 SCOPED_SECRET_ID_VAR="DRILL_HMAC_SECRET_ID_${ENV_UPPER}"
 SCOPED_SECRET_VAR="DRILL_HMAC_SECRET_${ENV_UPPER}"
 
-# `ingress.host` as the named environment declares it, in comparison form. Empty
-# when that environment has no values file, which is how a partial fork looks.
-declared_host() {
-  canonical_host "$(values_get "$REPO_ROOT/chart/values-${1}.yaml" ingress host)"
+# `--host` and DRILL_WEBHOOK_HOST_<ENV> name a hostname, optionally with a port.
+# A scheme or a path in one of them means the caller meant a URL; say so rather
+# than pasting it into one.
+require_bare_host() {
+  case "$2" in
+    *://*|*/*) die "$1 is '$2', which is a URL and not a hostname. Pass a full base URL with --url or DRILL_WEBHOOK_URL_<ENV>, or name a bare hostname here." ;;
+  esac
+}
+
+# `--url` and DRILL_WEBHOOK_URL_<ENV> name a base URL. Without a scheme there is
+# no reading of the string that curl and the checks are guaranteed to agree on,
+# so refuse it rather than guess.
+require_base_url() {
+  case "$2" in
+    http://*|https://*) ;;
+    *) die "$1 is '$2', which has no scheme. Pass a full base URL like https://webhook.example-corp.io, or name a bare hostname with --host or DRILL_WEBHOOK_HOST_<ENV>." ;;
+  esac
+}
+
+# A host has to look like one. Anything else — a brace curl would treat as a
+# glob, a space, a character no DNS name carries — means the string compared is
+# not the string curl would connect to, and that gap is the one thing no check
+# can tolerate.
+require_hostname() {
+  case "$3" in
+    \[*\]) ;;  # IPv6 literal
+    ''|*[!a-z0-9._-]*)
+      die "$1 is '$2', whose host reads as '$3'. That is not a hostname — pass a hostname, optionally with a port, or a base URL whose host is one."
+      ;;
+  esac
 }
 
 # ── Refuse unscoped overrides ────────────────────────────────────────────────
@@ -280,10 +321,216 @@ for unscoped in DRILL_WEBHOOK_URL DRILL_WEBHOOK_HOST DRILL_HMAC_SECRET_ID DRILL_
   fi
 done
 
+# ── The identity map ─────────────────────────────────────────────────────────
+# Built once, for every environment, from the same three sources. Nothing below
+# asks a different question of a different environment.
+IDENT_STATE=()   # known | absent | unknown | conflict
+IDENT_HOST=()    # canonical host, when known
+IDENT_URL=()     # the base URL to POST to, when known
+IDENT_SOURCE=()  # what established it
+IDENT_NOTE=()    # why it is unknown, or which two sources conflict
+
+env_index() {
+  local e i=0
+  for e in "${ENVIRONMENTS[@]}"; do
+    [[ "$e" == "$1" ]] && { printf '%s' "$i"; return 0; }
+    i=$(( i + 1 ))
+  done
+  return 1
+}
+
+build_identity() {
+  local env="$1" upper uvar hvar uval hval vraw vsrc idx
+  local -a c_src=() c_kind=() c_host=() c_url=()
+
+  upper=$(printf '%s' "$env" | tr '[:lower:]' '[:upper:]')
+  uvar="DRILL_WEBHOOK_URL_${upper}";  uval="${!uvar:-}"
+  hvar="DRILL_WEBHOOK_HOST_${upper}"; hval="${!hvar:-}"
+
+  vsrc="chart/values-${env}.yaml"
+  vraw=$(values_get "$REPO_ROOT/chart/values-${env}.yaml" ingress host)
+  if [[ -z "$vraw" ]]; then
+    vraw=$(values_get "$BASE_VALUES" ingress host)
+    [[ -n "$vraw" ]] && vsrc="chart/values.yaml"
+  fi
+
+  local c
+  if [[ -n "$uval" ]]; then
+    if is_absent_declaration "$uval"; then
+      c_src+=("$uvar"); c_kind+=(absent); c_host+=(""); c_url+=("")
+    else
+      require_base_url "$uvar" "$uval"
+      c=$(canonical_host "$uval")
+      require_hostname "$uvar" "$uval" "$c"
+      ! is_placeholder_host "$c" || die "$uvar is '$uval', whose host is the placeholder this repository ships. Name the hostname external-dns published for the $env ALB, or say the environment has no webhook deployment with $uvar=none."
+      c_src+=("$uvar"); c_kind+=(host); c_host+=("$c"); c_url+=("${uval%/}")
+    fi
+  fi
+
+  if [[ -n "$hval" ]]; then
+    if is_absent_declaration "$hval"; then
+      c_src+=("$hvar"); c_kind+=(absent); c_host+=(""); c_url+=("")
+    else
+      require_bare_host "$hvar" "$hval"
+      c=$(canonical_host "$hval")
+      require_hostname "$hvar" "$hval" "$c"
+      ! is_placeholder_host "$c" || die "$hvar is '$hval', which is the placeholder this repository ships. Name the hostname external-dns published for the $env ALB, or say the environment has no webhook deployment with $hvar=none."
+      c_src+=("$hvar"); c_kind+=(host); c_host+=("$c"); c_url+=("https://${hval}")
+    fi
+  fi
+
+  # A values file carrying the shipped placeholder names nothing. That is the
+  # state of a fresh checkout, and it is what makes every environment unknown
+  # until a fork says otherwise.
+  if [[ -n "$vraw" ]] && ! is_placeholder_host "$(canonical_host "$vraw")"; then
+    require_bare_host "$vsrc" "$vraw"
+    c=$(canonical_host "$vraw")
+    require_hostname "$vsrc" "$vraw" "$c"
+    c_src+=("$vsrc"); c_kind+=(host); c_host+=("$c"); c_url+=("https://${vraw}")
+  fi
+
+  local state=unknown host="" url="" source="" note="" i=0
+  while (( i < ${#c_src[@]} )); do
+    if [[ "${c_kind[$i]}" == "absent" ]]; then
+      if [[ "$state" == "known" ]]; then
+        state=conflict; note="${source} names '${host}', ${c_src[$i]} says $env has no webhook host"; break
+      fi
+      state=absent; source="${c_src[$i]}"
+    else
+      if [[ "$state" == "absent" ]]; then
+        state=conflict; note="${source} says $env has no webhook host, ${c_src[$i]} names '${c_host[$i]}'"; break
+      fi
+      if [[ "$state" == "known" && "$host" != "${c_host[$i]}" ]]; then
+        state=conflict; note="${source} names '${host}', ${c_src[$i]} names '${c_host[$i]}'"; break
+      fi
+      if [[ "$state" != "known" ]]; then
+        state=known; host="${c_host[$i]}"; url="${c_url[$i]}"; source="${c_src[$i]}"
+      fi
+    fi
+    i=$(( i + 1 ))
+  done
+
+  if [[ "$state" == "unknown" ]]; then
+    if [[ -n "$vraw" ]]; then
+      note="chart/values-${env}.yaml carries the placeholder '${vraw}', and no DRILL_WEBHOOK_HOST_${upper} / DRILL_WEBHOOK_URL_${upper} names one"
+    else
+      note="no chart/values-${env}.yaml ingress.host, no DRILL_WEBHOOK_HOST_${upper}, no DRILL_WEBHOOK_URL_${upper}"
+    fi
+  fi
+
+  idx=$(env_index "$env")
+  IDENT_STATE[idx]="$state"
+  IDENT_HOST[idx]="$host"
+  IDENT_URL[idx]="$url"
+  IDENT_SOURCE[idx]="$source"
+  IDENT_NOTE[idx]="$note"
+}
+
+for env in "${ENVIRONMENTS[@]}"; do
+  build_identity "$env"
+done
+
+identity_table() {
+  local e idx
+  for e in "${ENVIRONMENTS[@]}"; do
+    idx=$(env_index "$e")
+    case "${IDENT_STATE[$idx]}" in
+      known)    printf '  %-12s %-42s from %s\n' "$e" "${IDENT_HOST[$idx]}" "${IDENT_SOURCE[$idx]}" ;;
+      absent)   printf '  %-12s %-42s from %s\n' "$e" "no webhook deployment" "${IDENT_SOURCE[$idx]}" ;;
+      unknown)  printf '  %-12s %-42s %s\n'      "$e" "UNKNOWN" "${IDENT_NOTE[$idx]}" ;;
+      conflict) printf '  %-12s %-42s %s\n'      "$e" "CONFLICTING" "${IDENT_NOTE[$idx]}" ;;
+    esac
+  done
+}
+
+# An environment declared absent is the one claim here nothing can check: a
+# hostname can be compared, "there is no host" cannot. Say so out loud on every
+# run that leans on one, rather than letting it sit silently in a variable.
+warn_absent_declarations() {
+  local e idx upper
+  for e in "${ENVIRONMENTS[@]}"; do
+    idx=$(env_index "$e")
+    [[ "${IDENT_STATE[$idx]}" == "absent" ]] || continue
+    upper=$(printf '%s' "$e" | tr '[:lower:]' '[:upper:]')
+    warn "$e is declared to have no webhook deployment (${IDENT_SOURCE[$idx]}=none), so nothing held this request against a $e host. If $e is in fact deployed, name its host in DRILL_WEBHOOK_HOST_${upper} instead — this is the one place the drill takes the operator's word."
+  done
+}
+
+# A refusal prints the map. The map is the reason, and it is what a caller has to
+# change.
+refuse() {
+  printf '[drill] FAIL: %s\n' "$1" >&2
+  printf '\n[drill] environment identities:\n' >&2
+  identity_table >&2
+  printf '\n[drill] %s\n' "$2" >&2
+  exit 1
+}
+
+how_to_name_a_host() {
+  local env="$1" upper
+  upper=$(printf '%s' "$env" | tr '[:lower:]' '[:upper:]')
+  printf "Set chart/values-%s.yaml's ingress.host to the hostname external-dns published for the %s ALB, or set DRILL_WEBHOOK_HOST_%s (or DRILL_WEBHOOK_URL_%s) to it. If %s has no webhook deployment, say so: DRILL_WEBHOOK_HOST_%s=none." \
+    "$env" "$env" "$upper" "$upper" "$env" "$upper"
+}
+
+# ── Every environment has to be answerable ───────────────────────────────────
+# Conflicts first: a contradiction is a stronger statement than a silence, and
+# fixing it may be all a caller has to do.
+for env in "${ENVIRONMENTS[@]}"; do
+  idx=$(env_index "$env")
+  if [[ "${IDENT_STATE[$idx]}" == "conflict" ]]; then
+    refuse "two sources name the $env webhook host differently — ${IDENT_NOTE[$idx]}. While they disagree there is no fact about where $env lives, and a ${ENVIRONMENT} drill cannot prove it is missing it." \
+      "Make them agree, or drop one of them."
+  fi
+done
+
+# ── One host cannot be two environments ──────────────────────────────────────
+# Before the unknowns, because a collision is a fact about hosts that are named
+# rather than a gap in what is named.
+for env in "${ENVIRONMENTS[@]}"; do
+  idx=$(env_index "$env")
+  [[ "${IDENT_STATE[$idx]}" == "known" ]] || continue
+  for other_env in "${ENVIRONMENTS[@]}"; do
+    other_idx=$(env_index "$other_env")
+    (( other_idx > idx )) || continue
+    [[ "${IDENT_STATE[$other_idx]}" == "known" ]] || continue
+    if [[ "${IDENT_HOST[$idx]}" == "${IDENT_HOST[$other_idx]}" ]]; then
+      refuse "$env and $other_env both claim the webhook host '${IDENT_HOST[$idx]}'. One host serving two environments is a host where one environment's signature lands on the other's listener, and no drill can tell the two apart." \
+        "Give each of them the host its own ALB answers on. If one of the two has no webhook deployment, say that instead: DRILL_WEBHOOK_HOST_$(printf '%s' "$env" | tr '[:lower:]' '[:upper:]')=none, or the same for $other_env."
+    fi
+  done
+done
+
+# ── An environment nobody names is an environment nothing can miss ───────────
+# The drilled one first: "I do not know where you are firing" is a plainer thing
+# to be told than "I cannot rule out somewhere else".
+for env in "$ENVIRONMENT" "${ENVIRONMENTS[@]}"; do
+  idx=$(env_index "$env")
+  [[ "${IDENT_STATE[$idx]}" == "unknown" ]] || continue
+  if [[ "$env" == "$ENVIRONMENT" ]]; then
+    refuse "nothing establishes a webhook host for $ENVIRONMENT, so this drill has no idea where it would be firing." \
+      "$(how_to_name_a_host "$env")"
+  fi
+  refuse "nothing establishes a webhook host for $env. This drill signs with incident-response/${ENVIRONMENT}/grafana/oncall-webhook-hmac, and while $env has no known host there is no proving the request misses $env's load balancer — so it does not go out." \
+    "$(how_to_name_a_host "$env")"
+done
+
+DRILL_IDX=$(env_index "$ENVIRONMENT")
+if [[ "${IDENT_STATE[$DRILL_IDX]}" == "absent" ]]; then
+  refuse "--env $ENVIRONMENT is declared to have no webhook deployment by ${IDENT_SOURCE[$DRILL_IDX]}, so there is nothing to drill." \
+    "Drop that declaration and name $ENVIRONMENT's host, or drill an environment that has one."
+fi
+
+DECLARED_HOST="${IDENT_HOST[$DRILL_IDX]}"
+
 # ── Resolve the one target ───────────────────────────────────────────────────
 # TARGET_URL is the single resolved value. TARGET_HOST is derived from it rather
 # than carried alongside it, so every check below inspects the URL the POST goes
 # to, and `--print-host` cannot describe a different request than the one sent.
+#
+# The scoped variables are not resolved a second time here: they are already in
+# the identity map, and the map is where the target comes from when no flag
+# names one.
 NAMED_COUNT=0
 NAMED_BY=""
 name_target() {
@@ -291,56 +538,22 @@ name_target() {
   NAMED_BY="${NAMED_BY:+$NAMED_BY, }$1"
 }
 
-if [[ -n "$URL_FLAG" ]];             then name_target "--url"; fi
-if [[ -n "$HOST_FLAG" ]];            then name_target "--host"; fi
-if [[ -n "${!SCOPED_URL_VAR:-}" ]];  then name_target "$SCOPED_URL_VAR"; fi
-if [[ -n "${!SCOPED_HOST_VAR:-}" ]]; then name_target "$SCOPED_HOST_VAR"; fi
-if (( FROM_CLUSTER == 1 ));          then name_target "--from-cluster"; fi
+if [[ -n "$URL_FLAG" ]];    then name_target "--url"; fi
+if [[ -n "$HOST_FLAG" ]];   then name_target "--host"; fi
+if (( FROM_CLUSTER == 1 )); then name_target "--from-cluster"; fi
 
 if (( NAMED_COUNT > 1 )); then
   die "the webhook target is named $NAMED_COUNT times ($NAMED_BY). Name it once. With two of them, one decides where a ${ENVIRONMENT}-signed alert lands and the other decides nothing — and which is which is not something a caller should have to know. Drop all but one."
 fi
 
-# `--host` and DRILL_WEBHOOK_HOST_<ENV> name a hostname, optionally with a port.
-# A scheme or a path in one of them means the caller meant a URL; say so rather
-# than pasting it into one.
-require_bare_host() {
-  case "$2" in
-    *://*|*/*) die "$1 is '$2', which is a URL and not a hostname. Pass a full base URL with --url or $SCOPED_URL_VAR, or name a bare hostname here." ;;
-  esac
-}
-
-# `--url` and DRILL_WEBHOOK_URL_<ENV> name a base URL. Without a scheme there is
-# no reading of the string that curl and the checks are guaranteed to agree on,
-# so refuse it rather than guess.
-require_base_url() {
-  case "$2" in
-    http://*|https://*) ;;
-    *) die "$1 is '$2', which has no scheme. Pass a full base URL like https://webhook.example-corp.io, or name a bare hostname with --host or $SCOPED_HOST_VAR." ;;
-  esac
-}
-
-# OVERRIDDEN marks the paths that name a target from outside the chart. Those
-# are the ones checked against the environment's declared host below; the values
-# file and the live Ingress are not overrides of anything.
-OVERRIDDEN=0
-
 if [[ -n "$URL_FLAG" ]]; then
-  SOURCE="--url"; OVERRIDDEN=1
+  SOURCE="--url"
   require_base_url "$SOURCE" "$URL_FLAG"
   TARGET_URL="$URL_FLAG"
 elif [[ -n "$HOST_FLAG" ]]; then
-  SOURCE="--host"; OVERRIDDEN=1
+  SOURCE="--host"
   require_bare_host "$SOURCE" "$HOST_FLAG"
   TARGET_URL="https://${HOST_FLAG}"
-elif [[ -n "${!SCOPED_URL_VAR:-}" ]]; then
-  SOURCE="$SCOPED_URL_VAR"; OVERRIDDEN=1
-  require_base_url "$SOURCE" "${!SCOPED_URL_VAR}"
-  TARGET_URL="${!SCOPED_URL_VAR}"
-elif [[ -n "${!SCOPED_HOST_VAR:-}" ]]; then
-  SOURCE="$SCOPED_HOST_VAR"; OVERRIDDEN=1
-  require_bare_host "$SOURCE" "${!SCOPED_HOST_VAR}"
-  TARGET_URL="https://${!SCOPED_HOST_VAR}"
 elif (( FROM_CLUSTER == 1 )); then
   SOURCE="live Ingress in $NAMESPACE"
   command -v kubectl >/dev/null || die "--from-cluster needs kubectl on PATH"
@@ -350,54 +563,49 @@ elif (( FROM_CLUSTER == 1 )); then
   require_bare_host "$SOURCE" "$LIVE_HOST"
   TARGET_URL="https://${LIVE_HOST}"
 else
-  SOURCE="chart/values-${ENVIRONMENT}.yaml"
-  VALUES_HOST=$(values_lookup ingress host)
-  [[ -n "$VALUES_HOST" ]] || die "ingress.host is empty in chart/values-${ENVIRONMENT}.yaml — set it, pass --host/--url, set ${SCOPED_HOST_VAR}, or use --from-cluster"
-  require_bare_host "$SOURCE" "$VALUES_HOST"
-  TARGET_URL="https://${VALUES_HOST}"
+  SOURCE="${IDENT_SOURCE[$DRILL_IDX]}"
+  TARGET_URL="${IDENT_URL[$DRILL_IDX]}"
 fi
 
 TARGET_URL="${TARGET_URL%/}"
 TARGET_HOST=$(canonical_host "$TARGET_URL")
-[[ -n "$TARGET_HOST" ]] || die "no hostname in the target from $SOURCE — pass a URL with a scheme and a host, like https://webhook.example-corp.io"
+require_hostname "$SOURCE" "$TARGET_URL" "$TARGET_HOST"
 
-# A resolved host has to look like one. Anything else — a brace curl would treat
-# as a glob, a space, a character no DNS name carries — means the string the
-# rules below compare is not the string curl would connect to, and that gap is
-# the one thing none of the rules can tolerate.
-case "$TARGET_HOST" in
-  \[*\]) ;;  # IPv6 literal
-  *[!a-z0-9._-]*)
-    die "$SOURCE resolves to '$TARGET_HOST', which is not a hostname. Pass a hostname, optionally with a port, or a base URL whose host is one."
-    ;;
-esac
-
-if is_placeholder_host "$TARGET_HOST"; then
-  die "$SOURCE resolves to the placeholder host '$TARGET_HOST'. Set chart/values-${ENVIRONMENT}.yaml's ingress.host to the hostname external-dns published for the ALB, pass --host <hostname> or --url <base-url>, set ${SCOPED_HOST_VAR}, or use --from-cluster."
-fi
-
-# ── Keep the signature and the destination in the same environment ───────────
-# The drill signs with this environment's HMAC secret. Both checks below compare
-# canonical hostnames, so a port, a path, a capital letter or a trailing dot
-# cannot hide a collision, and both run before a payload is built — a
-# cross-environment target never reaches the signing step, let alone the network.
-DECLARED_HOST=$(declared_host "$ENVIRONMENT")
-
-for other_env in "${ENVIRONMENTS[@]}"; do
-  [[ "$other_env" == "$ENVIRONMENT" ]] && continue
-  other_host=$(declared_host "$other_env")
-  is_placeholder_host "$other_host" && continue
-  if [[ "$TARGET_HOST" == "$other_host" ]]; then
-    die "refusing to fire: --env $ENVIRONMENT signs with incident-response/${ENVIRONMENT}/grafana/oncall-webhook-hmac, but $SOURCE resolves to '$TARGET_HOST', which chart/values-${other_env}.yaml declares as the $other_env webhook host. Drill $other_env with --env $other_env."
+# ── The request goes where the signature belongs ─────────────────────────────
+if (( FROM_CLUSTER == 1 )); then
+  # The live Ingress is what the cluster serves for this environment, which is
+  # the one reading of "$ENVIRONMENT's host" the chart cannot overrule. It still
+  # has to miss every other environment.
+  if is_placeholder_host "$TARGET_HOST"; then
+    refuse "the live Ingress in $NAMESPACE serves the placeholder host '$TARGET_HOST'. That is the value this repository ships, not a hostname anything answers on." \
+      "Deploy the chart with ingress.host set, then drill again."
   fi
-done
-
-if (( OVERRIDDEN == 1 )) && ! is_placeholder_host "$DECLARED_HOST" && [[ "$TARGET_HOST" != "$DECLARED_HOST" ]]; then
-  die "refusing to fire: chart/values-${ENVIRONMENT}.yaml declares the $ENVIRONMENT webhook host as '$DECLARED_HOST', but $SOURCE resolves to '$TARGET_HOST'. Once the values file names a real host it is what ArgoCD renders the Ingress from and what this environment is; change it there, or use --from-cluster to drill whatever the cluster actually serves."
-fi
-
-if (( FROM_CLUSTER == 1 )) && ! is_placeholder_host "$DECLARED_HOST" && [[ "$TARGET_HOST" != "$DECLARED_HOST" ]]; then
-  log "WARNING: the live Ingress in $NAMESPACE serves '$TARGET_HOST'; chart/values-${ENVIRONMENT}.yaml declares '$DECLARED_HOST'. Firing at the live one — the chart and the cluster have drifted."
+  for other_env in "${ENVIRONMENTS[@]}"; do
+    [[ "$other_env" == "$ENVIRONMENT" ]] && continue
+    other_idx=$(env_index "$other_env")
+    [[ "${IDENT_STATE[$other_idx]}" == "known" ]] || continue
+    if [[ "$TARGET_HOST" == "${IDENT_HOST[$other_idx]}" ]]; then
+      refuse "the live Ingress in $NAMESPACE serves '$TARGET_HOST', which is $other_env's webhook host — and this drill signs with incident-response/${ENVIRONMENT}/grafana/oncall-webhook-hmac." \
+        "Point your kubeconfig at the $ENVIRONMENT cluster, or drill $other_env with --env $other_env."
+    fi
+  done
+  if [[ "$TARGET_HOST" != "$DECLARED_HOST" ]]; then
+    warn "the live Ingress in $NAMESPACE serves '$TARGET_HOST'; $ENVIRONMENT's host is '$DECLARED_HOST' per ${IDENT_SOURCE[$DRILL_IDX]}. Firing at the live one — the chart and the cluster have drifted."
+  fi
+elif [[ "$TARGET_HOST" != "$DECLARED_HOST" ]]; then
+  claimed_by=""
+  for other_env in "${ENVIRONMENTS[@]}"; do
+    [[ "$other_env" == "$ENVIRONMENT" ]] && continue
+    other_idx=$(env_index "$other_env")
+    [[ "${IDENT_STATE[$other_idx]}" == "known" ]] || continue
+    [[ "$TARGET_HOST" == "${IDENT_HOST[$other_idx]}" ]] && claimed_by="$other_env"
+  done
+  if [[ -n "$claimed_by" ]]; then
+    refuse "$SOURCE resolves to '$TARGET_HOST', which is $claimed_by's webhook host — and this drill signs with incident-response/${ENVIRONMENT}/grafana/oncall-webhook-hmac." \
+      "Drill $claimed_by with --env $claimed_by."
+  fi
+  refuse "$SOURCE resolves to '$TARGET_HOST', and $ENVIRONMENT's webhook host is '$DECLARED_HOST' per ${IDENT_SOURCE[$DRILL_IDX]}. A ${ENVIRONMENT}-signed payload goes to $ENVIRONMENT's host and nowhere else." \
+    "Name '$DECLARED_HOST' here, change what ${IDENT_SOURCE[$DRILL_IDX]} says $ENVIRONMENT is, or use --from-cluster to fire at whatever the cluster actually serves."
 fi
 
 INGRESS_PATH=$(values_lookup ingress path)
@@ -433,13 +641,26 @@ for other_env in "${ENVIRONMENTS[@]}"; do
   esac
 done
 
-# Resolution and both environment checks are done. Callers that only want to
-# know where a drill would land get that hostname on stdout and nothing else.
+# The whole verdict, for a caller that wants it without firing: the map that
+# allowed this, the request it allowed, and the secret it would be signed with.
+if (( CHECK_TARGET == 1 )); then
+  warn_absent_declarations
+  log "environment identities:"
+  identity_table
+  log "$ENVIRONMENT drills $TARGET_HOST"
+  log "  target $TARGET (resolved from $SOURCE)"
+  log "  hmac   $HMAC_SECRET_ID (from $HMAC_SECRET_ID_SOURCE)"
+  exit 0
+fi
+
+# Resolution and every check are done. Callers that only want to know where a
+# drill would land get that hostname on stdout and nothing else.
 if (( PRINT_HOST == 1 )); then
   printf '%s\n' "$TARGET_HOST"
   exit 0
 fi
 
+warn_absent_declarations
 log "env=$ENVIRONMENT state=$STATE region=$REGION"
 log "webhook_url=$TARGET (resolved from $SOURCE)"
 log "incident_id=$INCIDENT_ID"
@@ -510,7 +731,7 @@ trap 'rm -f "$RESP_FILE"' EXIT
 #
 # `-g` turns off curl's URL globbing. Without it `{}` and `[]` in a URL expand
 # into several requests, which would mean one checked hostname and several
-# addressed ones — the exact split every rule above exists to prevent.
+# addressed ones — the exact split every check above exists to prevent.
 STATUS=$(curl -sS -g -o "$RESP_FILE" -w '%{http_code}' --max-time 10 \
   -H 'Content-Type: application/json' \
   -H "x-grafana-oncall-signature: $SIGNATURE" \
