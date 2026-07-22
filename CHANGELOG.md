@@ -59,7 +59,7 @@ incident-response is a ceremonial incident commander assistant. It assembles P1 
 - Integration tests against `amazon/dynamodb-local` for `ConsistentRead` semantics, idempotency, and cross-incident isolation.
 - Unit suite covers HttpClient retry + timeout, circuit breaker state machine, HMAC cache invalidation, Slack adapter fail modes, Zod command-text validation.
 - GH Actions `ci.yml`: lint + format:check, build, unit + coverage, integration (dynamodb-local service container), `npm audit`, `tsc --noEmit` (incl. tests), invariant grep-gates (Statuspage gate, Slack adapter, HTTP client, baked secrets, secret-inventory drift), `helm template` staging + production, Docker build.
-- GH Actions `nightly-drill.yml`: scheduled canary drill against staging via GH OIDC. Asserts `ROOM_ASSEMBLED` + required audit events. Gated by the `INCIDENT_RESPONSE_DRILL_ENABLED` repo variable so it stays off until the OIDC role is provisioned.
+- GH Actions `drill.yml`: on-demand drill against a deployed environment via GH OIDC. Asserts `ROOM_ASSEMBLED` + required audit events. Fails with the exact list of what to configure when the OIDC role or the webhook hostname is missing.
 - GH Actions `security.yml` (gitleaks + trivy, weekly) and `release.yml` (image build + cosign + SBOM, OCI push).
 
 #### Documentation

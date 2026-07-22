@@ -2,7 +2,7 @@
 
 IncidentResponse is a P1 incident orchestrator. You can't just wait for a real P1 to know it's working — you have to exercise it deliberately. This doc covers five strategies, from cheapest to most realistic, and the scripted drill harness that covers the first of them.
 
-The **drill harness** (`scripts/fire-drill.sh` + `scripts/observe-incident.sh`) is the fastest way to see the whole system move. After staging is deployed and every secret is seeded:
+The **drill harness** (`scripts/fire-drill.sh` + `scripts/observe-incident.sh`) is the fastest way to see the whole system move. Once staging is deployed, every secret is seeded, and `ingress.host` in `chart/values-staging.yaml` names your webhook hostname instead of the placeholder this repository ships:
 
 ```bash
 npm run drill:staging         # fires a synthetic P1 via HMAC-signed webhook
@@ -35,8 +35,25 @@ The cheapest way to exercise the full P1 path. `scripts/fire-drill.sh`:
 2. Reads the HMAC secret from `incident-response/{env}/grafana/oncall-webhook-hmac`.
 3. Builds a payload that passes the webhook handler's Zod schema.
 4. Signs with HMAC-SHA256 (hex) under header `x-grafana-oncall-signature`.
-5. POSTs to `https://<ingress-host>/webhook/grafana-oncall`.
+5. POSTs to `https://<ingress-host>/webhook/grafana-oncall` — the path is `ingress.path` from the same values file, so the drill follows the listener rule rather than assuming one.
 6. Tells you the incident ID + what to watch next.
+
+**Set the hostname before your first drill.** `chart/values-{env}.yaml` ships `ingress.host` as a `.example.com` placeholder so the chart renders without naming anybody's DNS zone, and the drill refuses to fire at it:
+
+```
+[drill] FAIL: ingress.host in chart/values-staging.yaml is still the placeholder
+'incident-response-webhook-staging.example.com'. …
+```
+
+Three ways past it, highest precedence first:
+
+| Want | Do |
+|---|---|
+| Fire at a hostname once | `bash scripts/fire-drill.sh --host webhook.staging.acme.io` (or `--url https://…` for a full base URL, `DRILL_WEBHOOK_HOST` / `DRILL_WEBHOOK_URL` to set it for a shell) |
+| Fire at whatever the cluster actually has | `bash scripts/fire-drill.sh --from-cluster` — reads `spec.rules[0].host` off the live webhook Ingress with `kubectl` |
+| Fire at your own deployment, every time | Put the real hostname in `ingress.host`, which is what ArgoCD renders the Ingress from anyway |
+
+The values file is the default source because reading it needs a checkout and nothing else — no kubeconfig, no cluster reachability — so the same command works from a laptop and from CI, which authenticates to AWS and never to the cluster. `--from-cluster` is the one to reach for when you want to prove the drill is talking to the load balancer that exists rather than the one the chart declares.
 
 ```bash
 # Fire a synthetic P1.
@@ -54,6 +71,17 @@ npm run observe:staging
 # When done:
 bash scripts/fire-drill.sh --env staging --state resolved --incident-id drill-1776567890-12345
 ```
+
+**Check the target without firing.** `--dry-run` resolves the URL, builds the payload, and stops. It contacts nothing and needs no credentials, so it is the cheapest way to confirm a fork is wired before you go looking for AWS problems:
+
+```bash
+bash scripts/fire-drill.sh --env staging --host webhook.staging.acme.io --dry-run
+#   [drill] webhook_url=https://webhook.staging.acme.io/webhook/grafana-oncall (resolved from --host / DRILL_WEBHOOK_HOST)
+#   [drill] dry run: skipping the Secrets Manager read of incident-response/staging/grafana/oncall-webhook-hmac
+#   [drill] dry run — nothing sent
+```
+
+Set `DRILL_HMAC_SECRET` and a dry run signs the payload too, without touching Secrets Manager.
 
 What this tests, in order:
 
@@ -124,7 +152,8 @@ Each of these paths writes its own audit events — re-run `npm run observe:stag
 For testing the processor in isolation (bypassing the webhook ingress):
 
 ```bash
-QUEUE_URL=$(tofu -chdir=../landing-zone/live/staging/aws/incident-response-platform output -raw incident_events_queue_url)
+QUEUE_URL=$(cd ../landing-zone/live/aws/workload-staging/us-west-2/staging/incident-response-platform \
+  && terragrunt output -raw incident_events_queue_url)
 aws sqs send-message \
   --region us-west-2 \
   --queue-url "$QUEUE_URL" \
@@ -143,6 +172,7 @@ The highest-fidelity exercise, scripted as a team activity in [`artifacts/incide
 
 | Symptom | Likely cause |
 |---|---|
+| `scripts/fire-drill.sh` fails on the placeholder `…example.com` host | `ingress.host` in `chart/values-{env}.yaml` is still the value this repository ships. Set it to your webhook hostname, or pass `--host` / `--url` / `--from-cluster` — see "Set the hostname before your first drill" above. |
 | `scripts/fire-drill.sh` returns `401 Invalid signature` | HMAC secret in Secrets Manager differs from what the webhook handler has cached. It refreshes on first failure + retries once; if that still fails, restart the pods: `kubectl rollout restart deploy/incident-response-webhook -n tenants-incident-response`. |
 | Drill returned `200` but no Slack channel appears | Check the processor pod logs (`kubectl -n tenants-incident-response logs deploy/incident-response-processor`) for war-room assembly errors. `SLACK_BOT_TOKEN` must be a valid `xoxb-…` with the war-room scopes (`groups:write`, `chat:write`, `users:read.email`). |
 | `observe-incident.sh` shows DDB row but no audit events | Processor crashed before reaching the audit write. Tail the processor logs and look for a stack trace. |
@@ -155,7 +185,7 @@ Two things that block drills for people doing first-time setup:
 
 1. **`/incident-response` must be registered as a slash command in your Slack app.** If `/incident-response help` returns `"/incident-response is not a valid command"`, the command isn't declared in the app's config. Fix → [`docs/slack-app-setup.md`](slack-app-setup.md) § 5.
 
-2. **War rooms are private channels.** The bot creates the channel and is the only member. Non-members can't see private channels in Slack's channel browser. The `scripts/fire-drill.sh` output prints a reminder + the `channel_id` the bot created — invite yourself via the API.
+2. **War rooms are private channels.** The bot creates the channel and is the only member. Non-members can't see private channels in Slack's channel browser. The `scripts/fire-drill.sh` output points you at the channel name prefix; the `channel_id` lands in the DynamoDB incident row, which `npm run observe:staging` prints. Invite yourself via the API or the script below.
 
 ## Invite yourself to the drill channel
 
@@ -237,14 +267,22 @@ If all five steps succeed, staging is exercising every path a real P1 would hit 
 
 ## CI drill
 
-The same scripted drill runs nightly in CI via `.github/workflows/nightly-drill.yml` and `scripts/ci-drill.sh`. The workflow:
+The same scripted drill runs in CI via `.github/workflows/drill.yml` and `scripts/ci-drill.sh`. Run it from the Actions tab → **drill** → **Run workflow**, picking an environment. The workflow:
 
 1. Fires a synthetic P1 with a deterministic incident ID (`ci-drill-$(date +%s)-$GITHUB_RUN_ID`).
 2. Polls DDB for `ROOM_ASSEMBLED` + captures the `slack_channel_id`.
 3. Asserts the required audit trail (`WAR_ROOM_CREATED`, `CONTEXT_SNAPSHOT_ATTACHED`, `CHECKLIST_PINNED`).
-4. Archives the Slack channel + deletes the DDB row to keep staging tidy for the next run.
+4. Archives the Slack channel + deletes the DDB row to keep the environment tidy for the next run.
 
-**Gated off by default.** The workflow is guarded by `if: ${{ vars.INCIDENT_RESPONSE_DRILL_ENABLED == 'true' }}` — set the GH repo variable when you've wired the OIDC role (`AWS_DRILL_ROLE_ARN` secret). Until then the job is a no-op on schedule and workflow_dispatch. See the workflow's header comment for the exact IAM the role needs.
+**What to configure.** The first step of a run checks these and fails with the list if any is missing — it never skips:
+
+| Setting | What it is |
+|---|---|
+| secret `AWS_DRILL_ROLE_ARN` | IAM role with GitHub OIDC trust. Needs `secretsmanager:GetSecretValue` on `incident-response/<env>/grafana/oncall-webhook-hmac` + `incident-response/<env>/slack/bot-token`, and `dynamodb:GetItem/Query/DeleteItem` on `incident-response-<env>-*` |
+| variable `INCIDENT_RESPONSE_DRILL_HOST` | The webhook Ingress hostname. Only needed while `chart/values-<env>.yaml` still carries the placeholder host |
+| variable `INCIDENT_RESPONSE_DRILL_REGION` | Optional, defaults to `us-west-2` |
+
+**There is no cron.** The drill needs a deployed environment, an OIDC role, and a hostname — none of which this repository carries and each fork supplies for itself. A schedule would wake up nightly to report its own missing configuration. Add a `schedule:` trigger to `drill.yml` once the three settings above are in place and the drill passes on demand; the workflow header says where.
 
 ## Reset between drills
 

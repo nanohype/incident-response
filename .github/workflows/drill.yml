@@ -1,0 +1,110 @@
+name: drill
+
+# On-demand resilience drill against a deployed environment. Fires a synthetic
+# P1 through the webhook Ingress and asserts the assembler wrote the expected
+# audit trail (webhook → SQS → processor → Slack → DynamoDB), without touching
+# the customer-visible steps (Statuspage publish, Linear create, channel
+# announce, nudge firing). A failure means the assembler or one of its
+# dependencies regressed since the last deploy.
+#
+# What a run needs:
+#   secret   AWS_DRILL_ROLE_ARN
+#       An IAM role with GitHub OIDC trust (docs/forking-for-a-new-client.md),
+#       granting secretsmanager:GetSecretValue on
+#       incident-response/<env>/grafana/oncall-webhook-hmac and
+#       incident-response/<env>/slack/bot-token, plus
+#       dynamodb:GetItem/Query/DeleteItem on incident-response-<env>-*.
+#   variable INCIDENT_RESPONSE_DRILL_HOST
+#       The webhook Ingress hostname. Only needed while chart/values-<env>.yaml
+#       still carries the placeholder host this repository ships; once that file
+#       names your own hostname the drill reads it from there.
+#   variable INCIDENT_RESPONSE_DRILL_REGION
+#       Optional. Defaults to us-west-2, where the landing-zone
+#       incident-response-platform component provisions the tables and queues.
+#
+# Missing configuration fails the run and prints the list above. The drill never
+# reports success it did not earn, and never quietly does nothing.
+#
+# There is no cron. The drill needs a deployed environment, an OIDC role, and a
+# hostname — none of which this repository carries, and each fork supplies for
+# itself. A schedule here would wake up every night to report its own missing
+# configuration, which is no more informative than not running at all. Add a
+# `schedule:` trigger below once the three settings above are in place and the
+# drill is passing on demand.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to drill
+        type: choice
+        options:
+          - staging
+          - production
+          - development
+        default: staging
+      poll_seconds:
+        description: Seconds to wait for ROOM_ASSEMBLED before failing
+        type: string
+        default: '120'
+
+# One drill at a time per environment. Queued runs wait rather than drop —
+# a drill that was asked for should happen.
+concurrency:
+  group: incident-response-drill-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  drill:
+    name: Drill ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the drill is configured
+        env:
+          DRILL_ROLE_ARN: ${{ secrets.AWS_DRILL_ROLE_ARN }}
+          DRILL_WEBHOOK_HOST: ${{ vars.INCIDENT_RESPONSE_DRILL_HOST }}
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+        run: |
+          set -uo pipefail
+          missing=0
+
+          if [[ -z "$DRILL_ROLE_ARN" ]]; then
+            echo "missing: repository secret AWS_DRILL_ROLE_ARN — the IAM role this workflow assumes over GitHub OIDC"
+            missing=1
+          fi
+
+          # fire-drill.sh owns target resolution, so ask it rather than
+          # duplicating the rules here. --dry-run contacts nothing and needs no
+          # credentials, so this is a pure configuration check.
+          if ! bash scripts/fire-drill.sh --env "$ENVIRONMENT" --dry-run >/dev/null; then
+            echo "missing: a reachable webhook host — set repository variable INCIDENT_RESPONSE_DRILL_HOST, or put the real hostname in chart/values-$ENVIRONMENT.yaml"
+            missing=1
+          fi
+
+          if (( missing )); then
+            echo
+            echo "The drill is not configured for this repository. See the header of .github/workflows/drill.yml."
+            exit 1
+          fi
+          echo "drill configuration present"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DRILL_ROLE_ARN }}
+          aws-region: ${{ vars.INCIDENT_RESPONSE_DRILL_REGION || 'us-west-2' }}
+
+      - name: Run the drill
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+          AWS_REGION: ${{ vars.INCIDENT_RESPONSE_DRILL_REGION || 'us-west-2' }}
+          DRILL_WEBHOOK_HOST: ${{ vars.INCIDENT_RESPONSE_DRILL_HOST }}
+          POLL_SEC: ${{ github.event.inputs.poll_seconds }}
+        run: bash scripts/ci-drill.sh

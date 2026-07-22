@@ -125,7 +125,7 @@ First-time deployers should stand staging up, run the scripted drill (`npm run d
 
 **Secret seeding + rotation** — env-scoped inventory (`incident-response/staging/*`, `incident-response/production/*`), `put-secret-value` commands, rotation cadence — [`docs/secrets.md`](docs/secrets.md).
 
-**Nightly drill** — `.github/workflows/nightly-drill.yml` fires `scripts/ci-drill.sh` against staging on a schedule (and on-demand via `workflow_dispatch`). Guarded by the `INCIDENT_RESPONSE_DRILL_ENABLED` repo variable — stays off until you've wired the OIDC role.
+**CI drill** — `.github/workflows/drill.yml` fires `scripts/ci-drill.sh` at a deployed environment on demand. Its first step checks the OIDC role and the webhook hostname and fails with the list of what is missing, so an unconfigured drill says so instead of quietly passing. No cron until a fork has an environment to point it at — see [`docs/drills.md`](docs/drills.md) § CI drill.
 
 ## Configuration
 
@@ -225,7 +225,7 @@ Operator-facing:
 | Synthetic webhook drill | [scripts/fire-drill.sh](scripts/fire-drill.sh) |
 | Incident-state observer | [scripts/observe-incident.sh](scripts/observe-incident.sh) |
 | Invite yourself to a drill channel | [scripts/join-drill-channel.sh](scripts/join-drill-channel.sh) |
-| CI drill (used by the nightly workflow) | [scripts/ci-drill.sh](scripts/ci-drill.sh) |
+| CI drill (used by the drill workflow) | [scripts/ci-drill.sh](scripts/ci-drill.sh) |
 
 Design / scoping:
 
