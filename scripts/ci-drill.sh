@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # CI drill — fire a synthetic P1, assert the assembler wrote the expected
-# audit trail, clean up. Designed to be invoked from a nightly GH Actions
-# workflow against staging.
+# audit trail, clean up. Driven by .github/workflows/drill.yml against a
+# deployed environment.
 #
 # Exits non-zero if:
 #   - fire-drill.sh didn't return HTTP 200
@@ -11,13 +11,18 @@
 #
 # Cleanup (best-effort):
 #   - Slack war-room channel is archived via conversations.archive
-#   - DDB incident row is deleted (keeps staging tidy for repeated runs)
+#   - DDB incident row is deleted (keeps the environment tidy for repeated runs)
 #
-# Required env:
-#   AWS_REGION (default us-west-2)
-#   ENVIRONMENT (default staging)
+# Env:
+#   AWS_REGION          default us-west-2
+#   ENVIRONMENT         default staging
+#   POLL_SEC            default 90 — how long to wait for ROOM_ASSEMBLED
+#   DRILL_WEBHOOK_HOST  the webhook Ingress hostname, when chart/values-<env>.yaml
+#                       still carries the placeholder. Read by fire-drill.sh,
+#                       which resolves the target — see its header for the full
+#                       precedence. Nothing here needs cluster access.
 #
-# Requires: aws CLI with Secrets Manager + CFN + DDB read + DDB delete,
+# Requires: aws CLI with Secrets Manager read + DynamoDB read/delete, plus
 #           curl, jq, openssl (fire-drill.sh's own deps).
 
 set -euo pipefail
@@ -95,9 +100,11 @@ fi
 # Delete the DDB incident row so the next CI drill doesn't conflict.
 # Audit rows stay (366-day TTL handles them) — they're useful for debugging CI
 # failures, and each drill has a unique INCIDENT#ci-drill-* PK so no overlap.
-aws dynamodb delete-item --region "$REGION" --table-name "$INCIDENTS_TABLE" \
-  --key "{\"PK\":{\"S\":\"INCIDENT#$INCIDENT_ID\"},\"SK\":{\"S\":\"METADATA\"}}" >/dev/null 2>&1 \
-  && log "incident row deleted" \
-  || log "incident row delete failed (non-fatal)"
+if aws dynamodb delete-item --region "$REGION" --table-name "$INCIDENTS_TABLE" \
+     --key "{\"PK\":{\"S\":\"INCIDENT#$INCIDENT_ID\"},\"SK\":{\"S\":\"METADATA\"}}" >/dev/null 2>&1; then
+  log "incident row deleted"
+else
+  log "incident row delete failed (non-fatal)"
+fi
 
 log "CI drill passed"

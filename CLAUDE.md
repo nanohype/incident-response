@@ -113,7 +113,7 @@ IncidentResponse-specific:
 | Static | `tsconfig.json` strict + `biome.json` | Types, lint rules (no floating promises, no-explicit-any, no-console), consistent format |
 | Unit | `test/unit/*.test.ts` | Pure functions, mocked SDKs, handler flows, adapter fail modes |
 | Integration | `test/integration/*.integration.test.ts` | Real dynamodb-local — `ConsistentRead`, idempotency, cross-incident isolation |
-| E2E (scripted) | `scripts/fire-drill.sh`, `scripts/ci-drill.sh` | Full webhook → SQS → processor → Slack → DDB path, in a live staging stack |
+| E2E (scripted) | `scripts/fire-drill.sh`, `scripts/ci-drill.sh` | Full webhook → SQS → processor → Slack → DDB path, against a deployed environment |
 | E2E (manual) | `artifacts/incident-drill-playbook.md` | Tabletop + live-fire drills against real Grafana OnCall routing |
 
 ### Coverage
