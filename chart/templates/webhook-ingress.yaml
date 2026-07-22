@@ -7,17 +7,31 @@ metadata:
     {{- include "tenant-chart-base.labels" . | nindent 4 }}
     incident-response.io/service: webhook
   annotations:
+    # AWS Load Balancer Controller. `scheme` is also what the cluster's
+    # inject-adopt-lb-subnets policy keys off to choose public vs private
+    # subnets on a cluster that does not own its VPC.
+    alb.ingress.kubernetes.io/scheme: {{ .Values.ingress.scheme }}
+    alb.ingress.kubernetes.io/target-type: {{ .Values.ingress.targetType }}
+    alb.ingress.kubernetes.io/healthcheck-path: {{ .Values.ingress.healthcheckPath | quote }}
     {{- if .Values.ingress.tls.enabled }}
-    cert-manager.io/cluster-issuer: {{ .Values.ingress.tls.issuer | quote }}
+    # Listen on both and 301 plaintext to HTTPS at the load balancer, so an
+    # unencrypted webhook body never reaches the pod.
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    {{- with .Values.ingress.tls.certificateArn }}
+    alb.ingress.kubernetes.io/certificate-arn: {{ . | quote }}
+    {{- end }}
+    {{- else }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    {{- end }}
+    {{- with .Values.ingress.groupName }}
+    alb.ingress.kubernetes.io/group.name: {{ . | quote }}
     {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
-  {{- if .Values.ingress.tls.enabled }}
-  tls:
-    - hosts:
-        - {{ .Values.ingress.host | quote }}
-      secretName: {{ include "tenant-chart-base.fullname" . }}-webhook-tls
-  {{- end }}
+  # No `tls` block: TLS terminates on the ALB against an ACM certificate, which
+  # the controller resolves from the certificate-arn annotation or by matching
+  # the rule host below. A Kubernetes TLS Secret would have no reader.
   rules:
     - host: {{ .Values.ingress.host | quote }}
       http:

@@ -71,11 +71,12 @@ inference logs or third parties**.
 
 ### Network
 
-- Default-deny `NetworkPolicy`: ingress is limited to the ingress controller's namespace reaching the webhook
-  Deployment; egress is DNS plus HTTPS to AWS APIs and the Slack / Grafana / Linear / WorkOS /
-  Statuspage endpoints. IMDS is blocked.
+- Default-deny `NetworkPolicy`: ingress is limited to the VPC range the ALB's network interfaces
+  sit in reaching the webhook Deployment (the load balancer is not a pod, so it is a CIDR rule
+  rather than a namespace selector); egress is DNS plus HTTPS to AWS APIs and the Slack /
+  Grafana / Linear / WorkOS / Statuspage endpoints. IMDS is blocked.
 - Public surface is limited to `/health` and the signed Grafana OnCall webhook POST behind
-  the cluster's ingress controller + cert-manager TLS.
+  the ALB, which terminates TLS against an ACM certificate and redirects plaintext to HTTPS.
 
 ## Known limitations
 
