@@ -31,12 +31,16 @@ The drill harness synthesises the first three into a single command flow. Pod me
 
 The cheapest way to exercise the full P1 path. `scripts/fire-drill.sh`:
 
-1. Establishes every environment's webhook hostname (`ingress.host` in `chart/values-{env}.yaml`, the name external-dns published for the ALB) and resolves the target from the drilled one's.
-2. Reads the HMAC secret from `incident-response/{env}/grafana/oncall-webhook-hmac`.
-3. Builds a payload that passes the webhook handler's Zod schema.
-4. Signs with HMAC-SHA256 (hex) under header `x-grafana-oncall-signature`.
-5. POSTs to `https://<ingress-host>/webhook/grafana-oncall` — the path is `ingress.path` from the same values file, so the drill follows the listener rule rather than assuming one.
-6. Tells you the incident ID + what to watch next.
+1. Establishes every environment's webhook hostname (`ingress.host` in `chart/values-{env}.yaml`, the name external-dns published for the ALB) and resolves a host and a port from the drilled one's.
+2. Constructs the request URL from validated components and parses it back with `new URL()` to confirm it addresses the host that was checked.
+3. Reads the HMAC secret from `incident-response/{env}/grafana/oncall-webhook-hmac`.
+4. Builds a payload that passes the webhook handler's Zod schema.
+5. Signs with HMAC-SHA256 (hex) under header `x-grafana-oncall-signature`.
+6. POSTs to `https://<ingress-host>/webhook/grafana-oncall` — the path is `ingress.path` from the same values file, so the drill follows the listener rule rather than assuming one.
+7. Checks the connection curl reports against the host every check was run on, and reports a mismatch as a defect.
+8. Tells you the incident ID + what to watch next.
+
+It needs `node` on `PATH` in every mode, including the two that send nothing: the URL parser is node's.
 
 **Name every environment's hostname before your first drill.** `chart/values-{env}.yaml` ships `ingress.host` as a `.example.com` placeholder so the chart renders without naming anybody's DNS zone. A placeholder is a stand-in, not an identity, so a fresh checkout is three environments the drill cannot locate — and it will not fire at any of them:
 
@@ -127,9 +131,30 @@ $ DRILL_WEBHOOK_HOST=webhook.staging.acme.io bash scripts/fire-drill.sh --env pr
 environment-scoped name instead: DRILL_WEBHOOK_HOST_PRODUCTION …
 ```
 
-**Two hooks for scripting.** `bash scripts/fire-drill.sh --env <env> --check-target` is the whole verdict: it builds the map, resolves the target, and exits zero with the map, the request and the secret id, or non-zero with the reason and what to configure. It contacts nothing and needs no credentials — `.github/workflows/drill.yml` runs exactly this and holds no second opinion of its own. `--print-host` prints the canonical hostname of the request the drill would send and nothing else, after the same checks; it comes off the same resolved URL the POST uses, so it cannot describe a different request than the one that would go out.
+### Where the request itself comes from
+
+Knowing which host belongs to which environment settles where a request *should* go. It does not settle where it goes. A URL assembled by pasting strings together answers that second question on its own: everything before an `@` is userinfo, so `ingress.path` of `@other.host/webhook` pasted onto a checked base URL moves the authority to `other.host` while every text comparison still reads the checked host. Query strings, fragments, backslashes, protocol-relative `//host` and bracket parsing are the same trick in different clothes.
+
+So the URL is not assembled from strings. It is constructed from four components, and no caller-supplied string ever reaches the authority position:
+
+| Component | Where it comes from | What it is held to |
+|---|---|---|
+| scheme | fixed | Always `https`. `--url http://…` is refused rather than honoured, and curl runs with `--proto '=https'` |
+| host | the identity map, or a flag the map agreed to | A hostname or a bracketed IP literal. No scheme, path, port or userinfo survives into it |
+| port | whatever came with the host | Digits, 1–65535, or nothing |
+| path | `ingress.path` | Must begin with `/`; refused for `@`, `?`, `#`, `%`, a backslash, whitespace, a control character, an empty segment, a `.`/`..` segment or a leading `//`; then percent-encoded per segment against the unreserved set, `/` kept as the separator |
+
+The refusal list and the encoder are deliberately redundant — two independent implementations of one constraint, so a character that slips past either is still harmless after the other.
+
+Then the assembled URL is parsed back with node's `new URL()`, which resolves an authority by the rules curl resolves one by rather than by another pass of shell text handling. The run refuses unless the scheme is `https`, `username` and `password` are both empty, and `hostname`, `port` and `pathname` are exactly the components that went in. A disagreement between the parser and the identity map is refused, not reconciled: it means one of the two is wrong about where the request goes, and neither answer makes sending it right.
+
+Last, after the POST, curl's `%{url_effective}`, `%{remote_ip}` and `%{remote_port}` go back through the same parser. A host there that is not the host every check ran on is reported as a defect in this script — loudly, non-zero — rather than tolerated. Be clear about what that buys: by the time curl can report an effective URL the request has already left. The construction and the parser check are what stop a misdirected request from being sent; this last one is what stops a misdirected request from being reported as a drill. (`--connect-to` is deliberately unused: its rules key on the URL's own authority, so the only form that pins anything is the match-all form, which hides the very mismatch this is here to surface.)
+
+**Two hooks for scripting.** `bash scripts/fire-drill.sh --env <env> --check-target` is the whole verdict: it builds the map, resolves the target, constructs the URL, parses it back, and exits zero with the map, the request and the secret id, or non-zero with the reason and what to configure. It contacts nothing and needs no credentials beyond `node` — `.github/workflows/drill.yml` runs exactly this and holds no second opinion of its own. `--print-host` prints the host component of the request URL and nothing else, after the same checks: that component is what the URL is built from and what the parser confirmed the built URL addresses, so it describes the request the drill sends up to the point where the request leaves. Whether curl agreed is the check after the POST, and it prints a defect when it did not.
 
 `test/unit/drill-target-resolution.test.ts` holds the invariant against four HTTPS listeners it starts itself. Three are owned by an environment and the fourth by nobody, and that ownership is ground truth — so a `--env X` run observed anywhere but X's listener is a failure no matter what the configuration claimed. On top of that: every configuration that leaves an identity unestablishable, contradictory or shared must deliver nothing, and every configuration that establishes all three must actually fire. Signatures are verified with this repository's own `verifyHmacSignature`, bodies with its own `GrafanaOnCallPayloadSchema`.
+
+The same file attacks the construction as well as the derivation: hostile `ingress.host`, `DRILL_WEBHOOK_URL_<ENV>` and `ingress.path` values in every shape that can move an authority, each asserting zero deliveries at every listener; the spellings that are legitimate still delivering; and — through a curl stand-in that really does send the request elsewhere and really does report where it went — the post-request check firing on a construction defeated upstream of it.
 
 ```bash
 # Fire a synthetic P1.
