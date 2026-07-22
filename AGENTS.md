@@ -86,6 +86,16 @@ declare. It also asserts what only shows up across documents:
 round-trip, and the `agents.tenant` / `agents.platform` OTel resource attributes
 in every chart values file. Run it locally with `npm run platform:validate`.
 
+Those schemas are copies, so two things guard them. The validator hashes each one
+against the SHA-256 in `schemas/crd/provenance.json` before parsing, which rejects
+a locally edited schema offline. `npm run schemas:check` covers the rest in the
+`crd-schema-drift` CI job: it reads `nanohype/eks-agent-platform` at the pinned
+commit and asserts the vendored bytes match it, then asserts that pin is still
+current with upstream's tip — so an edit that also updated its digest, and a pin
+left behind by an operator API change, both fail. Neither check has a skip path;
+an unreachable upstream exits `2`. `npm run platform:selftest` seeds five defects
+and fails unless every one is rejected.
+
 `tenants-reliability` is the team's control-plane namespace — it holds these CRs. The workload namespace is a different one: the operator derives `tenants-incident-response` from `Platform.metadata.name` and provisions it along with the ResourceQuota, LimitRange, default-deny NetworkPolicy, an ArgoCD AppProject named `incident-response`, and the per-Platform IAM role `<env>-incident-response-tenant`. **That operator role is the one incident-response's app pods run as** — the chart's `incident-response` ServiceAccount is bound to it by an EKS Pod Identity association the landing-zone `incident-response-platform` component creates, so app pods and AgentFleet pods (`tenant-runtime` SA) share one privilege domain. The app's substrate grants arrive on that same role through `spec.identity.extraPolicyArns`, which carries the managed policy landing-zone emits as `app_access_policy_arn` (account-scoped, so it is filled per environment at apply time).
 
 ### The Helm chart (`chart/`)
@@ -99,10 +109,10 @@ Two workloads in one chart — the webhook ingress and the processor — plus ev
 | `processor-deployment.yaml`                             | The single-writer singleton (`dist/index.js`) — SQS consumer + war-room assembler + in-process MCP server (`http` + `mcp` container ports). `Recreate` strategy + 60s `terminationGracePeriodSeconds` for in-flight SQS drain |
 | `mcp-service.yaml`                                      | ClusterIP in front of the processor's MCP port — the mcp-tunnel target; NetworkPolicy locks the port to the `mcp-tunnel` namespace                                    |
 | `serviceaccount.yaml`                                   | Shared SA across both workloads, name pinned to the app; bound to the landing-zone IAM role by a Pod Identity association                                                                      |
-| `externalsecret.yaml`                                   | ESO syncs `incident-response/<env>/grafana-oncall-hmac` + `app-secrets` + `grafana-cloud` into one Secret consumed via `envFrom`; HMAC secret id also passed as env for the VersionId-keyed cache refresh |
+| `externalsecret.yaml`                                   | ESO syncs `incident-response/<env>/grafana-oncall-hmac` + `app-secrets` into one Secret consumed via `envFrom`; HMAC secret id also passed as env for the VersionId-keyed cache refresh. No OTLP credential — the default export target is the unauthenticated in-cluster Alloy receiver |
 | `networkpolicy.yaml`                                    | Default-deny + ingress (ingress-nginx → webhook only) + egress (DNS + HTTPS)                                                                                           |
-| `prometheusrule.yaml`                                   | SLO + reliability alerts                                                                                                                                               |
-| `grafana-dashboard.yaml`                                | ConfigMap labeled `grafana_dashboard: "1"` loading `chart/dashboards/incident-response.json`                                                                                     |
+| `prometheusrule.yaml`                                   | SLO + reliability alerts. `enabled: false` by default — inert without a Prometheus Operator ruler, which the eks-gitops observability stack (Alloy → Amazon Managed Prometheus) does not run |
+| `grafana-dashboard.yaml`                                | `GrafanaDashboard` CR (`grafana.integreatly.org/v1beta1`, instanceSelector `dashboards: external`) inlining `chart/dashboards/incident-response.json`; the grafana-operator from the eks-gitops catalog reconciles it onto Amazon Managed Grafana |
 
 `values.yaml` is the base; `values-staging.yaml` / `values-production.yaml` carry the per-env deltas (image tag, `tenantInfra.*` from the landing-zone outputs, ingress host). The image is `ghcr.io/nanohype/incident-response`. OTel attrs `service.namespace=incident-response`, `agents.tenant=reliability`, and `agents.platform=incident-response` are set in every values file (required by the platform-tenant contract — see the identity split in [`ARCHITECTURE.md`](ARCHITECTURE.md)).
 
@@ -110,7 +120,7 @@ Two workloads in one chart — the webhook ingress and the processor — plus ev
 
 A valid tenant in this repo is exactly these three, plus the chart's per-env values:
 
-- `platform.yaml` — the `BudgetPolicy` + `Platform` CRs
+- `platform.yaml` — the cluster-scoped `Tenant`, the `BudgetPolicy`, and the `Platform` that references both
 - `chart/` — the chart above, with `values.yaml` + `values-staging.yaml` + `values-production.yaml`
 - `gitops/applicationset-entry.yaml` — the ApplicationSet entry registered into `nanohype/eks-gitops` (matrix generator over clusters × the app, Helm multi-source `$values` resolving `values.yaml` + `values-<env>.yaml`, sync wave 100)
 

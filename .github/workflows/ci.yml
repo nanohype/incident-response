@@ -223,10 +223,21 @@ jobs:
       # round-trip, and the agents.tenant / agents.platform OTel resource
       # attributes in every chart values file.
       #
+      # Before any of that it hashes each vendored schema and matches it against
+      # schemas/crd/provenance.json, so a locally edited schema — a widened
+      # enum, a dropped `required` — fails here rather than silently relaxing
+      # what the gate enforces.
+      #
       # The schemas come from the working tree, never the network, so the
       # verdict is a pure function of the commit under test and the job cannot
       # pass by failing to find its schema.
-      - name: validate platform.yaml against the CRD schemas
+      #
+      # `platform:validate` also runs the gate's --self-test: five seeded
+      # defects (unknown field, missing required field, dangling tenant
+      # reference, scope violation, edited schema) that must each be rejected,
+      # and the committed inputs that must be accepted. A gate that has decayed
+      # into a no-op fails this step while still passing everything else.
+      - name: validate platform.yaml against the CRD schemas, then self-test the gate
         run: npm run platform:validate
 
   crd-schema-drift:
@@ -234,18 +245,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # The upstream source of the vendored schemas. This job is the freshness
-      # half of the gate: an API change in the operator's CRDs shows up here as
-      # a failing check instead of as a schema that quietly rots. Validation
-      # itself never reads this checkout.
+      # The upstream source of the vendored schemas. The platform-manifests job
+      # verifies the vendored copies against digests recorded in the same
+      # commit, which catches a hand-edited schema but not a hand-edited schema
+      # whose digest was updated to match. This job is the other half: it reads
+      # upstream and answers both remaining questions — do the vendored bytes
+      # match nanohype/eks-agent-platform at the commit provenance.json pins,
+      # and has that commit fallen behind the branch tip? Full history is
+      # required so the pinned commit is reachable; a shallow clone makes the
+      # script exit 2 rather than skip the comparison.
       - uses: actions/checkout@v4
         with:
           repository: nanohype/eks-agent-platform
           path: .eks-agent-platform-src
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: sync-crd-schemas --check
+      - name: sync-crd-schemas --check (digest + pinned ref + upstream tip)
         run: node scripts/sync-crd-schemas.mjs --check
         env:
           EKS_AGENT_PLATFORM_DIR: .eks-agent-platform-src
@@ -328,8 +345,9 @@ jobs:
           echo "✅ Unit Tests (100% branch on audit.ts + statuspage-approval-gate.ts)"
           echo "✅ Integration Tests (ConsistentRead semantics verified against dynamodb-local)"
           echo "✅ Dependency Security Audit (no HIGH/CRITICAL) + typecheck (src + tests)"
-          echo "✅ Platform CRs valid against the eks-agent-platform CRD schemas"
-          echo "✅ Vendored CRD schemas byte-identical to eks-agent-platform"
+          echo "✅ Platform CRs valid against the digest-verified eks-agent-platform CRD schemas"
+          echo "✅ Platform CR gate self-test — every seeded defect rejected"
+          echo "✅ Vendored CRD schemas match their pin, and the pin is current with upstream"
           echo "✅ Helm Lint + Template"
           echo "✅ Docker Build"
           echo "✅ Approval-gate invariant verified"

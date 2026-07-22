@@ -70,7 +70,7 @@ The `grafana-cloud/otlp-auth` secret is a nested JSON object carrying OTLP-gatew
 Apply the `incident-response-platform` component in `landing-zone` for this env (OpenTofu/Terragrunt), then apply the tenant boundary:
 
 ```bash
-kubectl apply -f platform.yaml      # Platform CR + BudgetPolicy
+kubectl apply -f platform.yaml      # Tenant + BudgetPolicy + Platform
 kubectl -n tenants-reliability get platform incident-response -w   # wait for Ready
 ```
 
@@ -109,11 +109,20 @@ npm run chart:lint                   # helm lint chart
 npm run chart:template:staging       # render with staging values
 ```
 
-Confirm the rendered Secret has no empty `tenantInfra.*` env, and the dashboard ConfigMap is populated:
+Confirm the rendered output has no empty `tenantInfra.*` env, and that the dashboard CR carries a populated board. The dashboard ships as a `GrafanaDashboard` CR (`grafana.integreatly.org/v1beta1`) whose `spec.json` is `chart/dashboards/incident-response.json` inlined at render time — so the check is that the CR is present and its JSON parses with panels in it:
 
 ```bash
-helm template incident-response chart -f chart/values-staging.yaml | grep -c grafana_dashboard
+helm template incident-response chart -f chart/values-staging.yaml \
+  | yq 'select(.kind == "GrafanaDashboard") | .spec.json' \
+  | jq -e '.title, (.panels | length)'
 ```
+
+```
+"IncidentResponse — Operational Dashboard"
+12
+```
+
+`jq -e` exits non-zero if either value comes back `null`, so an absent CR, an empty `spec.json`, or a board that lost its panels all fail the step. The grafana-operator (installed cluster-wide by eks-gitops) matches the CR's `instanceSelector: dashboards: external` and pushes the board to Amazon Managed Grafana.
 
 ### 6. Register the ApplicationSet entry
 
@@ -227,7 +236,7 @@ done
 | `npm run typecheck` fails with SDK version errors | Stale `package-lock.json` with drifted peer deps | `rm -rf node_modules package-lock.json && npm install` — details in [`docs/troubleshooting.md`](troubleshooting.md) § "Build / TypeScript errors" |
 | Webhook returns 5xx on unsigned POST | Webhook pod crashed before the HMAC check | `kubectl logs deploy/incident-response-webhook -n tenants-incident-response`. Usually a missing `GRAFANA_ONCALL_HMAC_SECRET_ID` or a Secrets Manager permission regression |
 | DLQ depth > 0 | An incident event failed 3 times | Inspect + drain via `aws sqs receive-message`; the PrometheusRule fires on the `incident-response-{env}-incident-events` DLQ at ≥1 |
-| Processor restarts on a loop | Bedrock model access not enabled in the region, or a Grafana Cloud credential in `otlp-auth` is stale | Enable model access; rotate the env-scoped `otlp-auth` — pods pick up the new value on the next `kubectl rollout restart` |
+| Processor restarts on a loop | Bedrock model access not enabled in the region, or a required env var missing at startup (`WORKOS_DIRECTORY_ID` is fail-fast) | Enable model access in the region the pod's `AWS_REGION` names; otherwise read the startup log line — the validator names the missing variable. Telemetry is never the cause: OTel init is best-effort and a failure warn-logs rather than exits |
 | Resolve fires but "Bedrock postmortem failed" in logs | `claude-sonnet-4-6` requires an inference profile for on-demand throughput | Switch `src/ai/incident-response-ai.ts` model IDs to `us.anthropic.claude-*` profiles. See [`docs/troubleshooting.md`](troubleshooting.md) § "Bedrock errors" |
 | Resolve fires but Linear issue doesn't appear | `teamId must be a UUID` — `linear/team-id` secret holds a team key | Reseed with the UUID from `{ teams { nodes { id key } } }`; `kubectl rollout restart deploy/incident-response-processor` |
 | Nudge schedule never fires (no `STATUS_REMINDER_SENT` after 15 min) | `Schedule group incident-response-{env} does not exist` in processor logs | The group is owned by `landing-zone incident-response-platform`; confirm it's applied. Details in [`docs/troubleshooting.md`](troubleshooting.md) § "EventBridge Scheduler errors" |

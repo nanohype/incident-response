@@ -75,12 +75,17 @@ tasks:
   # === Platform CRs ===
 
   platform:validate:
-    desc: 'Validate platform.yaml against the vendored eks-agent-platform CRD schemas (structure, scope, unknown fields, cross-CR wiring)'
+    desc: 'Validate platform.yaml against the digest-verified CRD schemas (structure, scope, unknown fields, cross-CR wiring), then self-test the gate'
     cmds:
       - npm run platform:validate
 
+  platform:selftest:
+    desc: 'Seed five defects into copies of platform.yaml + a vendored schema and assert each is rejected'
+    cmds:
+      - npm run platform:selftest
+
   schemas:check:
-    desc: 'Verify the vendored CRD schemas match a local eks-agent-platform checkout (EKS_AGENT_PLATFORM_DIR, default ../eks-agent-platform)'
+    desc: 'Check the vendored CRD schemas against their digests, against eks-agent-platform at the pinned commit, and that pin against upstream HEAD (EKS_AGENT_PLATFORM_DIR, default ../eks-agent-platform)'
     cmds:
       - npm run schemas:check
 

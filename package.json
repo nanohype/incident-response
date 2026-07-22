@@ -26,7 +26,8 @@
     "chart:lint": "helm lint chart",
     "chart:template:staging": "helm template incident-response chart -f chart/values-staging.yaml",
     "chart:template:production": "helm template incident-response chart -f chart/values-production.yaml",
-    "platform:validate": "node scripts/validate-platform-manifests.mjs",
+    "platform:validate": "node scripts/validate-platform-manifests.mjs && node scripts/validate-platform-manifests.mjs --self-test",
+    "platform:selftest": "node scripts/validate-platform-manifests.mjs --self-test",
     "schemas:sync": "node scripts/sync-crd-schemas.mjs",
     "schemas:check": "node scripts/sync-crd-schemas.mjs --check",
     "seed:staging": "bash scripts/seed-secrets.sh --env staging",
@@ -77,6 +78,7 @@
   },
   "overrides": {
     "@grpc/grpc-js": "^1.14.4",
+    "fast-uri": "^3.1.4",
     "form-data": "^4.0.6",
     "protobufjs": "^7.6.5",
     "ws": "^8.21.0",
