@@ -28,7 +28,8 @@
 #                       See its header. Nothing here needs cluster access.
 #
 # Requires: aws CLI with Secrets Manager read + DynamoDB read/delete, plus
-#           curl, jq, openssl (fire-drill.sh's own deps).
+#           node, curl, jq, openssl (fire-drill.sh's own deps — node parses the
+#           request URL it assembles).
 
 set -euo pipefail
 

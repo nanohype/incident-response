@@ -224,6 +224,33 @@ function buildFixture(): void {
     { mode: 0o755 },
   );
 
+  // curl, with a seam. It passes everything through untouched unless a test asks
+  // it to misdirect, and then it really does send the request somewhere else and
+  // really does report the effective URL it used — which is what a construction
+  // defeated somewhere upstream looks like from the outside. Nothing but the
+  // final check on the connection can see that, so nothing but this can prove
+  // the final check works.
+  const realCurl = execFileSync("sh", ["-c", "command -v curl"], { encoding: "utf8" }).trim();
+  fs.writeFileSync(
+    path.join(binDir, "curl"),
+    `#!/usr/bin/env bash
+set -eu
+misdirect="\${DRILL_TEST_MISDIRECT_TO:-}"
+if [[ -n "$misdirect" ]]; then
+  args=()
+  for a in "$@"; do
+    case "$a" in
+      https://*) a="https://$misdirect/webhook/grafana-oncall" ;;
+    esac
+    args+=("$a")
+  done
+  exec ${realCurl} "\${args[@]}"
+fi
+exec ${realCurl} "$@"
+`,
+    { mode: 0o755 },
+  );
+
   certPath = path.join(fixtureRoot, "stub-cert.pem");
   execFileSync(
     "openssl",
@@ -361,6 +388,12 @@ interface Case {
   secret?: SecretChoice;
   /** Unscoped DRILL_* variables, which apply to every --env. */
   unscoped?: Record<string, string>;
+  /**
+   * `ingress.path` in the drilled environment's values file, verbatim. Left out,
+   * the file carries no path and chart/values.yaml's `/webhook` applies — which
+   * is what every case in the matrix below wants.
+   */
+  ingressPath?: string;
 }
 
 const allEnvs = (make: (env: Env) => Sources): Record<Env, Sources> => ({
@@ -516,7 +549,11 @@ function writeValues(c: Case): void {
     }
     // Quoted, because an IPv6 literal with a port is a flow sequence to a YAML
     // parser and a hostname to everything else.
-    fs.writeFileSync(file, `ingress:\n  host: '${host}'\n`);
+    let doc = `ingress:\n  host: '${host}'\n`;
+    if (c.ingressPath !== undefined && env === c.drillEnv) {
+      doc += `  path: '${c.ingressPath.replace(/'/g, "''")}'\n`;
+    }
+    fs.writeFileSync(file, doc);
   }
 }
 
@@ -1141,6 +1178,338 @@ describe("what the drill says when it refuses", () => {
   });
 });
 
+// ── Attacking the construction rather than the derivation ───────────────────
+//
+// Everything above establishes which host belongs to which environment. That is
+// a different question from where the request goes, and a URL assembled by
+// pasting strings together answers the second one on its own: `@other.host` in a
+// path makes everything before it userinfo, so the authority moves while every
+// text comparison still reads the checked host.
+//
+// So these cases leave the derivation alone — every environment is named,
+// truthfully, and the drilled one is aimed at its own host — and attack the
+// pieces the request is built out of instead. The world is the oracle here as
+// everywhere else: a refusal means nothing arrived at any of the four listeners,
+// including the ones the attack was trying to reach.
+
+/** Configure a truthfully-named world, drill `env`, and see what arrives. */
+async function runNamedWorld(
+  drillEnv: Env,
+  overrides: { ingressPath?: string; envVars?: Record<string, string>; sources?: Sources } = {},
+): Promise<{ code: number; output: string; fresh: Delivery[]; checked: number }> {
+  const c: Case = {
+    title: "",
+    drillEnv,
+    sources: (overrides.sources === undefined
+      ? allEnvs(truthful)
+      : { ...allEnvs(truthful), [drillEnv]: overrides.sources }) as Record<Env, Sources>,
+    ...(overrides.ingressPath === undefined ? {} : { ingressPath: overrides.ingressPath }),
+  };
+  writeValues(c);
+  const { args, env } = materialize(c);
+  Object.assign(env, overrides.envVars ?? {});
+
+  const before = deliveries.length;
+  const result = await run(args, env);
+  const fresh = deliveries.slice(before);
+  const checked = await run([...args, "--check-target"], env);
+  return { code: result.code, output: result.output, fresh, checked: checked.code };
+}
+
+/** Every refusal owes the same thing: no request, anywhere, at all. */
+function expectRefusedOutright(
+  r: { code: number; output: string; fresh: Delivery[]; checked: number },
+  what: string,
+): void {
+  expect(r.fresh, `${what}: nothing may reach any listener — ${JSON.stringify(r.fresh)}`).toEqual(
+    [],
+  );
+  expect(r.code, what).not.toBe(0);
+  expect(r.output).toContain("[drill] FAIL:");
+  expect(r.output).not.toContain("[drill] HTTP ");
+  expect(r.checked, `--check-target must agree: ${what}`).not.toBe(0);
+}
+
+describe("a path is a path, and cannot become an authority", () => {
+  // The shapes that end the path component and start something else. Each is
+  // written into the drilled environment's `ingress.path` exactly as a values
+  // file would carry it, with every environment otherwise correctly named — so
+  // the only thing wrong with each run is the path.
+  const hostile: Array<[string, (p: Place) => string]> = [
+    ["userinfo, no leading slash — the shipped exploit", (p) => `@${WORLD[p].hostPort}/webhook`],
+    ["userinfo after a segment", (p) => `/webhook@${WORLD[p].hostPort}`],
+    ["userinfo and a further path", (p) => `/@${WORLD[p].hostPort}/webhook`],
+    ["a protocol-relative authority", (p) => `//${WORLD[p].hostPort}/webhook`],
+    ["a query string", () => "/webhook?redirect=1"],
+    ["a fragment", () => "/webhook#fragment"],
+    ["a backslash", (p) => `/\\${WORLD[p].hostPort}/webhook`],
+    ["a backslash and no leading slash", (p) => `\\\\${WORLD[p].hostPort}\\webhook`],
+    ["a percent-encoded at-sign", (p) => `/webhook%40${WORLD[p].hostPort}`],
+    ["a doubly-encoded at-sign", (p) => `/webhook%2540${WORLD[p].hostPort}`],
+    ["a bare percent", () => "/web%hook"],
+    ["a space", () => "/web hook"],
+    ["a tab", () => "/web\thook"],
+    ["a control character", () => "/web\u0001hook"],
+    ["a vertical tab", () => "/web\u000bhook"],
+    ["a dot-dot segment", () => "/webhook/../other"],
+    ["a dot segment", () => "/webhook/./other"],
+    ["a trailing dot-dot segment", () => "/webhook/.."],
+    ["an empty segment", () => "/webhook//other"],
+    ["no leading slash", () => "webhook"],
+  ];
+
+  for (const [what, make] of hostile) {
+    it(`refuses ingress.path carrying ${what}`, async () => {
+      const r = await runNamedWorld("production", { ingressPath: make("staging") });
+      expectRefusedOutright(r, `ingress.path carrying ${what}`);
+    });
+  }
+
+  // The chart is where the listener rule comes from, so no path in the chart is
+  // no idea which listener rule to hit — not a reason to guess one.
+  it("refuses when nothing in the chart names an ingress.path", async () => {
+    const c: Case = {
+      title: "",
+      drillEnv: "production",
+      sources: allEnvs(truthful),
+      ingressPath: "",
+    };
+    writeValues(c);
+    const baseFile = path.join(fixtureRoot, "chart/values.yaml");
+    fs.writeFileSync(
+      baseFile,
+      fs.readFileSync(baseFile, "utf8").replace(/^ {2}path: \/webhook.*$/m, "  path: ''"),
+    );
+    const { args, env } = materialize(c);
+    const before = deliveries.length;
+    const result = await run(args, env);
+    const checked = await run([...args, "--check-target"], env);
+
+    expectRefusedOutright(
+      {
+        code: result.code,
+        output: result.output,
+        fresh: deliveries.slice(before),
+        checked: checked.code,
+      },
+      "no ingress.path anywhere in the chart",
+    );
+    expect(result.output).toContain("nothing tells the load balancer where to route the webhook");
+  });
+
+  // The other half of the claim. A path that is a path still reaches the wire,
+  // at the path the chart named — a suite of nothing but refusals would pass
+  // against a drill that never fires, and one that silently dropped the path
+  // would pass against a drill that fires at the wrong listener rule.
+  it("fires at a multi-segment path the chart names", async () => {
+    const r = await runNamedWorld("production", { ingressPath: "/hooks/grafana" });
+    expect(r.fresh).toHaveLength(1);
+    expect(r.fresh[0]?.place).toBe("production");
+    expect(r.fresh[0]?.path).toBe("/hooks/grafana/grafana-oncall");
+    expect(r.code).toBe(0);
+    expect(r.checked).toBe(0);
+  });
+
+  // Percent-encoding is the second half of the path treatment, and this is where
+  // it does work the refusals do not: a colon is legal in a path segment and
+  // ambiguous nowhere else, so it survives — as an escape.
+  it("encodes what it keeps rather than passing it through", async () => {
+    const r = await runNamedWorld("production", { ingressPath: "/hooks:v1" });
+    expect(r.fresh).toHaveLength(1);
+    expect(r.fresh[0]?.path).toBe("/hooks%3Av1/grafana-oncall");
+    expect(r.code).toBe(0);
+  });
+
+  it("encodes a non-ASCII segment byte by byte", async () => {
+    const r = await runNamedWorld("production", { ingressPath: "/wébhook" });
+    expect(r.fresh).toHaveLength(1);
+    expect(r.fresh[0]?.path).toBe("/w%C3%A9bhook/grafana-oncall");
+    expect(r.code).toBe(0);
+  });
+});
+
+describe("an authority is a host and a port, and nothing else", () => {
+  // The same attack shapes, arriving through the scoped variables and the values
+  // file instead of the path. A variable is where a fork's real hostname lives,
+  // so it is where a hostile spelling is most likely to be typed.
+  //
+  // Each shape names `own` — the drilled environment's own listener, so the
+  // derivation has nothing to object to — and `other`, some environment the
+  // request must never reach. What is wrong with each is the shape.
+  const OWN = WORLD.staging;
+  const OTHER = WORLD.development;
+
+  /** Shapes that only a URL can carry. */
+  const asUrl: Array<[string, string]> = [
+    ["userinfo naming another environment", `https://${OWN.host}@${OTHER.host}:${OTHER.port}`],
+    ["userinfo behind a path", `https://${OWN.host}/@${OTHER.host}:${OTHER.port}`],
+    ["a path", `https://${OWN.host}/webhook`],
+    ["a query string", `https://${OWN.host}?redirect=1`],
+    ["a fragment", `https://${OWN.host}#fragment`],
+    ["a backslash before userinfo", `https://${OWN.host}\\@${OTHER.host}:${OTHER.port}`],
+    ["an http scheme", `http://${OWN.host}:${OWN.port}`],
+    ["no scheme at all", `${OWN.host}:${OWN.port}`],
+    ["a protocol-relative authority", `//${OTHER.host}:${OTHER.port}`],
+  ];
+
+  /** Shapes any authority can carry, URL or bare host alike. */
+  const asAuthority: Array<[string, string]> = [
+    ["userinfo naming another environment", `${OWN.host}@${OTHER.host}:${OTHER.port}`],
+    ["a port that is not a number", `${OWN.host}:80a`],
+    ["a port out of range", `${OWN.host}:65536`],
+    ["a zero port", `${OWN.host}:0`],
+    ["a port on a port", `${OWN.host}:80:443`],
+    ["junk after a bracketed literal", "[::1]evil:443"],
+    ["an unclosed bracket", "[::1:443"],
+    ["brackets around something that is not an address", "[not-an-address]:443"],
+    ["a brace curl would glob", `{${OWN.host},nowhere.invalid}:${OWN.port}`],
+    ["a trailing dot inside the authority", `${OWN.host}.:${OWN.port}.`],
+  ];
+
+  const asUrlAll: Array<[string, string]> = [
+    ...asUrl,
+    ...asAuthority.map(([w, r]): [string, string] => [w, `https://${r}`]),
+  ];
+
+  for (const [what, raw] of asUrlAll) {
+    it(`refuses DRILL_WEBHOOK_URL_<ENV> carrying ${what}`, async () => {
+      const r = await runNamedWorld("staging", {
+        sources: shippedPlaceholder(),
+        envVars: { DRILL_WEBHOOK_URL_STAGING: raw },
+      });
+      expectRefusedOutright(r, `DRILL_WEBHOOK_URL_STAGING='${raw}'`);
+    });
+  }
+
+  for (const [what, raw] of asAuthority) {
+    it(`refuses DRILL_WEBHOOK_HOST_<ENV> carrying ${what}`, async () => {
+      const r = await runNamedWorld("staging", {
+        sources: shippedPlaceholder(),
+        envVars: { DRILL_WEBHOOK_HOST_STAGING: raw },
+      });
+      expectRefusedOutright(r, `DRILL_WEBHOOK_HOST_STAGING='${raw}'`);
+    });
+  }
+
+  // A values file names a bare host, so the same shapes have to be refused
+  // there too — the exploit that shipped put its authority in the chart.
+  for (const [what, raw] of asAuthority) {
+    it(`refuses ingress.host carrying ${what}`, async () => {
+      const c: Case = { title: "", drillEnv: "staging", sources: allEnvs(truthful) };
+      writeValues(c);
+      fs.writeFileSync(
+        path.join(fixtureRoot, "chart/values-staging.yaml"),
+        `ingress:\n  host: '${raw}'\n`,
+      );
+      const { args, env } = materialize(c);
+      const before = deliveries.length;
+      const result = await run(args, env);
+      const checked = await run([...args, "--check-target"], env);
+      expectRefusedOutright(
+        {
+          code: result.code,
+          output: result.output,
+          fresh: deliveries.slice(before),
+          checked: checked.code,
+        },
+        `ingress.host='${raw}'`,
+      );
+    });
+  }
+
+  // Spellings that name the drilled environment's own host and change nothing
+  // about which host that is. These have to deliver, or "refuse anything
+  // unfamiliar" would pass for a safety property.
+  it("delivers to an uppercase spelling of its own host", async () => {
+    const r = await runNamedWorld("staging", {
+      sources: shippedPlaceholder(),
+      envVars: { DRILL_WEBHOOK_HOST_STAGING: spell("staging", "upperCase") },
+    });
+    expect(r.fresh.map((d) => d.place)).toEqual(["staging"]);
+    expect(r.code).toBe(0);
+  });
+
+  it("delivers to a trailing-root-dot spelling of its own host", async () => {
+    const r = await runNamedWorld("staging", {
+      sources: shippedPlaceholder(),
+      envVars: { DRILL_WEBHOOK_HOST_STAGING: spell("staging", "trailingDot") },
+    });
+    expect(r.fresh.map((d) => d.place)).toEqual(["staging"]);
+    expect(r.code).toBe(0);
+  });
+
+  it("delivers to a bracketed IPv6 literal with a port", async () => {
+    const r = await runNamedWorld("production", {
+      sources: shippedPlaceholder(),
+      envVars: { DRILL_WEBHOOK_URL_PRODUCTION: `https://${WORLD.production.hostPort}` },
+    });
+    expect(r.fresh.map((d) => d.place)).toEqual(["production"]);
+    expect(r.code).toBe(0);
+  });
+});
+
+describe("the connection that happened, not the connection that was planned", () => {
+  // The last check does not depend on the construction or the parser being
+  // right, which is the whole reason it is there. Proving it works means
+  // defeating everything above it, so curl itself is made to send the request
+  // somewhere the checks never approved.
+  //
+  // Note what this test asserts and what it does not: the request *does* arrive
+  // at staging. The check cannot prevent that — by the time curl can report an
+  // effective URL the bytes have left. What it prevents is that being reported
+  // as a drill.
+  it("reports a defeated construction as a defect, not a drill", async () => {
+    const c: Case = { title: "", drillEnv: "production", sources: allEnvs(truthful) };
+    writeValues(c);
+    const { args, env } = materialize(c);
+    const before = deliveries.length;
+    const { code, output } = await run(args, {
+      ...env,
+      DRILL_TEST_MISDIRECT_TO: WORLD.staging.hostPort,
+    });
+    const fresh = deliveries.slice(before);
+
+    expect(fresh.map((d) => d.place)).toEqual(["staging"]);
+    expect(fresh[0]?.signedFor).toBe("production");
+    expect(code).not.toBe(0);
+    expect(output).toContain("DEFECT — the request curl made is not the request that was checked");
+    expect(output).toContain(`it addresses the host ${canonical(WORLD.staging.host)}`);
+    expect(output).toContain("This is a bug in this script");
+    expect(output).not.toContain("accepted — webhook ingress queued");
+  });
+
+  it("says which address received the payload it should not have", async () => {
+    const c: Case = { title: "", drillEnv: "production", sources: allEnvs(truthful) };
+    writeValues(c);
+    const { args, env } = materialize(c);
+    const { output } = await run(args, {
+      ...env,
+      DRILL_TEST_MISDIRECT_TO: WORLD.staging.hostPort,
+    });
+
+    expect(output).toContain(`port ${WORLD.staging.port}`);
+    expect(output).toContain("incident-response/production/grafana/oncall-webhook-hmac");
+  });
+
+  // The same seam, aimed where the checks did approve. Nothing may fire on a
+  // passthrough that changes nothing — otherwise the check above would be
+  // rejecting every run rather than the misdirected one.
+  it("passes a connection that went where it was checked", async () => {
+    const c: Case = { title: "", drillEnv: "production", sources: allEnvs(truthful) };
+    writeValues(c);
+    const { args, env } = materialize(c);
+    const before = deliveries.length;
+    const { code, output } = await run(args, {
+      ...env,
+      DRILL_TEST_MISDIRECT_TO: WORLD.production.hostPort,
+    });
+
+    expect(deliveries.slice(before).map((d) => d.place)).toEqual(["production"]);
+    expect(code).toBe(0);
+    expect(output).not.toContain("DEFECT");
+  });
+});
+
 describe("the URL curl parses is the URL the checks read", () => {
   it("does not let a globbed URL address a host nothing checked", async () => {
     writeValues({ title: "", drillEnv: "production", sources: allEnvs(truthful) });
@@ -1175,7 +1544,11 @@ describe("--check-target is the whole verdict", () => {
     expect(stdout).toContain("incident-response/production/grafana/oncall-webhook-hmac");
   });
 
-  it("needs no aws CLI, no cluster and no payload tooling", async () => {
+  // node is the one tool it does need: the assembled URL is parsed with it
+  // before anything is sent, in every mode including this one. Everything else —
+  // the aws CLI, kubectl, openssl, jq, curl — is payload and credential tooling
+  // a verdict has no business requiring.
+  it("needs nothing but node — no aws CLI, no cluster, no payload tooling", async () => {
     writeValues({ title: "", drillEnv: "staging", sources: allEnvs(truthful) });
     const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), "drill-nobin-"));
     try {
@@ -1183,7 +1556,10 @@ describe("--check-target is the whole verdict", () => {
         "bash",
         [path.join(fixtureRoot, "scripts/fire-drill.sh"), "--env", "staging", "--check-target"],
         {
-          env: { PATH: `${emptyBin}:/usr/bin:/bin`, HOME: fixtureRoot },
+          env: {
+            PATH: `${emptyBin}:${path.dirname(process.execPath)}:/usr/bin:/bin`,
+            HOME: fixtureRoot,
+          },
           encoding: "utf8",
         },
       );

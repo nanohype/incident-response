@@ -79,6 +79,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # fire-drill.sh parses the request URL it assembles with node before it
+      # sends anything, in every mode including --check-target. Pin the version
+      # rather than lean on whatever the runner image happens to carry.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       # Whether a drill would fire where it signs is one question with one
       # answer, and `fire-drill.sh --check-target` is where that answer lives: it
       # builds the identity map for every environment, holds the target against
