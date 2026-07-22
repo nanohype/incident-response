@@ -88,6 +88,14 @@ jobs:
       # every *other* environment's host, derived the same independent way. A
       # production dispatch that would reach staging fails here even if the
       # script's own checks did not fire.
+      #
+      # What this step does NOT restate is how two hostnames are compared. A port,
+      # a path, letter case or a trailing root dot can differ between two strings
+      # naming the same load balancer, and a second implementation of that rule in
+      # YAML is a second implementation to drift. So the comparison form comes
+      # from `fire-drill.sh --canonical-host`, the same primitive the script's own
+      # checks use. Reading configuration stays independent; agreeing on what a
+      # hostname is does not.
       - name: Check the drill is configured, and targets the environment it signs for
         env:
           DRILL_ROLE_ARN: ${{ secrets.AWS_DRILL_ROLE_ARN }}
@@ -106,22 +114,27 @@ jobs:
 
           upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
 
-          # This environment's host, without going through fire-drill.sh: the
-          # scoped repository variable if set, else ingress.host as the values
-          # file declares it. Placeholders count as "not configured".
+          # The comparison form of a hostname, asked of the drill rather than
+          # reimplemented here. Prints nothing for the placeholder this
+          # repository ships, which is how "not configured" is spelled below.
+          canonical() { bash scripts/fire-drill.sh --canonical-host "$1"; }
+
+          # This environment's host, without going through fire-drill.sh's own
+          # resolver: the scoped repository variable if set, else ingress.host as
+          # the values file declares it.
           configured_host() {
-            local env="$1" var host
+            local env="$1" var raw
             var="DRILL_WEBHOOK_HOST_$(upper "$env")"
-            host="${!var:-}"
-            if [[ -z "$host" && -f "chart/values-${env}.yaml" ]]; then
-              host=$(awk '
+            raw="${!var:-}"
+            if [[ -z "$raw" && -f "chart/values-${env}.yaml" ]]; then
+              raw=$(awk '
                 /^[^ \t#]/ { inblock = ($0 == "ingress:") }
                 inblock && index($0, "  host:") == 1 {
                   sub("^  host:[ \t]*", ""); sub("[ \t]+#.*$", ""); sub("[ \t]+$", "")
                   gsub("[\"'\'']", ""); print; exit
                 }' "chart/values-${env}.yaml")
             fi
-            case "$host" in ''|example.com|*.example.com) printf '' ;; *) printf '%s' "$host" ;; esac
+            canonical "$raw"
           }
 
           ENV_UPPER=$(upper "$ENVIRONMENT")

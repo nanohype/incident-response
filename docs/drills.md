@@ -38,14 +38,17 @@ The cheapest way to exercise the full P1 path. `scripts/fire-drill.sh`:
 5. POSTs to `https://<ingress-host>/webhook/grafana-oncall` — the path is `ingress.path` from the same values file, so the drill follows the listener rule rather than assuming one.
 6. Tells you the incident ID + what to watch next.
 
-**Set the hostname before your first drill.** `chart/values-{env}.yaml` ships `ingress.host` as a `.example.com` placeholder so the chart renders without naming anybody's DNS zone, and the drill refuses to fire at it:
+**Set the hostname before your first drill.** `chart/values-{env}.yaml` ships `ingress.host` as a `.example.com` placeholder so the chart renders without naming anybody's DNS zone, and the drill refuses to fire at it. Against a fresh checkout:
 
 ```
-[drill] FAIL: ingress.host in chart/values-staging.yaml is still the placeholder
-'incident-response-webhook-staging.example.com'. …
+$ bash scripts/fire-drill.sh --env staging --dry-run
+[drill] FAIL: chart/values-staging.yaml resolves to the placeholder host
+'incident-response-webhook-staging.example.com'. Set chart/values-staging.yaml's
+ingress.host to the hostname external-dns published for the ALB, pass --host
+<hostname> or --url <base-url>, set DRILL_WEBHOOK_HOST_STAGING, or use --from-cluster.
 ```
 
-Three ways past it, highest precedence first:
+Ways past it. Name the target with exactly one of them — naming it twice is an error, not a precedence contest:
 
 | Want | Do |
 |---|---|
@@ -55,27 +58,39 @@ Three ways past it, highest precedence first:
 
 The values file is the default source because reading it needs a checkout and nothing else — no kubeconfig, no cluster reachability — so the same command works from a laptop and from CI, which authenticates to AWS and never to the cluster. `--from-cluster` is the one to reach for when you want to prove the drill is talking to the load balancer that exists rather than the one the chart declares.
 
-**An override does not stop being an override once `ingress.host` is set.** `--host`, `--url`, and the scoped variables sit *above* the values file in the precedence list, not below it — a variable exported into your shell keeps winning after you have filled the values file in. That is a live footgun, because a drill signs with `incident-response/<env>/grafana/oncall-webhook-hmac`: a target resolved for one environment and signed for another delivers a production-signed alert to a staging load balancer. So the drill binds the two together before it signs anything:
+**A drill is a pair: a signing identity and a destination.** It signs with `incident-response/<env>/grafana/oncall-webhook-hmac`, so a target resolved for one environment and signed for another puts a production signature on a staging load balancer. The drill resolves exactly one target URL and reads that one value everywhere — the checks, `--print-host`, and the POST — so a checked hostname and a POSTed hostname cannot come apart. Five rules bind the pair, all before anything is signed:
 
 | Rule | What it refuses |
 |---|---|
-| Overrides are environment-scoped | An unscoped `DRILL_WEBHOOK_HOST` / `DRILL_WEBHOOK_URL` is rejected by name, because one value applies to every `--env`. Use `DRILL_WEBHOOK_HOST_STAGING`, `..._PRODUCTION`, `..._DEVELOPMENT` |
-| No cross-environment targets | A resolved host that is another environment's `ingress.host` is rejected, however it was resolved — flag, scoped variable, or live Ingress |
+| The target is named once | Two inputs that name a target — `--url` with `--host`, a flag with a scoped variable, either with `--from-cluster` — are rejected with both names, whether or not they agree |
+| Overrides are environment-scoped | An unscoped `DRILL_WEBHOOK_HOST`, `DRILL_WEBHOOK_URL`, `DRILL_HMAC_SECRET_ID` or `DRILL_HMAC_SECRET` is rejected by name, because one value applies to every `--env`. Use `DRILL_WEBHOOK_HOST_STAGING`, `..._PRODUCTION`, `..._DEVELOPMENT` |
+| No cross-environment targets | A resolved host that is another environment's `ingress.host` is rejected, however it was resolved — flag, scoped variable, or live Ingress. Hosts compare canonically, so a port, a path, letter case or a trailing root dot cannot hide the collision |
 | The values file is the environment's identity | Once `chart/values-<env>.yaml` names a real host, an explicit override that disagrees with it is rejected. Change the values file, or use `--from-cluster` |
+| The secret belongs to `--env` | A secret id naming another environment's tree is rejected — the same misfire read backwards |
+
+The transcripts below assume a checkout where `chart/values-staging.yaml` names `webhook.staging.acme.io` and `chart/values-production.yaml` names `webhook.acme.io`. Rules 3 and 4 compare against those hostnames, so on a fresh checkout — where every environment still carries the `example.com` placeholder — there is nothing to compare and the placeholder refusal above happens instead. Rules 1, 2 and 5 need no configuration and reproduce anywhere.
 
 ```
 $ DRILL_WEBHOOK_HOST=webhook.staging.acme.io bash scripts/fire-drill.sh --env production --dry-run
 [drill] FAIL: DRILL_WEBHOOK_HOST is set, and it applies to every --env. Use the
 environment-scoped name instead: DRILL_WEBHOOK_HOST_PRODUCTION …
 
-$ bash scripts/fire-drill.sh --env production --host webhook.staging.acme.io --dry-run
+$ bash scripts/fire-drill.sh --env production --url https://webhook.acme.io --host webhook.staging.acme.io --dry-run
+[drill] FAIL: the webhook target is named 2 times (--url, --host). Name it once.
+With two of them, one decides where a production-signed alert lands and the other
+decides nothing — and which is which is not something a caller should have to
+know. Drop all but one.
+
+$ bash scripts/fire-drill.sh --env production --host webhook.staging.acme.io:8443 --dry-run
 [drill] FAIL: refusing to fire: --env production signs with
 incident-response/production/grafana/oncall-webhook-hmac, but --host resolves to
 'webhook.staging.acme.io', which chart/values-staging.yaml declares as the staging
 webhook host. Drill staging with --env staging.
 ```
 
-`bash scripts/fire-drill.sh --env <env> --print-host` prints the resolved hostname and exits — after all three checks, so it is safe to script against. `test/unit/drill-target-resolution.test.ts` holds the invariant.
+`bash scripts/fire-drill.sh --env <env> --print-host` prints the hostname of the request the drill would send, and exits — after all five rules. It is derived from the same resolved URL the POST uses, so it cannot describe a request other than the one that would go out, which is what makes it safe to script against. `bash scripts/fire-drill.sh --canonical-host <value>` answers the narrower question the rules compare with: the hostname of a URL or a `host:port`, lower-cased and without a trailing dot, and nothing at all for the shipped placeholder.
+
+`test/unit/drill-target-resolution.test.ts` holds the invariant — *a payload signed for environment X is delivered only to environment X's host, or nothing is sent at all* — against stub webhooks that verify signatures with this repository's own `verifyHmacSignature`, over generated combinations of every way a target or a signing identity can be named.
 
 ```bash
 # Fire a synthetic P1.
@@ -99,11 +114,11 @@ bash scripts/fire-drill.sh --env staging --state resolved --incident-id drill-17
 ```bash
 bash scripts/fire-drill.sh --env staging --host webhook.staging.acme.io --dry-run
 #   [drill] webhook_url=https://webhook.staging.acme.io/webhook/grafana-oncall (resolved from --host)
-#   [drill] dry run: skipping the Secrets Manager read of incident-response/staging/grafana/oncall-webhook-hmac
+#   [drill] dry run: skipping the Secrets Manager read of incident-response/staging/grafana/oncall-webhook-hmac (set DRILL_HMAC_SECRET_STAGING to sign anyway)
 #   [drill] dry run — nothing sent
 ```
 
-Set `DRILL_HMAC_SECRET` and a dry run signs the payload too, without touching Secrets Manager.
+Set `DRILL_HMAC_SECRET_STAGING` and a dry run signs the payload too, without touching Secrets Manager. The name is scoped like every other override: one `DRILL_HMAC_SECRET` shared across environments would sign a staging drill with whichever environment's secret was exported last, so the unscoped name is refused.
 
 What this tests, in order:
 
@@ -304,7 +319,7 @@ The same scripted drill runs in CI via `.github/workflows/drill.yml` and `script
 | variable `INCIDENT_RESPONSE_DRILL_HOST_DEVELOPMENT` / `_STAGING` / `_PRODUCTION` | That one environment's webhook Ingress hostname. Needed only while that environment's `chart/values-<env>.yaml` still carries the placeholder host; once the values file names a real host, a variable that disagrees with it is refused. There is no single unscoped variable on purpose — one hostname applied to every environment choice is one environment's signature delivered to another's load balancer |
 | variable `INCIDENT_RESPONSE_DRILL_REGION` | Optional, defaults to `us-west-2` |
 
-Before it fires, the workflow derives the selected environment's host from the scoped variable (or that environment's values file) *without* going through `fire-drill.sh`, and compares it against what `--print-host` resolved — a resolver that got the target wrong cannot vouch for itself. It then checks the resolved host against every other environment's host, derived the same way, and fails the run on a match.
+Before it fires, the workflow derives the selected environment's host from the scoped variable (or that environment's values file) *without* going through `fire-drill.sh`'s resolver, and compares it against what `--print-host` resolved — a resolver that got the target wrong cannot vouch for itself. It then checks the resolved host against every other environment's host, derived the same way, and fails the run on a match. What it does not re-derive is how two hostnames are compared: both sides go through `fire-drill.sh --canonical-host`, so the workflow and the script cannot disagree about what counts as the same host.
 
 **There is no cron.** The drill needs a deployed environment, an OIDC role, and a hostname — none of which this repository carries and each fork supplies for itself. A schedule would wake up nightly to report its own missing configuration. Add a `schedule:` trigger to `drill.yml` once the three settings above are in place and the drill passes on demand; the workflow header says where.
 

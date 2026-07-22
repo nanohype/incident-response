@@ -56,7 +56,13 @@ export async function getHmacSecret(forceRefresh = false): Promise<string> {
   return hmacCache.value;
 }
 
-function verifyHmacSignature(body: string, signature: string, secret: string): boolean {
+/**
+ * Constant-time check that `signature` is the hex HMAC-SHA256 of `body` under
+ * `secret`. Exported because it defines what "signed for this environment"
+ * means: the drill's behavioural tests stand up stub webhooks that answer with
+ * this function rather than a second implementation of it.
+ */
+export function verifyHmacSignature(body: string, signature: string, secret: string): boolean {
   const expected = crypto.createHmac("sha256", secret).update(body, "utf8").digest("hex");
   try {
     return crypto.timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(expected, "hex"));
