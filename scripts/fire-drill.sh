@@ -14,7 +14,7 @@
 #                         [--url <base-url>] [--host <hostname>] [--from-cluster]
 #                         [--namespace <ns>] [--region <region>]
 #                         [--hmac-secret-id <id>] [--dry-run]
-#                         [--check-target] [--print-host]
+#                         [--check-target] [--print-host] [--print-url]
 #
 # Defaults: --env staging, --state firing, auto-generated incident ID.
 #
@@ -46,20 +46,28 @@
 #                             renders X's Ingress from, so this needs nothing
 #                             but a checkout: no kubeconfig, no cluster
 #
-# Hosts compare canonically. A scheme, a port, a path, userinfo, letter case and
-# a trailing root dot can all differ between two strings naming one load
-# balancer, so none of them survives into the comparison. `example.com` is the
+# An identity is a host and a port, and both halves are established. Two
+# environments can share a hostname and differ in the port — one load balancer
+# with two listeners — so a port left out of the identity is half an answer to
+# "where does X live", and half an answer cannot prove a request missed the
+# other half.
+#
+# Hosts compare canonically. A scheme, a path, userinfo, letter case and a
+# trailing root dot can all differ between two strings naming one load balancer,
+# so none of them survives into the comparison. Ports compare canonically too:
+# the drill speaks https and nothing else, so a bare host and the same host
+# written `:443` are one authority spelled two ways. `example.com` is the
 # placeholder this repository ships so the chart renders without naming anyone's
 # DNS zone — a stand-in, never an identity.
 #
 # Each environment lands in exactly one state:
 #
-#   known     one canonical host, agreed by every source that named one
+#   known     one canonical host and port, agreed by every source that named one
 #   absent    DRILL_WEBHOOK_HOST_<X> or DRILL_WEBHOOK_URL_<X> is `none` — X has
 #             no webhook deployment, so it claims no host and collides with
 #             nothing. The one way to say "not deployed" out loud
 #   unknown   no source names a host. A fresh checkout is three unknowns
-#   conflict  two sources name different hosts
+#   conflict  two sources name a different host, or a different port
 #
 # ── What has to hold before anything is signed ──────────────────────────────
 #
@@ -69,22 +77,27 @@
 #      might be hitting it.
 #   2. No two environments claim the same host. One host that is two
 #      environments is a host where one environment's signature lands on the
-#      other's listener.
+#      other's listener. Hostnames only: two environments behind one hostname on
+#      two ports are still two that a DNS record, a certificate and a load
+#      balancer cannot tell apart.
 #   3. The drilled environment is `known`. There is no drilling an environment
 #      declared to have no webhook host.
-#   4. The request goes to the drilled environment's host. `--url`, `--host`
-#      and the scoped variables are ways to spell that host; one that spells a
-#      different host is refused, whether or not the different host belongs to
-#      anybody. `--from-cluster` is the deliberate exception: it fires at the
-#      Ingress the cluster serves, which still has to miss every other
-#      environment's host, and warns when the chart and the cluster disagree.
+#   4. The request goes to the drilled environment's host *and port*. `--url`,
+#      `--host` and the scoped variables are ways to spell that authority; one
+#      that spells a different host or a different port is refused, whether or
+#      not what it spells belongs to anybody. `--from-cluster` is the deliberate
+#      exception: it fires at the Ingress the cluster serves, which still has to
+#      miss every other environment's host, and warns when the chart and the
+#      cluster disagree.
 #   5. Overrides are environment-scoped. An unscoped DRILL_WEBHOOK_URL,
 #      DRILL_WEBHOOK_HOST, DRILL_HMAC_SECRET_ID or DRILL_HMAC_SECRET is refused
 #      by name rather than ignored — one variable that applies to every `--env`
 #      is exactly how the misfire happens, and a caller who set it deserves to
 #      be told rather than silently overruled.
 #   6. The secret the drill signs with belongs to `--env`. A secret id naming
-#      another environment's tree is refused for the same reason a host is.
+#      another environment's tree is refused for the same reason a host is, and
+#      compared with letter case folded for the same reason a host is —
+#      `/STAGING/` names the staging tree exactly as `/staging/` does.
 #
 # ── The request is built, never spliced ─────────────────────────────────────
 #
@@ -130,8 +143,15 @@
 #   • the scheme is `https`
 #   • `username` and `password` are both empty. Userinfo has no legitimate place
 #     in a drill URL, so a non-empty one means the authority was rewritten
-#   • `hostname` is the host every identity check above was run against
-#   • `port` is the port that was validated
+#   • the host component reads, on its own, as nothing but a host — no userinfo,
+#     no port, no path
+#   • `hostname` is that component. Read what this establishes precisely: both
+#     sides go through one parser, so it says the assembly did not move the
+#     authority, and not that the host belongs to the environment being drilled.
+#     That is the identity map's question, settled above, before anything here
+#     is built
+#   • `port` is the port that was validated, with no port and 443 read as the
+#     same thing — https implies one, and a parser prints the shorter spelling
 #   • `pathname` is exactly the encoded path, and there is no query or fragment
 #
 # When the parser and the identity map disagree, the run refuses. It does not
@@ -170,6 +190,13 @@
 # the parser confirmed the built URL addresses — so it describes the request the
 # drill sends, up to the point where the request leaves. Whether curl agreed is
 # the last check above, and it prints a defect when it did not.
+#
+# `--print-url` prints the whole request URL the same way, which is the answer
+# when the port matters. A hostname alone does not say which listener a request
+# reaches, and widening `--print-host` to `host:port` would quietly break every
+# caller feeding it to a DNS lookup — so the port goes out through a flag that
+# says what it is. One of the three reporting flags per run; two would mean one
+# answer silently discarded.
 #
 # The request path comes from `ingress.path`, so the drill follows the listener
 # rule instead of assuming one. (`ingress.healthcheckPath` is the ALB
@@ -220,6 +247,7 @@ HMAC_SECRET_ID_FLAG=""
 FROM_CLUSTER=0
 DRY_RUN=0
 PRINT_HOST=0
+PRINT_URL=0
 CHECK_TARGET=0
 
 usage() {
@@ -228,7 +256,8 @@ Usage: $0 [--env development|staging|production] [--state firing|resolved|silenc
            [--incident-id <id>] [--title <text>]
            [--url <base-url>] [--host <hostname>] [--from-cluster]
            [--namespace <ns>] [--region <region>]
-           [--hmac-secret-id <id>] [--dry-run] [--check-target] [--print-host]
+           [--hmac-secret-id <id>] [--dry-run]
+           [--check-target] [--print-host] [--print-url]
 
 See the header of this file for how an environment's webhook host is
 established, and what each firing produces in your environment.
@@ -251,6 +280,7 @@ while (( $# > 0 )); do
     --dry-run)        DRY_RUN=1; shift ;;
     --check-target)   CHECK_TARGET=1; shift ;;
     --print-host)     PRINT_HOST=1; shift ;;
+    --print-url)      PRINT_URL=1; shift ;;
     -h|--help)        usage 0 ;;
     *)                printf 'unknown flag: %s\n' "$1" >&2; usage 1 ;;
   esac
@@ -270,9 +300,18 @@ case "$STATE" in firing|resolved|silenced) ;; *) printf '[drill] --state must be
 # send nothing. A shell substitute would be a second, weaker reading of the
 # authority, and a second reading is the thing being removed.
 command -v node >/dev/null || { printf '[drill] node required — the assembled request URL is parsed with it before anything is sent\n' >&2; exit 1; }
-# `--check-target` and `--print-host` stop before the payload, so they need none
-# of the payload tooling. Everything else does.
-if (( PRINT_HOST == 0 && CHECK_TARGET == 0 )); then
+# The three reporting modes each answer with what the run resolved and send
+# nothing, so a caller may have one of them. Two would mean one of the answers
+# is silently discarded, and which one is not something to work out from the
+# order the flags were written in.
+if (( PRINT_HOST + PRINT_URL + CHECK_TARGET > 1 )); then
+  printf '[drill] FAIL: --check-target, --print-host and --print-url each answer the same run differently. Name one.\n' >&2
+  exit 1
+fi
+
+# Those three stop before the payload, so they need none of the payload tooling.
+# Everything else does.
+if (( PRINT_HOST == 0 && PRINT_URL == 0 && CHECK_TARGET == 0 )); then
   command -v openssl >/dev/null || { printf '[drill] openssl required\n' >&2; exit 1; }
   command -v jq      >/dev/null || { printf '[drill] jq required\n' >&2; exit 1; }
   command -v curl    >/dev/null || { printf '[drill] curl required\n' >&2; exit 1; }
@@ -304,6 +343,27 @@ canonical_host() {
   esac
   v="${v%.}"
   printf '%s' "$v" | tr '[:upper:]' '[:lower:]'
+}
+
+# The comparison form of a port. The drill speaks https and nothing else, so a
+# host written bare and the same host written `:443` address one listener —
+# they are the same authority spelled two ways, exactly as `EXAMPLE.com` and
+# `example.com` are. Every port comparison goes through this: the identity map,
+# the target check, and the parser check. Compare the raw strings anywhere and
+# a source that spells the default port out loud disagrees with one that does
+# not, about nothing.
+canonical_port() {
+  case "$1" in
+    ''|443) printf '443' ;;
+    *)      printf '%s' "$1" ;;
+  esac
+}
+
+# How a host and a port are written when they are shown to a caller or held
+# against each other in a message: the port when there is one, the host alone
+# when there is not.
+authority_of() {
+  if [[ -n "$2" ]]; then printf '%s:%s' "$1" "$2"; else printf '%s' "$1"; fi
 }
 
 # The two components an authority carries, taken apart rather than kept as one
@@ -388,10 +448,16 @@ SCOPED_SECRET_VAR="DRILL_HMAC_SECRET_${ENV_UPPER}"
 
 # `--host` and DRILL_WEBHOOK_HOST_<ENV> name a hostname, optionally with a port.
 # A scheme or a path in one of them means the caller meant a URL; say so rather
-# than pasting it into one.
+# than pasting it into one. Userinfo is refused here for the reason
+# `require_base_url` refuses it and with no more tolerance: everything before an
+# `@` is userinfo and everything after it is the host, so `a@b` is a request to
+# `b` that reads as `a@b` to one comparison and as `a` to a careless one.
+# Dropping it silently would leave the caller's string and the drill's target
+# two different things, which is the whole class of bug this file is about.
 require_bare_host() {
   case "$2" in
     *://*|*/*) die "$1 is '$2', which is a URL and not a hostname. Pass a full base URL with --url or DRILL_WEBHOOK_URL_<ENV>, or name a bare hostname here." ;;
+    *@*)       die "$1 is '$2', which carries userinfo. Everything before an '@' is userinfo and everything after it is the host, so a value carrying one names a different host to a text comparison than to whatever connects. Name the host by itself." ;;
   esac
 }
 
@@ -513,14 +579,41 @@ verify_url() {
       console.error("it does not parse as a URL at all");
       process.exit(1);
     }
-    const normalize = (host) => {
+    // Read the checked host component the way the assembled URL was read, and
+    // hold it to being nothing but a host: no userinfo, no port, no path.
+    //
+    // Be exact about what the equality below this establishes and what it does
+    // not. Both sides go through one parser, so it says the assembly did not
+    // move the authority — the port and the path concatenated on did not turn
+    // into a host — and nothing more. It is not an identity check: which
+    // environment a host belongs to is settled by the identity map above,
+    // before anything is built. It does not tell two spellings of one address
+    // apart, because one parser reads both the same way.
+    //
+    // On its own that comparison could only fail on a component that does not
+    // parse, which is why the component is also held to its shape here. That
+    // part can fail on a well-formed URL, and it is a second reading of what
+    // require_authority established with shell text operations — the same
+    // deliberate redundancy the path gets.
+    const readHost = (host) => {
+      let parsed;
       try {
-        return new URL("https://" + host).hostname;
+        parsed = new URL("https://" + host);
       } catch {
         return null;
       }
+      if (parsed.username !== "" || parsed.password !== "") return null;
+      if (parsed.port !== "" || parsed.pathname !== "/") return null;
+      if (parsed.search !== "" || parsed.hash !== "") return null;
+      return parsed.hostname;
     };
-    const want = normalize(process.env.DRILL_VERIFY_HOST);
+    // https is the only scheme here, so no port and port 443 are one listener.
+    // A parser prints the first spelling and a source may have written either,
+    // so both go through the same defaulting before they are compared — or a
+    // host declared with an explicit :443 fails a check against itself.
+    const effectivePort = (port) => (port === "" ? "443" : port);
+    const describePort = (port) => (port === "" ? "443 (written as no port, which for https is 443)" : port);
+    const want = readHost(process.env.DRILL_VERIFY_HOST);
     const problems = [];
     if (u.protocol !== "https:") {
       problems.push("its scheme is " + u.protocol + ", and the drill only speaks https:");
@@ -529,12 +622,12 @@ verify_url() {
       problems.push("its authority carries userinfo, so the host it reaches is not the host that was checked");
     }
     if (want === null) {
-      problems.push("the checked host " + process.env.DRILL_VERIFY_HOST + " is not a host a parser can read");
+      problems.push("the checked host " + process.env.DRILL_VERIFY_HOST + " is not something a parser reads as a bare host");
     } else if (u.hostname !== want) {
       problems.push("it addresses the host " + u.hostname + ", and every check above was run against " + want);
     }
-    if (u.port !== process.env.DRILL_VERIFY_PORT) {
-      problems.push("it addresses port " + (u.port === "" ? "<none>" : u.port) + ", and the port that was checked is " + (process.env.DRILL_VERIFY_PORT === "" ? "<none>" : process.env.DRILL_VERIFY_PORT));
+    if (effectivePort(u.port) !== effectivePort(process.env.DRILL_VERIFY_PORT)) {
+      problems.push("it addresses port " + describePort(u.port) + ", and the port that was checked is " + describePort(process.env.DRILL_VERIFY_PORT));
     }
     if (u.pathname !== process.env.DRILL_VERIFY_PATH) {
       problems.push("its path is " + u.pathname + ", and the path that was built is " + process.env.DRILL_VERIFY_PATH);
@@ -630,19 +723,24 @@ build_identity() {
     c_src+=("$vsrc"); c_kind+=(host); c_host+=("$AUTH_HOST"); c_port+=("$AUTH_PORT")
   fi
 
+  # An identity is a host and a port together, and both halves are compared.
+  # Two sources that agree on the hostname and disagree about the port disagree
+  # about which listener the environment is — a load balancer answering on 8443
+  # is not the one answering on 443, and letting the first read win would settle
+  # that by ordering rather than by fact.
   local state=unknown host="" port="" source="" note="" i=0
   while (( i < ${#c_src[@]} )); do
     if [[ "${c_kind[$i]}" == "absent" ]]; then
       if [[ "$state" == "known" ]]; then
-        state=conflict; note="${source} names '${host}', ${c_src[$i]} says $env has no webhook host"; break
+        state=conflict; note="${source} names '$(authority_of "$host" "$port")', ${c_src[$i]} says $env has no webhook host"; break
       fi
       state=absent; source="${c_src[$i]}"
     else
       if [[ "$state" == "absent" ]]; then
-        state=conflict; note="${source} says $env has no webhook host, ${c_src[$i]} names '${c_host[$i]}'"; break
+        state=conflict; note="${source} says $env has no webhook host, ${c_src[$i]} names '$(authority_of "${c_host[$i]}" "${c_port[$i]}")'"; break
       fi
-      if [[ "$state" == "known" && "$host" != "${c_host[$i]}" ]]; then
-        state=conflict; note="${source} names '${host}', ${c_src[$i]} names '${c_host[$i]}'"; break
+      if [[ "$state" == "known" ]] && { [[ "$host" != "${c_host[$i]}" ]] || [[ "$(canonical_port "$port")" != "$(canonical_port "${c_port[$i]}")" ]]; }; then
+        state=conflict; note="${source} names '$(authority_of "$host" "$port")', ${c_src[$i]} names '$(authority_of "${c_host[$i]}" "${c_port[$i]}")'"; break
       fi
       if [[ "$state" != "known" ]]; then
         state=known; host="${c_host[$i]}"; port="${c_port[$i]}"; source="${c_src[$i]}"
@@ -676,7 +774,7 @@ identity_table() {
   for e in "${ENVIRONMENTS[@]}"; do
     idx=$(env_index "$e")
     case "${IDENT_STATE[$idx]}" in
-      known)    printf '  %-12s %-42s from %s\n' "$e" "${IDENT_HOST[$idx]}" "${IDENT_SOURCE[$idx]}" ;;
+      known)    printf '  %-12s %-42s from %s\n' "$e" "$(authority_of "${IDENT_HOST[$idx]}" "${IDENT_PORT[$idx]}")" "${IDENT_SOURCE[$idx]}" ;;
       absent)   printf '  %-12s %-42s from %s\n' "$e" "no webhook deployment" "${IDENT_SOURCE[$idx]}" ;;
       unknown)  printf '  %-12s %-42s %s\n'      "$e" "UNKNOWN" "${IDENT_NOTE[$idx]}" ;;
       conflict) printf '  %-12s %-42s %s\n'      "$e" "CONFLICTING" "${IDENT_NOTE[$idx]}" ;;
@@ -720,7 +818,7 @@ how_to_name_a_host() {
 for env in "${ENVIRONMENTS[@]}"; do
   idx=$(env_index "$env")
   if [[ "${IDENT_STATE[$idx]}" == "conflict" ]]; then
-    refuse "two sources name the $env webhook host differently — ${IDENT_NOTE[$idx]}. While they disagree there is no fact about where $env lives, and a ${ENVIRONMENT} drill cannot prove it is missing it." \
+    refuse "two sources name a different $env webhook host or port — ${IDENT_NOTE[$idx]}. While they disagree there is no fact about where $env lives, and a ${ENVIRONMENT} drill cannot prove it is missing it." \
       "Make them agree, or drop one of them."
   fi
 done
@@ -728,6 +826,12 @@ done
 # ── One host cannot be two environments ──────────────────────────────────────
 # Before the unknowns, because a collision is a fact about hosts that are named
 # rather than a gap in what is named.
+#
+# Hostnames only, deliberately. Two environments behind one hostname on two
+# ports are still two environments a DNS record, a TLS certificate and a load
+# balancer cannot tell apart, and the drill has no way to prove a request went
+# to the listener rather than to its neighbour. Refusing that is the strict
+# reading, and the strict reading is the one this file takes everywhere else.
 for env in "${ENVIRONMENTS[@]}"; do
   idx=$(env_index "$env")
   [[ "${IDENT_STATE[$idx]}" == "known" ]] || continue
@@ -763,6 +867,7 @@ if [[ "${IDENT_STATE[$DRILL_IDX]}" == "absent" ]]; then
 fi
 
 DECLARED_HOST="${IDENT_HOST[$DRILL_IDX]}"
+DECLARED_PORT="${IDENT_PORT[$DRILL_IDX]}"
 
 # ── Resolve the one target ───────────────────────────────────────────────────
 # What resolution produces is two components — TARGET_HOST and TARGET_PORT — not
@@ -822,6 +927,10 @@ if (( FROM_CLUSTER == 1 )); then
     refuse "the live Ingress in $NAMESPACE serves the placeholder host '$TARGET_HOST'. That is the value this repository ships, not a hostname anything answers on." \
       "Deploy the chart with ingress.host set, then drill again."
   fi
+  # Host only, here and in the collision check above: a hostname that answers
+  # for two environments is a collision whichever ports they sit on, and this is
+  # the branch that fires at whatever the cluster serves rather than at what was
+  # declared.
   for other_env in "${ENVIRONMENTS[@]}"; do
     [[ "$other_env" == "$ENVIRONMENT" ]] && continue
     other_idx=$(env_index "$other_env")
@@ -831,10 +940,15 @@ if (( FROM_CLUSTER == 1 )); then
         "Point your kubeconfig at the $ENVIRONMENT cluster, or drill $other_env with --env $other_env."
     fi
   done
-  if [[ "$TARGET_HOST" != "$DECLARED_HOST" ]]; then
-    warn "the live Ingress in $NAMESPACE serves '$TARGET_HOST'; $ENVIRONMENT's host is '$DECLARED_HOST' per ${IDENT_SOURCE[$DRILL_IDX]}. Firing at the live one — the chart and the cluster have drifted."
+  if [[ "$TARGET_HOST" != "$DECLARED_HOST" ]] || [[ "$(canonical_port "$TARGET_PORT")" != "$(canonical_port "$DECLARED_PORT")" ]]; then
+    warn "the live Ingress in $NAMESPACE serves '$(authority_of "$TARGET_HOST" "$TARGET_PORT")'; $ENVIRONMENT's webhook is '$(authority_of "$DECLARED_HOST" "$DECLARED_PORT")' per ${IDENT_SOURCE[$DRILL_IDX]}. Firing at the live one — the chart and the cluster have drifted."
   fi
-elif [[ "$TARGET_HOST" != "$DECLARED_HOST" ]]; then
+# The port is half of the answer to "where does this go". Two environments can
+# share a hostname and differ in the port — one ALB with two listeners, one
+# hostname with two NodePorts — so a check that reads the host and stops cannot
+# tell those two apart, and a flag naming this environment's hostname on
+# another's port passes it while landing somewhere else.
+elif [[ "$TARGET_HOST" != "$DECLARED_HOST" ]] || [[ "$(canonical_port "$TARGET_PORT")" != "$(canonical_port "$DECLARED_PORT")" ]]; then
   claimed_by=""
   for other_env in "${ENVIRONMENTS[@]}"; do
     [[ "$other_env" == "$ENVIRONMENT" ]] && continue
@@ -843,11 +957,11 @@ elif [[ "$TARGET_HOST" != "$DECLARED_HOST" ]]; then
     [[ "$TARGET_HOST" == "${IDENT_HOST[$other_idx]}" ]] && claimed_by="$other_env"
   done
   if [[ -n "$claimed_by" ]]; then
-    refuse "$SOURCE resolves to '$TARGET_HOST', which is $claimed_by's webhook host — and this drill signs with incident-response/${ENVIRONMENT}/grafana/oncall-webhook-hmac." \
+    refuse "$SOURCE resolves to '$(authority_of "$TARGET_HOST" "$TARGET_PORT")', whose host is $claimed_by's webhook host — and this drill signs with incident-response/${ENVIRONMENT}/grafana/oncall-webhook-hmac." \
       "Drill $claimed_by with --env $claimed_by."
   fi
-  refuse "$SOURCE resolves to '$TARGET_HOST', and $ENVIRONMENT's webhook host is '$DECLARED_HOST' per ${IDENT_SOURCE[$DRILL_IDX]}. A ${ENVIRONMENT}-signed payload goes to $ENVIRONMENT's host and nowhere else." \
-    "Name '$DECLARED_HOST' here, change what ${IDENT_SOURCE[$DRILL_IDX]} says $ENVIRONMENT is, or use --from-cluster to fire at whatever the cluster actually serves."
+  refuse "$SOURCE resolves to '$(authority_of "$TARGET_HOST" "$TARGET_PORT")', and $ENVIRONMENT's webhook is '$(authority_of "$DECLARED_HOST" "$DECLARED_PORT")' per ${IDENT_SOURCE[$DRILL_IDX]}. A ${ENVIRONMENT}-signed payload goes to $ENVIRONMENT's host and port and nowhere else." \
+    "Name '$(authority_of "$DECLARED_HOST" "$DECLARED_PORT")' here, change what ${IDENT_SOURCE[$DRILL_IDX]} says $ENVIRONMENT is, or use --from-cluster to fire at whatever the cluster actually serves."
 fi
 
 # ── Construct the request ────────────────────────────────────────────────────
@@ -893,11 +1007,19 @@ elif [[ -n "${!SCOPED_SECRET_ID_VAR:-}" ]]; then
   HMAC_SECRET_ID="${!SCOPED_SECRET_ID_VAR}"; HMAC_SECRET_ID_SOURCE="$SCOPED_SECRET_ID_VAR"
 fi
 
+# Folded to lower case, because every host comparison in this file is: a secret
+# id is an operator-written string, and `/STAGING/` names the staging tree
+# exactly as `/staging/` does. Reading one of them as another environment's and
+# the other as nobody's would make this a check on the spelling rather than on
+# the tree — one half of a rule, with the gap exactly where a fork that
+# capitalises its environment segments lives.
+HMAC_SECRET_ID_FOLDED=$(printf '%s' "$HMAC_SECRET_ID" | tr '[:upper:]' '[:lower:]')
+
 for other_env in "${ENVIRONMENTS[@]}"; do
   [[ "$other_env" == "$ENVIRONMENT" ]] && continue
-  case "/${HMAC_SECRET_ID}/" in
+  case "/${HMAC_SECRET_ID_FOLDED}/" in
     */"${other_env}"/*)
-      die "refusing to fire: --env $ENVIRONMENT delivers to '$TARGET_HOST', but the HMAC secret id from $HMAC_SECRET_ID_SOURCE is '$HMAC_SECRET_ID', which names the $other_env secret tree. Signing with one environment's secret and delivering to another environment's load balancer is the same misfire read backwards. Drill $other_env with --env $other_env."
+      die "refusing to fire: --env $ENVIRONMENT delivers to '$(authority_of "$TARGET_HOST" "$TARGET_PORT")', but the HMAC secret id from $HMAC_SECRET_ID_SOURCE is '$HMAC_SECRET_ID', which names the $other_env secret tree. Signing with one environment's secret and delivering to another environment's load balancer is the same misfire read backwards. Drill $other_env with --env $other_env."
       ;;
   esac
 done
@@ -908,16 +1030,28 @@ if (( CHECK_TARGET == 1 )); then
   warn_absent_declarations
   log "environment identities:"
   identity_table
-  log "$ENVIRONMENT drills $TARGET_HOST"
+  log "$ENVIRONMENT drills $(authority_of "$TARGET_HOST" "$TARGET_PORT")"
   log "  target $TARGET (resolved from $SOURCE)"
   log "  hmac   $HMAC_SECRET_ID (from $HMAC_SECRET_ID_SOURCE)"
   exit 0
 fi
 
-# Resolution and every check are done. Callers that only want to know where a
-# drill would land get that hostname on stdout and nothing else.
+# Resolution and every check are done. Callers that only want the hostname get
+# that on stdout and nothing else — it is the name a DNS lookup takes, which is
+# what a caller reaching for a hostname alone is usually about to do.
 if (( PRINT_HOST == 1 )); then
   printf '%s\n' "$TARGET_HOST"
+  exit 0
+fi
+
+# The whole request, for callers that need the part a hostname leaves out. A
+# port is half of where a request goes, so `--print-host` cannot answer "where
+# does this drill land" on its own — and widening it to `host:port` would break
+# the callers feeding it to a DNS lookup, silently, which is the shape of bug
+# this file exists to refuse. The port goes out through a flag that says what it
+# is instead.
+if (( PRINT_URL == 1 )); then
+  printf '%s\n' "$TARGET"
   exit 0
 fi
 

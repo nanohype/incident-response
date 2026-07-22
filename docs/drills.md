@@ -72,25 +72,27 @@ Holding that takes an authoritative answer to *which host belongs to which envir
 | `DRILL_WEBHOOK_HOST_<ENV>` | A hostname, optionally with a port |
 | `DRILL_WEBHOOK_URL_<ENV>` | A base URL, scheme included |
 
-Hosts compare canonically — a scheme, a port, a path, userinfo, letter case and a trailing root dot can all differ between two strings naming one load balancer, so none of them survives the comparison. Each environment ends up in one of four states:
+An identity is a host **and** a port. Two environments can sit behind one hostname on two ports — one load balancer, two listeners — so a port left out of the identity is half an answer to "where does this environment live", and half an answer cannot prove a request missed the other half.
+
+Hosts compare canonically — a scheme, a path, userinfo, letter case and a trailing root dot can all differ between two strings naming one load balancer, so none of them survives the comparison. Ports compare canonically too: the drill speaks https and nothing else, so a bare host and the same host written `:443` are one authority spelled two ways. Each environment ends up in one of four states:
 
 | State | Meaning |
 |---|---|
-| **known** | One canonical host, agreed by every source that named one |
+| **known** | One canonical host and port, agreed by every source that named one |
 | **absent** | `DRILL_WEBHOOK_HOST_<ENV>` or `DRILL_WEBHOOK_URL_<ENV>` is `none` — that environment has no webhook deployment, so it claims no host. The one way to say "not deployed" out loud |
 | **unknown** | No source names a host. A fresh checkout is three unknowns |
-| **conflict** | Two sources name different hosts |
+| **conflict** | Two sources name a different host, or a different port. Agreeing on the hostname and disagreeing about the port is a disagreement about which listener the environment is, and letting the first source read win would settle it by ordering rather than by fact |
 
 Then, before anything is signed:
 
 | What has to hold | What it refuses |
 |---|---|
 | Every environment is known or absent | An unknown or a conflict anywhere — including environments this run is not drilling. A host nobody can name is a host nothing can be proved to miss, and a drill that cannot prove where it is firing does not fire |
-| No two environments claim one host | Two identities that resolve to the same hostname. One host serving two environments is a host where one environment's signature lands on the other's listener |
+| No two environments claim one host | Two identities that resolve to the same hostname. One host serving two environments is a host where one environment's signature lands on the other's listener. Hostnames only, deliberately: two environments behind one hostname on two ports are still two that a DNS record, a certificate and a load balancer cannot tell apart |
 | The drilled environment is known | Drilling an environment declared to have no webhook host |
-| The request goes to the drilled environment's host | A `--host`, `--url` or scoped variable that spells a different host, whether or not that host belongs to another environment. `--from-cluster` is the exception — it fires at the Ingress the cluster serves, which still has to miss every other environment's host, and warns when the chart and the cluster have drifted |
+| The request goes to the drilled environment's host **and port** | A `--host`, `--url` or scoped variable that spells a different host or a different port, whether or not what it spells belongs to another environment. `--from-cluster` is the exception — it fires at the Ingress the cluster serves, which still has to miss every other environment's host, and warns when the chart and the cluster have drifted |
 | Overrides are environment-scoped | An unscoped `DRILL_WEBHOOK_HOST`, `DRILL_WEBHOOK_URL`, `DRILL_HMAC_SECRET_ID` or `DRILL_HMAC_SECRET`, by name — one value applies to every `--env` |
-| The secret belongs to `--env` | A secret id naming another environment's tree — the same misfire read backwards |
+| The secret belongs to `--env` | A secret id naming another environment's tree — the same misfire read backwards. Compared with letter case folded, the way every host comparison is: `/STAGING/` names the staging tree exactly as `/staging/` does |
 
 Ways to name a target, once every identity is established:
 
@@ -98,7 +100,7 @@ Ways to name a target, once every identity is established:
 |---|---|
 | Fire at your own deployment, every time | Put the real hostname in `ingress.host`, which is what ArgoCD renders the Ingress from anyway. Nothing else needed |
 | Fire without touching the values file | `DRILL_WEBHOOK_HOST_STAGING=webhook.staging.acme.io` — it establishes staging's identity *and* is the target |
-| Assert the target on the command line | `bash scripts/fire-drill.sh --env staging --host webhook.staging.acme.io` (or `--url https://…`). It has to be staging's established host; a flag is a way to spell an identity, not a way to overrule one |
+| Assert the target on the command line | `bash scripts/fire-drill.sh --env staging --host webhook.staging.acme.io` (or `--url https://…`). It has to be staging's established host *and* port; a flag is a way to spell an identity, not a way to overrule one |
 | Fire at whatever the cluster actually has | `bash scripts/fire-drill.sh --from-cluster` — reads `spec.rules[0].host` off the live webhook Ingress with `kubectl` |
 | Say an environment is not deployed | `DRILL_WEBHOOK_HOST_DEVELOPMENT=none`. Every run that leans on it says so on stderr — it is the one claim here nothing can check |
 
@@ -106,8 +108,8 @@ The transcripts below assume a checkout where `chart/values-staging.yaml` names 
 
 ```
 $ bash scripts/fire-drill.sh --env production --host webhook.staging.acme.io:8443 --check-target
-[drill] FAIL: --host resolves to 'webhook.staging.acme.io', which is staging's
-webhook host — and this drill signs with
+[drill] FAIL: --host resolves to 'webhook.staging.acme.io:8443', whose host is
+staging's webhook host — and this drill signs with
 incident-response/production/grafana/oncall-webhook-hmac.
 
 [drill] environment identities:
@@ -118,7 +120,7 @@ incident-response/production/grafana/oncall-webhook-hmac.
 [drill] Drill staging with --env staging.
 
 $ DRILL_WEBHOOK_HOST_PRODUCTION=webhook-old.acme.io bash scripts/fire-drill.sh --env production --check-target
-[drill] FAIL: two sources name the production webhook host differently —
+[drill] FAIL: two sources name a different production webhook host or port —
 DRILL_WEBHOOK_HOST_PRODUCTION names 'webhook-old.acme.io',
 chart/values-production.yaml names 'webhook.acme.io'. While they disagree there is
 no fact about where production lives, and a production drill cannot prove it is
@@ -140,17 +142,19 @@ So the URL is not assembled from strings. It is constructed from four components
 | Component | Where it comes from | What it is held to |
 |---|---|---|
 | scheme | fixed | Always `https`. `--url http://…` is refused rather than honoured, and curl runs with `--proto '=https'` |
-| host | the identity map, or a flag the map agreed to | A hostname or a bracketed IP literal. No scheme, path, port or userinfo survives into it |
-| port | whatever came with the host | Digits, 1–65535, or nothing |
+| host | the identity map, or a flag the map agreed to | A hostname or a bracketed IP literal. No scheme, path, port or userinfo survives into it — and a bare host carrying an `@` is refused rather than trimmed, exactly as a base URL carrying one is |
+| port | whatever came with the host | Digits, 1–65535, or nothing. Nothing and `443` are the same port, because the scheme is fixed at https |
 | path | `ingress.path` | Must begin with `/`; refused for `@`, `?`, `#`, `%`, a backslash, whitespace, a control character, an empty segment, a `.`/`..` segment or a leading `//`; then percent-encoded per segment against the unreserved set, `/` kept as the separator |
 
 The refusal list and the encoder are deliberately redundant — two independent implementations of one constraint, so a character that slips past either is still harmless after the other.
 
-Then the assembled URL is parsed back with node's `new URL()`, which resolves an authority by the rules curl resolves one by rather than by another pass of shell text handling. The run refuses unless the scheme is `https`, `username` and `password` are both empty, and `hostname`, `port` and `pathname` are exactly the components that went in. A disagreement between the parser and the identity map is refused, not reconciled: it means one of the two is wrong about where the request goes, and neither answer makes sending it right.
+Then the assembled URL is parsed back with node's `new URL()`, which resolves an authority by the rules curl resolves one by rather than by another pass of shell text handling. The run refuses unless the scheme is `https`, `username` and `password` are both empty, the host component reads on its own as nothing but a host, and `hostname`, `port` and `pathname` are the components that went in — with no port and `443` read as the same port, since https implies one and a parser prints the shorter spelling. A disagreement between the parser and the identity map is refused, not reconciled: it means one of the two is wrong about where the request goes, and neither answer makes sending it right.
+
+Read the `hostname` half of that precisely. Both sides go through one parser, so it establishes that the assembly did not move the authority — that the port and the path concatenated on did not turn into a host. It does not establish that the host belongs to the environment being drilled, which is the identity map's question and is settled before anything here is built, and it does not tell two spellings of one address apart, because one parser reads both the same way. The part of it that can fail on a well-formed URL is the shape check on the component itself, which is a second reading of what the shell's own authority handling established.
 
 Last, after the POST, curl's `%{url_effective}`, `%{remote_ip}` and `%{remote_port}` go back through the same parser. A host there that is not the host every check ran on is reported as a defect in this script — loudly, non-zero — rather than tolerated. Be clear about what that buys: by the time curl can report an effective URL the request has already left. The construction and the parser check are what stop a misdirected request from being sent; this last one is what stops a misdirected request from being reported as a drill. (`--connect-to` is deliberately unused: its rules key on the URL's own authority, so the only form that pins anything is the match-all form, which hides the very mismatch this is here to surface.)
 
-**Two hooks for scripting.** `bash scripts/fire-drill.sh --env <env> --check-target` is the whole verdict: it builds the map, resolves the target, constructs the URL, parses it back, and exits zero with the map, the request and the secret id, or non-zero with the reason and what to configure. It contacts nothing and needs no credentials beyond `node` — `.github/workflows/drill.yml` runs exactly this and holds no second opinion of its own. `--print-host` prints the host component of the request URL and nothing else, after the same checks: that component is what the URL is built from and what the parser confirmed the built URL addresses, so it describes the request the drill sends up to the point where the request leaves. Whether curl agreed is the check after the POST, and it prints a defect when it did not.
+**Three hooks for scripting.** `bash scripts/fire-drill.sh --env <env> --check-target` is the whole verdict: it builds the map, resolves the target, constructs the URL, parses it back, and exits zero with the map, the request and the secret id, or non-zero with the reason and what to configure. It contacts nothing and needs no credentials beyond `node` — `.github/workflows/drill.yml` runs exactly this and holds no second opinion of its own. `--print-host` prints the host component of the request URL and nothing else, after the same checks: that component is what the URL is built from and what the parser confirmed the built URL addresses, so it describes the request the drill sends up to the point where the request leaves. `--print-url` prints the whole request URL the same way, which is the answer when the port matters — a hostname alone does not say which listener a request reaches, and widening `--print-host` to `host:port` would quietly break every caller feeding it to a DNS lookup. One reporting flag per run; two would mean one answer silently discarded. Whether curl agreed is the check after the POST, and it prints a defect when it did not.
 
 `test/unit/drill-target-resolution.test.ts` holds the invariant against four HTTPS listeners it starts itself. Three are owned by an environment and the fourth by nobody, and that ownership is ground truth — so a `--env X` run observed anywhere but X's listener is a failure no matter what the configuration claimed. On top of that: every configuration that leaves an identity unestablishable, contradictory or shared must deliver nothing, and every configuration that establishes all three must actually fire. Signatures are verified with this repository's own `verifyHmacSignature`, bodies with its own `GrafanaOnCallPayloadSchema`.
 
