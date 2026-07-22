@@ -109,7 +109,7 @@ This repo owns the application — source, chart, Platform CR, gitops entry. Eve
 - EventBridge Scheduler group for the per-incident status-update nudges (`scheduler.tf`)
 - S3 audit/artifacts bucket (`s3.tf`)
 - The app IAM role and the EKS Pod Identity association that binds it to the chart's ServiceAccount
-- Secrets Manager seeding (`incident-response/<env>/grafana-oncall-hmac`, `app-secrets`, `grafana-cloud/otlp-auth`)
+- Secrets Manager seeding (one entry per integration under `incident-response/<env>/`, listed in `secrets.template.json`)
 - Account-level Bedrock invocation logging = NONE
 
 Its IAM role is the role incident-response's app pods assume, bound to the chart's ServiceAccount by an EKS Pod Identity association. The table names, queue URLs/ARNs, scheduler role/group, and the secret ids land in the chart's `tenantInfra.*` (filled from `tofu output` at deploy time; the committed defaults stay empty so no account id / region / ARN is hardcoded). The chart contains **no inline IAM**; the role and the association are owned in landing-zone and consumed by reference. Both workloads share one SA, both assume the `incident-response-platform` role. The substrate directory name and the `incident-response/<env>/*` secret prefixes stay `incident-response` — they're the substrate's own identity.

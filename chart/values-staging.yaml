@@ -6,8 +6,7 @@ ingress:
   host: incident-response-webhook-staging.example.com
 
 externalSecret:
-  hmacSecret: incident-response/staging/grafana-oncall-hmac
-  appSecret: incident-response/staging/app-secrets
+  secretPrefix: incident-response/staging
 
 env:
   OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=incident-response,service.version=0.1.0,deployment.environment=staging,agents.tenant=reliability,agents.platform=incident-response'

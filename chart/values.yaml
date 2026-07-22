@@ -153,13 +153,38 @@ externalSecret:
   enabled: true
   secretStore: aws-secrets-manager
   refreshInterval: 1h
-  # Source secrets in AWS Secrets Manager. The HMAC secret has its own entry
-  # because the webhook handler caches it keyed on VersionId (per
-  # src/handlers/webhook-ingress.ts).
-  # No OTLP credential is projected: the export path below targets the
+  # This environment's Secrets Manager tree. Every entry the chart reads sits
+  # under this prefix at the suffix `scripts/seed-secrets.sh` writes it to —
+  # `secrets.template.json` is the canonical inventory, and the secret-path
+  # parity gate in .github/workflows/ci.yml compares the rendered chart against
+  # the seeder so the two cannot drift apart.
+  #
+  # One secret per integration, not one bundle: they rotate on separate cadences
+  # (docs/secrets.md), and landing-zone's incident-response-platform component
+  # grants the tenant role GetSecretValue across `incident-response/<env>/*`.
+  secretPrefix: '' # incident-response/<env>
+  # Projected into the envFrom Secret: k8s env var name → path under the prefix.
+  keys:
+    SLACK_BOT_TOKEN: slack/bot-token
+    SLACK_SIGNING_SECRET: slack/signing-secret
+    GRAFANA_ONCALL_TOKEN: grafana/oncall-token
+    GRAFANA_CLOUD_TOKEN: grafana/cloud-token
+    GRAFANA_CLOUD_ORG_ID: grafana/cloud-org-id
+    STATUSPAGE_API_KEY: statuspage/api-key
+    STATUSPAGE_PAGE_ID: statuspage/page-id
+    GITHUB_TOKEN: github/token
+    LINEAR_API_KEY: linear/api-key
+    LINEAR_PROJECT_ID: linear/project-id
+    LINEAR_TEAM_ID: linear/team-id
+    WORKOS_API_KEY: workos/api-key
+  # Deliberately not projected. The webhook handler reads this one through the
+  # pod's own GetSecretValue grant and caches it keyed on the Secrets Manager
+  # VersionId (src/handlers/webhook-ingress.ts), which is what lets the HMAC
+  # secret rotate without a pod restart — a projected value would only refresh
+  # on the ExternalSecret interval. The chart passes the id, not the value.
+  hmacSecretKey: grafana/oncall-webhook-hmac
+  # No OTLP credential is projected either: the export path below targets the
   # in-cluster Alloy receiver, which takes no authentication.
-  hmacSecret: '' # incident-response/<env>/grafana-oncall-hmac
-  appSecret: '' # incident-response/<env>/app-secrets (Slack, Linear, Grafana, Statuspage, WorkOS)
 
 prometheusRule:
   # Ships SLO recording rules + burn-rate alerts to a Prometheus Operator
@@ -189,7 +214,14 @@ networkPolicy:
   enabled: true
 
 env:
-  AWS_REGION: us-east-1
+  # Where this tenant's substrate lives. landing-zone provisions the
+  # incident-response-platform component — DynamoDB tables, SQS queues,
+  # Secrets Manager tree, EventBridge Scheduler group — in us-west-2 for all
+  # three environments, so this is base rather than per-env; the source
+  # defaults to the same region. A per-env deployment on a different region
+  # overrides it in that environment's values file, together with the
+  # tenantInfra names it goes with.
+  AWS_REGION: us-west-2
   BEDROCK_MODEL_ID: anthropic.claude-sonnet-4-6
   # MCP streamable-HTTP server port — the read + draft pull surface. Matches
   # mcp.port / processor.mcpPort and the processor's mcp containerPort.

@@ -61,7 +61,7 @@ inference logs or third parties**.
   and Secrets Manager calls AssumeRoleWithWebIdentity into the landing-zone `incident-response-platform`
   IAM role.
 - App-level secrets are projected at deploy time by External Secrets Operator from AWS Secrets
-  Manager (`incident-response/<env>/grafana-oncall-hmac` and `incident-response/<env>/app-secrets`)
+  Manager (one entry per integration under `incident-response/<env>/`, enumerated in `secrets.template.json`)
   into a Kubernetes Secret consumed `envFrom` — never committed. No telemetry credential is among
   them: the pods export OTLP to the cluster's in-cluster Alloy receiver, which authenticates
   nothing, so there is no header to project. The one credential that stays out of the pod spec

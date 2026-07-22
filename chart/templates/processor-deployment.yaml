@@ -23,7 +23,10 @@ spec:
         {{- include "tenant-chart-base.labels" . | nindent 8 }}
         incident-response.io/service: processor
       annotations:
-        checksum/external-secret: {{ printf "%s-%s-%s" .Values.externalSecret.hmacSecret .Values.externalSecret.appSecret .Values.externalSecret.refreshInterval | sha256sum }}
+        # Rolls the pods whenever the ExternalSecret's inputs move — the secret
+        # prefix, the projected key list, or the refresh interval. Hashing the
+        # whole block means a new remoteRef cannot be added without a restart.
+        checksum/external-secret: {{ .Values.externalSecret | toYaml | sha256sum }}
     spec:
       serviceAccountName: {{ include "tenant-chart-base.serviceAccountName" . }}
       securityContext:

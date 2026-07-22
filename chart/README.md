@@ -22,7 +22,7 @@ Plus:
   - `mcp-service.yaml` — ClusterIP in front of the processor's MCP port (the mcp-tunnel target)
   - `serviceaccount.yaml` — single SA shared across both workloads
   - `networkpolicy.yaml` — ingress: the VPC range the ALB's interfaces sit in → webhook, mcp-tunnel namespace → processor MCP port; egress: DNS + HTTPS + OTLP
-  - `externalsecret.yaml` — pulls incident-response/<env>/grafana-oncall-hmac + app-secrets, composes one Secret consumed by envFrom; the HMAC secret is also referenced by its ARN in env for the handler's VersionId-keyed cache. No OTLP credential is projected — the default export target is the unauthenticated in-cluster Alloy receiver
+  - `externalsecret.yaml` — one remoteRef per integration, at `externalSecret.secretPrefix` plus the suffix in `externalSecret.keys`, composed into one Secret consumed by envFrom. Those are the paths `scripts/seed-secrets.sh` writes; CI renders the chart and fails on any path the seeder does not create. The HMAC secret is not projected — the webhook reads it through the pod's own grant, keyed on VersionId, so it rotates without a restart; the chart passes only its id. No OTLP credential either — the default export target is the unauthenticated in-cluster Alloy receiver
   - `prometheusrule.yaml` — three alert rules (assembly SLO / directory failures / Statuspage publish failures)
   - `grafana-dashboard.yaml` — GrafanaDashboard CR with the dashboard JSON
 
@@ -42,7 +42,7 @@ Single-tenant component `components/aws/incident-response-platform/` provisions 
 
 Bedrock invocation-logging-NONE is a Bedrock account+region scoped policy, so it belongs to landing-zone's `cluster-bootstrap` component rather than to any single tenant; the reasoning is in `eks-agent-platform/ARCHITECTURE.md`.
 
-Secrets Manager entries (`incident-response/<env>/grafana-oncall-hmac`, `app-secrets`, `grafana-cloud/otlp-auth`) are seeded by this repo's own `scripts/seed-secrets.sh`. The ExternalSecret projects the first two; `grafana-cloud/otlp-auth` is read through the AWS SDK by `src/handlers/webhook-otel-init.ts` and only when the OTLP endpoint has been repointed at an authenticated gateway.
+Every Secrets Manager entry under `incident-response/<env>/` is seeded by this repo's own `scripts/seed-secrets.sh`, from the inventory in `secrets.template.json`. The ExternalSecret projects the twelve integration credentials. Two are read through the AWS SDK instead: `grafana/oncall-webhook-hmac` by `src/handlers/webhook-ingress.ts` on every request, cached by VersionId so rotation needs no restart, and `grafana-cloud/otlp-auth` by `src/handlers/webhook-otel-init.ts`, only when the OTLP endpoint has been repointed at an authenticated gateway.
 
 ## Pod identity
 
