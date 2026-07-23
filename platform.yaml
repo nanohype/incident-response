@@ -101,6 +101,14 @@ spec:
     # processor passes when scheduling a nudge.
     capabilities:
       - eventBridgeScheduler
+    # Secrets the pods fetch directly via the SDK rather than through the chart's
+    # ExternalSecret: the Grafana OnCall HMAC secret the webhook handler reads
+    # through the pod grant, keyed on VersionId so rotation lands without a pod
+    # restart. Everything else is ExternalSecret-projected and needs no grant.
+    # The operator grants read on exactly this secret under the tenant's own
+    # incident-response/<env>/ prefix.
+    directSecretReads:
+      - grafana/oncall-webhook-hmac
   compliance:
     soc2: true
   isolation: namespace
