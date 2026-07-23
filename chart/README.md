@@ -32,7 +32,7 @@ Plus:
 
 ## Per-tenant infra (from landing-zone)
 
-Single-tenant component `components/aws/incident-response-platform/` provisions everything incident-response's pods need:
+Single-tenant component `components/aws/tenant-substrate/` provisions everything incident-response's pods need:
 
 - DynamoDB ×3 — incidents (slack-channel-index + by-timestamp GSIs), audit, identity-cache
 - SQS FIFO ×6 — incident-events / nudge-events / sla-check (+ DLQs)
@@ -46,16 +46,16 @@ Every Secrets Manager entry under `incident-response/<env>/` is seeded by this r
 
 ## Pod identity
 
-Two IAM roles exist for any incident-response Platform tenant — different SAs, different policies, different owners:
+One IAM role serves the whole Platform, all operator-generated from the Platform CR — plus a minted invoke role for EventBridge Scheduler:
 
 | Role | Owner | Trust | Used by |
 |---|---|---|---|
-| `<env>-incident-response-platform` | landing-zone `incident-response-platform` component | `system:serviceaccount:tenants-incident-response:incident-response` | This chart's webhook + processor pods |
-| `<env>-incident-response-tenant` | eks-agent-platform operator | `system:serviceaccount:tenants-incident-response:tenant-runtime` | AgentFleet pods (if/when any land in this Platform) |
+| `<env>-incident-response-tenant` | eks-agent-platform operator | `system:serviceaccount:tenants-incident-response:tenant-runtime` | webhook + processor pods, and any AgentFleet pods |
+| `<env>-incident-response-scheduler-invoke` | eks-agent-platform operator | `scheduler.amazonaws.com` | EventBridge Scheduler, to deliver nudges into the tenant's own queues |
 
-The chart's `serviceaccount.yaml` creates a ServiceAccount named `incident-response` (pinned via `serviceAccount.name`) with no role-arn annotation. The landing-zone `incident-response-platform` component creates an EKS Pod Identity association binding that `(namespace, service-account)` to the IAM role, so EKS injects credentials through the standard AWS credential chain — no annotation, no role ARN in the chart. The ServiceAccount name must match the association's `service_account`, which is why it is pinned to the app name.
+The tenant role's permissions are all operator-owned: the agent-iam Bedrock baseline clamped to `spec.identity.allowedModels`, the datastore-access policy from `spec.datastores`, the capability-access policy (EventBridge Scheduler) from `spec.identity.capabilities`, and the tenant's own `incident-response/<env>/*` secret prefix.
 
-The operator-managed role is unused by this chart today and is harmless. It only matters once an AgentFleet CR lands in the `incident-response` Platform.
+The chart's `serviceaccount.yaml` references the operator-owned `tenant-runtime` ServiceAccount (`serviceAccount.create: false`) with no role-arn annotation. The operator creates the Pod Identity association binding `(namespace, tenant-runtime)` to the role, so EKS injects credentials through the standard AWS credential chain — no annotation, no role ARN in the chart.
 
 ## Render locally
 
@@ -72,8 +72,9 @@ Three layers meet at this chart. Anything in the right-hand column does not belo
 |---|---|
 | Both Deployments, their Services, the public Ingress, the ServiceAccount, the NetworkPolicy, the ExternalSecret, the PrometheusRule, the GrafanaDashboard CR | this chart |
 | VPC, subnets, NAT | landing-zone `network` |
-| DynamoDB tables, SQS FIFO queues + DLQs, EventBridge Scheduler group + ScheduleRole, S3 audit bucket, the app IAM role and its Pod Identity association | landing-zone `incident-response-platform` |
-| Secrets Manager entries the ExternalSecret reads | landing-zone `incident-response-platform`, seeded by `scripts/seed-secrets.sh` |
+| DynamoDB tables, SQS FIFO queues + DLQs, S3 audit bucket (declared in `spec.datastores`) | landing-zone `tenant-substrate` |
+| The tenant IAM role + Pod Identity association, the datastore-access + capability-access policies, and the scheduler-invoke role | eks-agent-platform operator |
+| Secrets Manager entries the ExternalSecret reads | landing-zone `tenant-substrate`, seeded by `scripts/seed-secrets.sh` |
 | Account-level Bedrock invocation-logging-NONE | landing-zone `cluster-bootstrap` |
 | cert-manager, External Secrets Operator, external-dns, the AWS Load Balancer Controller | eks-gitops |
 | The `alb` IngressClass `webhook-ingress.yaml` requests, and the ACM certificate TLS terminates against | the AWS Load Balancer Controller in eks-gitops; the certificate is yours to issue |

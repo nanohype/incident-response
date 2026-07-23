@@ -1,6 +1,6 @@
 # Forking incident-response for a new client
 
-This app is a self-contained service. Forking for a different client means swapping **runtime configuration** (secrets, DDB table names, Slack workspace, Linear project, Grafana tenant) — not editing business logic. Every external integration goes through a constructor-injected client, and every AWS resource carries an env-scoped prefix owned by the `landing-zone incident-response-platform` substrate.
+This app is a self-contained service. Forking for a different client means swapping **runtime configuration** (secrets, DDB table names, Slack workspace, Linear project, Grafana tenant) — not editing business logic. Every external integration goes through a constructor-injected client, and every AWS resource carries an env-scoped prefix owned by the `landing-zone tenant-substrate` substrate.
 
 Budget ~2 hours end-to-end: 30 min for third-party account setup, 30 min for local seed, 30 min for a clean deploy, 30 min for a drill.
 
@@ -29,7 +29,7 @@ The app carries the internal handle `incident-response` through:
 - OTel `service.namespace` / `agents.platform` = `incident-response`
 - The `/incident-response` slash command + Slack app name
 
-The AWS resource names are owned by the `landing-zone incident-response-platform` substrate (`dynamodb.tf`, `sqs.tf`, `scheduler.tf`); the chart consumes them via `tenantInfra.*`. If you want to rename — e.g. `sentinel` for your company — rename the substrate component + its outputs, then a find-and-replace on `incident-response` (lowercase), `IncidentResponse` (PascalCase), and `INCIDENT_RESPONSE` (SCREAMING for env vars, audit `actor_user_id: 'INCIDENT_RESPONSE'`) covers the app side. Leave `incident-response-p1-` in Slack channel names if you want operators to recognize the convention.
+The datastore names are declared in `spec.datastores` (DynamoDB tables, SQS queues, the S3 archive) and provisioned by the generic `tenant-substrate` component; the chart consumes them via `tenantInfra.*`. The EventBridge Scheduler grants + invoke role are operator-generated from the `eventBridgeScheduler` capability. If you want to rename — e.g. `sentinel` for your company — change the datastore names in `platform.yaml`, then a find-and-replace on `incident-response` (lowercase), `IncidentResponse` (PascalCase), and `INCIDENT_RESPONSE` (SCREAMING for env vars, audit `actor_user_id: 'INCIDENT_RESPONSE'`) covers the app side. Leave `incident-response-p1-` in Slack channel names if you want operators to recognize the convention.
 
 ## 2. Third-party account setup
 
@@ -104,7 +104,7 @@ The seeder blocks if any `REPLACE_ME` slips through. `incident-response-secrets.
 
 ## 4. Deploy
 
-Apply the `landing-zone incident-response-platform` substrate for the env, fill `chart/values-staging.yaml` from its `tofu output`, then bring the tenant up:
+Apply the `landing-zone tenant-substrate` substrate for the env, fill `chart/values-staging.yaml` from its `tofu output`, then bring the tenant up:
 
 ```bash
 npm install
@@ -144,7 +144,7 @@ If the Slack channel lands, the audit trail shows `ROOM_ASSEMBLED`, and `/incide
 
 ```bash
 npm run seed:production
-# fill chart/values-production.yaml from the production incident-response-platform tofu output,
+# fill chart/values-production.yaml from the production tenant-substrate tofu output,
 # register the production ApplicationSet env, let ArgoCD roll it out
 npm run chart:template:production   # render + sanity-check before commit
 ```

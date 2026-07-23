@@ -25,21 +25,19 @@
 #     Pod Identity associations (`tenant-runtime` by the operator, the app
 #     SA by landing-zone)
 #
-# What incident-response's chart owns separately (NOT operator-reconciled):
-#   - The chart's own ServiceAccount (`incident-response`) — used by both webhook and
-#     processor Deployments. It is bound to the operator-reconciled
-#     `<env>-incident-response-tenant` role by an EKS Pod Identity association the
-#     landing-zone incident-response-platform component creates — no role-arn
-#     annotation. App pods and AgentFleet pods (`tenant-runtime` SA) share that
-#     role: one Platform, one privilege domain. Bedrock access on the role is
-#     the agent-iam baseline clamped to spec.identity below; the app's
-#     substrate grants arrive via spec.identity.extraPolicyArns.
+# Pod identity: the operator creates and owns the `tenant-runtime` ServiceAccount
+# (shared by the webhook + processor Deployments) and binds it to the
+# `<env>-incident-response-tenant` role via an EKS Pod Identity association — no
+# role-arn annotation. App pods and AgentFleet pods run as it: one Platform, one
+# privilege domain. Bedrock access is the agent-iam baseline clamped to
+# spec.identity below; substrate access is the datastore-access policy the
+# operator generates from spec.datastores, and the EventBridge Scheduler grants
+# (plus the minted scheduler-invoke role) come from spec.identity.capabilities.
 #
-# Tenant-shared infra (DDB, SQS, EventBridge Scheduler, Secrets Manager
-# seeding, the app-access managed policy) — see landing-zone's
-# components/aws/incident-response-platform/. Once that component's per-env entry
-# applies, the outputs are wired into the chart's per-env values
-# (`tenantInfra.*`).
+# Tenant substrate is declared, not a component: spec.datastores below names the
+# three DynamoDB tables, the S3 audit archive, and the three FIFO queues; the
+# generic tenant-substrate module provisions them and their DLQs, and their
+# names/URLs wire into the chart's per-env values (`tenantInfra.*`).
 
 ---
 apiVersion: platform.nanohype.dev/v1alpha1
@@ -93,13 +91,56 @@ spec:
     allowedModels:
       - anthropic.claude-sonnet-4-6 # BEDROCK_SONNET_MODEL_ID — status drafts, postmortems
       - anthropic.claude-haiku-4-5 # BEDROCK_HAIKU_MODEL_ID — classification, checklist routing
-    # The app's substrate grants (DDB, SQS, S3, EventBridge Scheduler,
-    # Secrets Manager, CloudWatch) — landing-zone's incident-response-platform
-    # component emits the policy as `app_access_policy_arn`. Account-scoped,
-    # so it is filled per environment at apply time (landing-zone
-    # docs/first-deploy-aws.md, App platform tenants):
-    #   arn:aws:iam::<account>:policy/eks-agent-platform/incident-response-<env>-app-access
+    # Escape hatch for grants outside the datastore + capability vocabularies.
+    # DDB/SQS/S3 access rides spec.datastores and the EventBridge Scheduler grants
+    # ride capabilities below, so nothing is needed here.
     extraPolicyArns: []
+    # Non-datastore capability: EventBridge Scheduler. The operator generates the
+    # scheduler:*Schedule grants and mints the <env>-incident-response-scheduler-invoke
+    # role (allowed to SendMessage to the tenant's own queues — nudges/sla) that the
+    # processor passes when scheduling a nudge.
+    capabilities:
+      - eventBridgeScheduler
   compliance:
     soc2: true
   isolation: namespace
+  # Stateful substrate: three DynamoDB tables (incidents + audit ledger + identity
+  # cache), the S3 audit archive, and three FIFO queues (incident events, nudges,
+  # SLA checks) each with a dead-letter queue. The tenant-substrate module
+  # provisions them and the operator generates the scoped datastore-access policy;
+  # deletionPolicy defaults to Retain. Names are kept short so <platform>+<name>
+  # stays within the CRD's 28-char budget.
+  datastores:
+    - name: incidents
+      kind: keyValue
+      keyValue:
+        partitionKey: { name: incident_id, type: S }
+        globalSecondaryIndexes:
+          - name: slack-channel-index
+            partitionKey: { name: channel_id, type: S }
+    - name: audit
+      kind: keyValue
+      keyValue:
+        partitionKey: { name: incident_id, type: S }
+        sortKey: { name: audit_id, type: S }
+        ttlAttribute: ttl
+        globalSecondaryIndexes:
+          - name: by-timestamp
+            partitionKey: { name: timestamp, type: S }
+            sortKey: { name: incident_id, type: S }
+    - name: id-cache
+      kind: keyValue
+      keyValue:
+        partitionKey: { name: external_user_id, type: S }
+        ttlAttribute: ttl
+    - name: archive
+      kind: objectStore
+    - name: events
+      kind: queue
+      queue: { fifo: true, maxReceiveCount: 3 }
+    - name: nudges
+      kind: queue
+      queue: { fifo: true, maxReceiveCount: 3 }
+    - name: sla
+      kind: queue
+      queue: { fifo: true, maxReceiveCount: 3 }

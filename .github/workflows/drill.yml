@@ -33,7 +33,7 @@ name: drill
 #       an unscoped DRILL_WEBHOOK_HOST by name for the same reason.
 #   variable INCIDENT_RESPONSE_DRILL_REGION
 #       Optional. Defaults to us-west-2, where the landing-zone
-#       incident-response-platform component provisions the tables and queues.
+#       tenant-substrate component provisions the tables and queues.
 #
 # Missing configuration fails the run and prints the list above. The drill never
 # reports success it did not earn, and never quietly does nothing.

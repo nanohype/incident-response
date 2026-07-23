@@ -289,7 +289,7 @@ If the processor crash-loops, check the logs (or Loki) for `ZodError: required .
 ## Security posture
 
 - Secrets Manager encrypts at rest with an AWS-managed KMS key. To use a customer-managed key, recreate each secret under a CMK via the console or CLI (the seeder honours whatever the secret was created with; nothing in this repo owns the key choice because it doesn't own the secret lifecycle).
-- The IAM role is granted `secretsmanager:GetSecretValue` only on the specific ARNs for its own environment — that scope is set in the `landing-zone incident-response-platform` component. No wildcards. The staging role cannot read production secrets and vice versa.
+- The IAM role is granted `secretsmanager:GetSecretValue` only on the specific ARNs for its own environment — that scope is set in the `landing-zone tenant-substrate` component. No wildcards. The staging role cannot read production secrets and vice versa.
 - The chart's ExternalSecret references each secret by name; the External Secrets Operator projects the values into a k8s Secret consumed via `envFrom`. No secret value is ever baked into an image or a committed manifest — a CI grep-gate enforces it (ExternalSecret only).
 - On the default in-cluster export path there is no telemetry credential at all — the app pushes OTLP to a ClusterIP fenced by the chart's egress NetworkPolicy, and Alloy's own Pod Identity association is what authenticates the remote-write to Amazon Managed Prometheus.
 - `GetSecretValue` calls (by ESO and the seeder) are audited to CloudTrail with the invoking principal. Rotation should be performed by a dedicated deploy role, not a personal IAM user.

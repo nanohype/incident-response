@@ -24,7 +24,7 @@ env:
   OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=incident-response,service.version=0.1.0,deployment.environment=production,agents.tenant=reliability,agents.platform=incident-response'
 
 tenantInfra:
-  # Fill the empties below from the landing-zone incident-response-platform production
+  # Fill the empties below from the landing-zone tenant-substrate production
   # outputs (terragrunt output -json). Slot names match output names 1:1.
   incidentsTableName: incident-response-production-incidents
   auditTableName: incident-response-production-audit

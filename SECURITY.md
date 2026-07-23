@@ -58,7 +58,7 @@ inference logs or third parties**.
 
 - No long-lived credentials in the app. Pods get AWS access via EKS Pod Identity; there
   are no static keys anywhere in the repo or image. DynamoDB, SQS, Bedrock, EventBridge Scheduler,
-  and Secrets Manager calls AssumeRoleWithWebIdentity into the landing-zone `incident-response-platform`
+  and Secrets Manager calls AssumeRoleWithWebIdentity into the landing-zone `tenant-substrate`
   IAM role.
 - App-level secrets are projected at deploy time by External Secrets Operator from AWS Secrets
   Manager (one entry per integration under `incident-response/<env>/`, enumerated in `secrets.template.json`)
