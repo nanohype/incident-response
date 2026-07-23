@@ -30,7 +30,7 @@ kubectl -n tenants-reliability get platform incident-response -o jsonpath='{.sta
 helm template incident-response chart -f chart/values-staging.yaml | less          # eyeball the rendered Secret/env
 ```
 
-Empty `tenantInfra.*` env in the rendered output means the `incident-response-platform` `tofu output` values weren't filled into `chart/values-<env>.yaml`. See [`docs/deployment-guide.md`](deployment-guide.md) § 3.
+Empty `tenantInfra.*` env in the rendered output means the `tenant-substrate` `tofu output` values weren't filled into `chart/values-<env>.yaml`. See [`docs/deployment-guide.md`](deployment-guide.md) § 3.
 
 ### Grafana dashboard ConfigMap renders empty
 
@@ -90,7 +90,7 @@ kubectl -n tenants-incident-response describe externalsecret incident-response
 kubectl -n tenants-incident-response get secret incident-response -o jsonpath='{.data}' | jq 'keys'
 ```
 
-If the ExternalSecret shows `SecretSyncError`, the IAM role can't `GetSecretValue` on the `incident-response/<env>/*` ARNs, or a referenced secret doesn't exist. Seed the secret (`npm run seed:{env}`) and confirm the role's secrets-read scope in `landing-zone incident-response-platform`.
+If the ExternalSecret shows `SecretSyncError`, the IAM role can't `GetSecretValue` on the `incident-response/<env>/*` ARNs, or a referenced secret doesn't exist. Seed the secret (`npm run seed:{env}`); the tenant role reads `incident-response/<env>/*` through the operator-generated tenant-secrets policy.
 
 ### `exec format error` in the container's logs / pod won't start
 
@@ -262,7 +262,7 @@ const HAIKU_MODEL_ID  = 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
 
 The `us.` prefix is the cross-region inference profile for the US — AWS routes each request across multiple regions for capacity availability. Equivalent profiles exist for EU (`eu.`) and APAC (`apac.`).
 
-**Also update the IAM policy** in `landing-zone incident-response-platform`. The role's `bedrock:InvokeModel` permission needs:
+**Also update the IAM policy** in `landing-zone tenant-substrate`. The role's `bedrock:InvokeModel` permission needs:
 
 ```
 # The inference-profile ARNs
@@ -307,16 +307,15 @@ Same pattern for `linear/project-id` (also a UUID, from `{ projects { nodes { id
 
 ### `Schedule group incident-response-{env} does not exist.` — nudge never fires
 
-**Cause:** The `NudgeScheduler.scheduleNudge` call targets a named schedule group, but the group doesn't exist. `CreateSchedule` errors; `scheduleNudge` has a try/catch that warn-logs and continues, so the rest of assembly succeeds but the 15-min nudge never arrives.
+**Cause:** `CreateSchedule` failed. The `eventBridgeScheduler` capability isn't taking effect, or the schedule name/group the app targets isn't covered by the operator-generated grant. `scheduleNudge` has a try/catch that warn-logs and continues, so the rest of assembly succeeds but the 15-min nudge never arrives.
 
-**Fix:** the schedule group is owned by the `landing-zone incident-response-platform` component (`scheduler.tf`). Confirm it's applied for this env:
+**Fix:** confirm `spec.identity.capabilities` includes `eventBridgeScheduler` and the Platform is `Ready`. The operator grants `scheduler:*Schedule` on the tenant's own schedule prefix (the default group) and mints the `<env>-incident-response-scheduler-invoke` role. Verify the invoke role exists and the tenant role can pass it:
 
 ```bash
-aws scheduler list-schedule-groups --region us-west-2 \
-  --query 'ScheduleGroups[?Name==`incident-response-{env}`]'
+aws iam get-role --role-name <env>-incident-response-scheduler-invoke
 ```
 
-If empty, the `incident-response-platform` component wasn't applied (or `scheduler_group_name` wasn't wired into `chart/values-<env>.yaml` under `tenantInfra.schedulerGroupName`). Apply the substrate and re-render.
+If the role is missing, the Platform hasn't reconciled the capability — check `Platform.status.phase` and the operator logs.
 
 **Recover an in-flight incident whose nudge was dropped:** create the schedule manually — `aws scheduler create-schedule` with the queue ARN as target. See `scripts/fire-drill.sh` output for the CLI pattern.
 

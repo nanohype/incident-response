@@ -8,7 +8,7 @@ If you're rotating credentials on an already-running tenant, jump to [`docs/secr
 
 ### AWS side
 
-The AWS substrate — DynamoDB tables, SQS + DLQ, the EventBridge Scheduler group, the S3 audit/artifacts bucket, and the `incident_response_irsa` role — lives in the `incident-response-platform` component in [`landing-zone`](https://github.com/nanohype/landing-zone). Apply it per env with OpenTofu/Terragrunt before deploying the tenant; its `tofu output` values feed the chart (see step 3). You do not provision AWS resources from this repo.
+The AWS substrate — DynamoDB tables, SQS + DLQ, the EventBridge Scheduler group, the S3 audit/artifacts bucket, — lives in the `tenant-substrate` component (the tenant IAM role + scheduler-invoke role are operator-generated) in [`landing-zone`](https://github.com/nanohype/landing-zone). Apply it per env with OpenTofu/Terragrunt before deploying the tenant; its `tofu output` values feed the chart (see step 3). You do not provision AWS resources from this repo.
 
 - **Bedrock model access** must be enabled in the cluster's region for:
   - `anthropic.claude-sonnet-4-6` — status drafts + postmortems
@@ -67,7 +67,7 @@ The `grafana-cloud/otlp-auth` secret is a nested JSON object carrying OTLP-gatew
 
 ### 2. Apply the landing-zone substrate + the Platform CR
 
-Apply the `incident-response-platform` component in `landing-zone` for this env (OpenTofu/Terragrunt), then apply the tenant boundary:
+Apply the `tenant-substrate` component in `landing-zone` for this env (OpenTofu/Terragrunt), then apply the tenant boundary:
 
 ```bash
 kubectl apply -f platform.yaml      # Tenant + BudgetPolicy + Platform
@@ -78,10 +78,10 @@ The operator reconciles Namespace `tenants-incident-response`, the ResourceQuota
 
 ### 3. Wire chart values from landing-zone outputs
 
-Fill the per-env values from `tofu output` against the `incident-response-platform` component — do **not** hardcode account IDs / ARNs into committed defaults:
+Fill the per-env values from `tofu output` against the `tenant-substrate` component — do **not** hardcode account IDs / ARNs into committed defaults:
 
 ```bash
-# In landing-zone/live/<env>/aws/incident-response-platform
+# In landing-zone/live/<env>/aws/tenant-substrate
 tofu output   # → irsa_role_arn, incidents_table_name, audit_table_name,
               #   identity_cache_table_name, incident_events_queue_url,
               #   nudge_events_queue_url, nudge_events_queue_arn,
@@ -194,7 +194,7 @@ Repeat steps 1–9 with `production` in place of `staging`:
 # Seed the production secret tree first (step 1).
 npm run seed:production
 
-# Fill chart/values-production.yaml from the production incident-response-platform tofu output (step 3),
+# Fill chart/values-production.yaml from the production tenant-substrate tofu output (step 3),
 # apply platform.yaml, register the production ApplicationSet env, let ArgoCD roll it out.
 npm run chart:template:production     # render + sanity-check before commit
 ```
@@ -214,7 +214,7 @@ The staging IAM role **cannot** read production secrets (and vice versa) — eac
 
 ## Teardown
 
-Removing the tenant is the inverse of the deploy: remove the ApplicationSet entry (ArgoCD prunes the workloads), then `kubectl delete -f platform.yaml`. The DynamoDB tables, the S3 bucket, and the Secrets Manager entries are owned by `landing-zone` (`incident-response-platform`), not by this repo — they survive a tenant teardown so a rebuild can reuse them. To fully remove an environment's data, destroy the `incident-response-platform` component in `landing-zone` and delete the secret tree:
+Removing the tenant is the inverse of the deploy: remove the ApplicationSet entry (ArgoCD prunes the workloads), then `kubectl delete -f platform.yaml`. The DynamoDB tables, the S3 bucket, and the Secrets Manager entries are owned by `landing-zone` (`tenant-substrate`), not by this repo — they survive a tenant teardown so a rebuild can reuse them. To fully remove an environment's data, destroy the `tenant-substrate` component in `landing-zone` and delete the secret tree:
 
 ```bash
 ENV=staging                                   # or: production
@@ -239,7 +239,7 @@ done
 | Processor restarts on a loop | Bedrock model access not enabled in the region, or a required env var missing at startup (`WORKOS_DIRECTORY_ID` is fail-fast) | Enable model access in the region the pod's `AWS_REGION` names; otherwise read the startup log line — the validator names the missing variable. Telemetry is never the cause: OTel init is best-effort and a failure warn-logs rather than exits |
 | Resolve fires but "Bedrock postmortem failed" in logs | `claude-sonnet-4-6` requires an inference profile for on-demand throughput | Switch `src/ai/incident-response-ai.ts` model IDs to `us.anthropic.claude-*` profiles. See [`docs/troubleshooting.md`](troubleshooting.md) § "Bedrock errors" |
 | Resolve fires but Linear issue doesn't appear | `teamId must be a UUID` — `linear/team-id` secret holds a team key | Reseed with the UUID from `{ teams { nodes { id key } } }`; `kubectl rollout restart deploy/incident-response-processor` |
-| Nudge schedule never fires (no `STATUS_REMINDER_SENT` after 15 min) | `Schedule group incident-response-{env} does not exist` in processor logs | The group is owned by `landing-zone incident-response-platform`; confirm it's applied. Details in [`docs/troubleshooting.md`](troubleshooting.md) § "EventBridge Scheduler errors" |
+| Nudge schedule never fires (no `STATUS_REMINDER_SENT` after 15 min) | `Schedule group incident-response-{env} does not exist` in processor logs | The scheduler-invoke role is operator-minted from the eventBridgeScheduler capability; schedules use the default group. See troubleshooting. Details in [`docs/troubleshooting.md`](troubleshooting.md) § "EventBridge Scheduler errors" |
 | `AutoPublishNotPermitted` on Approve & Publish | Either a real invariant violation, or a DDB `Limit + FilterExpression` bug in `verifyApprovalBeforePublish` | Query the audit table directly for the incident — if `STATUSPAGE_DRAFT_APPROVED` exists, it's the Limit+Filter bug. Details in [`docs/troubleshooting.md`](troubleshooting.md) § "Runtime errors" |
 | Traces or metrics missing from Tempo / AMP | OTLP export failing | Check the Grafana Alloy logs — `kubectl logs -n monitoring -l app.kubernetes.io/name=alloy` (eks-gitops installs it). Connection refused usually means the chart's egress NetworkPolicy or `OTEL_EXPORTER_OTLP_ENDPOINT` doesn't match the Alloy Service; remote-write `403`s are Alloy's AMP Pod Identity association, an `eks-gitops` / `landing-zone` problem. |
 | Logs missing from Loki | Alloy's pod tail is broken | Check Alloy (eks-gitops). If the pod's own `kubectl logs` show the JSON lines, the app is fine and the tail or the Loki gateway is the failure. |

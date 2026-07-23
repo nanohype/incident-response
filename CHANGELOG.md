@@ -4,7 +4,7 @@ All notable changes to incident-response are documented here. Dates use ISO 8601
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) — until v1.0.0 any minor version can include breaking changes with a migration path documented in the release entry.
 
-The app token is `incident-response` (npm package, image, OTel `service.namespace` / `agents.platform`, the `/incident-response` slash commands + Slack app, the `incident-response/<env>/*` secret prefixes, the landing-zone `incident-response-platform` substrate). The owning team is `reliability` (`Platform.spec.tenant`, OTel `agents.tenant`).
+The app token is `incident-response` (npm package, image, OTel `service.namespace` / `agents.platform`, the `/incident-response` slash commands + Slack app, the `incident-response/<env>/*` secret prefixes, the landing-zone `tenant-substrate` substrate). The owning team is `reliability` (`Platform.spec.tenant`, OTel `agents.tenant`).
 
 ## [Unreleased]
 
@@ -49,7 +49,7 @@ incident-response is a ceremonial incident commander assistant. It assembles P1 
 - `platform.yaml` — cluster-scoped `Tenant` CR for the `reliability` team plus the `Platform` CR + `BudgetPolicy` declaring incident-response as a tenant of it. The operator provisions the workload namespace `tenants-incident-response`, ResourceQuota, default-deny NetworkPolicy, the ArgoCD AppProject, and the IAM role.
 - `gitops/applicationset-entry.yaml` — ApplicationSet entry registered into `nanohype/eks-gitops` for ArgoCD reconciliation.
 
-#### Substrate (landing-zone `incident-response-platform`)
+#### Substrate (landing-zone `tenant-substrate`)
 
 - DynamoDB `incident-response-{env}-incidents` with three GSIs (`event-type-index`, `incident-id-index`, `slack-channel-index` — resolves war-room channel → canonical incident_id for slash-command dispatch).
 - DynamoDB `incident-response-{env}-audit` with a `published-without-approval-index` GSI for invariant auditing.

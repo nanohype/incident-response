@@ -7,7 +7,7 @@ This doc is a single-pass walkthrough from "blank account at api.slack.com" to "
 ## Prerequisites
 
 - A Slack workspace where you're a **workspace Owner or Admin** (you need permission to install apps + create app-level tokens).
-- The `incident-response/<env>/*` Secrets Manager path available for this environment (so you have somewhere to seed the tokens). The `landing-zone incident-response-platform` substrate + the seeder set this up.
+- The `incident-response/<env>/*` Secrets Manager path available for this environment (so you have somewhere to seed the tokens). The `landing-zone tenant-substrate` substrate + the seeder set this up.
 
 ## 1. Create the app
 

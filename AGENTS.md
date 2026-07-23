@@ -2,7 +2,7 @@
 
 You're an AI client (or the author of one) about to run this service locally, add a `/incident-response` subcommand, wire a new SQS event type, or ship it as a Platform tenant. This file gets you running in five minutes. For the wider picture — how this repo fits into the nanohype stack — read the [Platform Reference](../nanohype/docs/platform-reference.md).
 
-> Two identity tokens run through this repo: the app is `incident-response` (npm package, image, OTel `service.namespace` / `agents.platform`, the `/incident-response` slash commands + Slack app, the `incident-response/<env>/*` secret prefixes, and the landing-zone `incident-response-platform` substrate component), and the owning team is `reliability` (`Platform.spec.tenant`, OTel `agents.tenant`). See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full split.
+> Two identity tokens run through this repo: the app is `incident-response` (npm package, image, OTel `service.namespace` / `agents.platform`, the `/incident-response` slash commands + Slack app, the `incident-response/<env>/*` secret prefixes, and the landing-zone `tenant-substrate` substrate component), and the owning team is `reliability` (`Platform.spec.tenant`, OTel `agents.tenant`). See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full split.
 
 ## What this repo gives you
 
@@ -73,9 +73,18 @@ spec:
   identity:
     # Bedrock invoke on the tenant role is clamped to exactly these IDs
     allowedModels: [anthropic.claude-sonnet-4-6, anthropic.claude-haiku-4-5]
-    extraPolicyArns: [] # filled per env with landing-zone's app_access_policy_arn
+    extraPolicyArns: [] # escape hatch; substrate + scheduler grants are operator-generated
+    capabilities: [eventBridgeScheduler] # operator grants scheduler:*Schedule + mints the invoke role
   compliance: { soc2: true }
   isolation: namespace
+  datastores:
+    - { name: incidents, kind: keyValue, keyValue: { partitionKey: { name: incident_id, type: S } } }
+    - { name: audit, kind: keyValue, keyValue: { partitionKey: { name: incident_id, type: S }, sortKey: { name: audit_id, type: S } } }
+    - { name: id-cache, kind: keyValue, keyValue: { partitionKey: { name: external_user_id, type: S } } }
+    - { name: archive, kind: objectStore } # S3 audit archive
+    - { name: events, kind: queue, queue: { fifo: true, maxReceiveCount: 3 } }
+    - { name: nudges, kind: queue, queue: { fifo: true, maxReceiveCount: 3 } }
+    - { name: sla, kind: queue, queue: { fifo: true, maxReceiveCount: 3 } }
 ```
 
 CI validates every document in `platform.yaml` against the CRD schemas vendored
@@ -104,7 +113,7 @@ broken when it comes back "behind". `npm run schemas:freshness` asks it weekly i
 `npm run platform:validate` also runs the gate's `--self-test`, which seeds five
 defects and fails unless every one is rejected.
 
-`tenants-reliability` is the team's control-plane namespace — it holds these CRs. The workload namespace is a different one: the operator derives `tenants-incident-response` from `Platform.metadata.name` and provisions it along with the ResourceQuota, LimitRange, default-deny NetworkPolicy, an ArgoCD AppProject named `incident-response`, and the per-Platform IAM role `<env>-incident-response-tenant`. **That operator role is the one incident-response's app pods run as** — the chart's `incident-response` ServiceAccount is bound to it by an EKS Pod Identity association the landing-zone `incident-response-platform` component creates, so app pods and AgentFleet pods (`tenant-runtime` SA) share one privilege domain. The app's substrate grants arrive on that same role through `spec.identity.extraPolicyArns`, which carries the managed policy landing-zone emits as `app_access_policy_arn` (account-scoped, so it is filled per environment at apply time).
+`tenants-reliability` is the team's control-plane namespace — it holds these CRs. The workload namespace is a different one: the operator derives `tenants-incident-response` from `Platform.metadata.name` and provisions it along with the ResourceQuota, LimitRange, default-deny NetworkPolicy, an ArgoCD AppProject named `incident-response`, and the per-Platform IAM role `<env>-incident-response-tenant`. **That operator role is the one incident-response's app pods run as** — they run as the operator-owned `tenant-runtime` ServiceAccount, which the operator binds to the role by a Pod Identity association, so app pods and AgentFleet pods share one privilege domain. The app's substrate grants are operator-generated on that same role: the datastore-access policy from `spec.datastores`, the capability-access policy (EventBridge Scheduler) from `spec.identity.capabilities`, and the tenant's own `incident-response/<env>/*` secret prefix.
 
 ### The Helm chart (`chart/`)
 
@@ -171,4 +180,4 @@ The processor drains two FIFO queues; each message dispatches through an `EventR
 - [`docs/`](docs/) — deployment guide, secrets, troubleshooting, drills, fork-for-a-new-client
 - [Platform Reference](../nanohype/docs/platform-reference.md) — the stack-wide view
 - [`eks-agent-platform`](https://github.com/nanohype/eks-agent-platform) — the operator that reconciles the Platform CR
-- [`landing-zone`](https://github.com/nanohype/landing-zone) — the `incident-response-platform` substrate the chart's IAM role and data stores live in
+- [`landing-zone`](https://github.com/nanohype/landing-zone) — the generic `tenant-substrate` component the declared data stores live in, plus `agent-iam` for the operator IAM

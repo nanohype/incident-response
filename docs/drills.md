@@ -257,7 +257,7 @@ Each of these paths writes its own audit events — re-run `npm run observe:stag
 For testing the processor in isolation (bypassing the webhook ingress):
 
 ```bash
-QUEUE_URL=$(cd ../landing-zone/live/aws/workload-staging/us-west-2/staging/incident-response-platform \
+QUEUE_URL=$(cd ../landing-zone/live/aws/workload-staging/us-west-2/staging/tenant-substrate \
   && terragrunt output -raw incident_events_queue_url)
 aws sqs send-message \
   --region us-west-2 \

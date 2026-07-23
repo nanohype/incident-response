@@ -12,7 +12,7 @@ Two independent tokens run through this repo. Almost everything keys on the **ap
 | OTel `service.namespace` + `agents.platform` | `incident-response` | Telemetry identity. Grafana dashboards and PrometheusRule PromQL key on it |
 | Workload namespace + ArgoCD AppProject | `tenants-incident-response` / `incident-response` | Both derive from `Platform.metadata.name`, which is the app. The landing-zone Pod Identity association targets that namespace |
 | `/incident-response` slash commands + the Slack app | `incident-response` | The user-facing product surface in Slack |
-| Secret prefixes (`incident-response/<env>/*`), DDB/SQS/Scheduler resource names, `incident-response.json` dashboard | `incident-response` | Owned by the landing-zone `incident-response-platform` substrate outputs |
+| Secret prefixes (`incident-response/<env>/*`), DDB/SQS/S3 resource names, `incident-response.json` dashboard | `incident-response` | DDB/SQS/S3 from the `tenant-substrate` outputs; the scheduler-invoke role is operator-minted |
 | `Platform.spec.tenant`, OTel `agents.tenant`, chart maintainer, dashboard tag | `reliability` | The owning team — the organizational boundary a `Tenant` CR models, independent of how many apps that team runs |
 | Control-plane namespace holding the `Platform` + `BudgetPolicy` CRs | `tenants-reliability` | Team-scoped. Holds the tenant declarations, not the pods |
 
@@ -102,7 +102,7 @@ This repo owns the application — source, chart, Platform CR, gitops entry. Eve
 
 ### Substrate → `landing-zone`
 
-`landing-zone/components/aws/incident-response-platform/` provisions the per-tenant AWS data plane and does not move here:
+`landing-zone/components/aws/tenant-substrate/` provisions the per-tenant AWS data plane and does not move here:
 
 - DynamoDB tables — incidents, audit log, identity cache (`dynamodb.tf`)
 - SQS FIFO queues + DLQs — incident events, nudge events, SLA-check (`sqs.tf`)
@@ -112,7 +112,7 @@ This repo owns the application — source, chart, Platform CR, gitops entry. Eve
 - Secrets Manager seeding (one entry per integration under `incident-response/<env>/`, listed in `secrets.template.json`)
 - Account-level Bedrock invocation logging = NONE
 
-Its IAM role is the role incident-response's app pods assume, bound to the chart's ServiceAccount by an EKS Pod Identity association. The table names, queue URLs/ARNs, scheduler role/group, and the secret ids land in the chart's `tenantInfra.*` (filled from `tofu output` at deploy time; the committed defaults stay empty so no account id / region / ARN is hardcoded). The chart contains **no inline IAM**; the role and the association are owned in landing-zone and consumed by reference. Both workloads share one SA, both assume the `incident-response-platform` role. The substrate directory name and the `incident-response/<env>/*` secret prefixes stay `incident-response` — they're the substrate's own identity.
+Its IAM role is the role incident-response's app pods assume, bound to the chart's ServiceAccount by an EKS Pod Identity association. The table names, queue URLs/ARNs, scheduler role/group, and the secret ids land in the chart's `tenantInfra.*` (filled from `tofu output` at deploy time; the committed defaults stay empty so no account id / region / ARN is hardcoded). The chart contains **no inline IAM**; the tenant role and its Pod Identity association are operator-owned and consumed by reference. Both workloads run as the operator-owned `tenant-runtime` ServiceAccount and assume that one tenant role. The substrate directory name and the `incident-response/<env>/*` secret prefixes stay `incident-response` — they're the substrate's own identity.
 
 ### Cluster addons → `eks-gitops`
 
