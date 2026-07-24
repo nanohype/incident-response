@@ -65,8 +65,8 @@ spec:
       ports:
         - protocol: TCP
           port: 443
-    # OTLP traces + metrics + logs to the Grafana Alloy OTLP receiver in the
-    # monitoring namespace (alloy.monitoring.svc.cluster.local:4318).
+    # OTLP traces + metrics + logs to the OpenTelemetry Collector gateway in the
+    # monitoring namespace (telemetry.monitoring.svc.cluster.local:4318).
     - to:
         - namespaceSelector:
             matchLabels:

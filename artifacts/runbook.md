@@ -59,7 +59,7 @@ The processor is a **single-writer singleton**. Two processors would each poll S
 
 Telemetry lands in two places, and knowing which one to open saves the first five minutes of any page.
 
-- **App metrics + traces + logs** — the pods emit OTLP and structured JSON; Grafana Alloy, installed by `eks-gitops`, forwards traces to the in-cluster Tempo, metrics to Amazon Managed Prometheus, and logs to the in-cluster Loki. No per-pod sidecars. The dashboard (`chart/dashboards/incident-response.json`) and the three alert rules (`chart/templates/prometheusrule.yaml`) ship with the chart.
+- **App metrics + traces + logs** — the pods emit OTLP and structured JSON; the OpenTelemetry Collector, installed by `eks-gitops`, forwards traces to the in-cluster Tempo, metrics to Amazon Managed Prometheus, and logs to the in-cluster Loki. No per-pod sidecars. The dashboard (`chart/dashboards/incident-response.json`) and the three alert rules (`chart/templates/prometheusrule.yaml`) ship with the chart.
 - **AWS data-service metrics** — SQS depth, DynamoDB throttles and the EventBridge Scheduler are CloudWatch-native, surfaced on the dashboard through the CloudWatch datasource.
 
 ### Application metrics
@@ -107,7 +107,7 @@ One trace spans the whole webhook → SQS → processor flow; the W3C context ri
    kubectl -n tenants-incident-response logs deploy/incident-response-processor --previous --since=30m
    ```
 
-   If the pod is `Running` and the logs are empty in Loki but present here, Alloy's log tail is the broken piece, not the app — that is an `eks-gitops` problem.
+   If the pod is `Running` and the logs are empty in Loki but present here, the collector's log tail is the broken piece, not the app — that is an `eks-gitops` problem.
 
 3. Common causes:
    - **OOMKilled** — `describe pod` shows `Reason: OOMKilled`. Raise `processor.resources.limits.memory` in `chart/values-<env>.yaml`.

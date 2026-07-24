@@ -38,8 +38,8 @@ incident-response is a ceremonial incident commander assistant. It assembles P1 
 
 #### Observability
 
-- OpenTelemetry traces + metrics export via OTLP to Grafana Alloy in the `monitoring` namespace, which forwards traces to the in-cluster Tempo and SigV4 remote-writes metrics to Amazon Managed Prometheus. No per-pod sidecars.
-- App writes structured JSON (Pino) to stderr; Grafana Alloy tails the pods and ships it to the in-cluster Loki. `.child({ incident_id })` correlation and W3C trace context propagated through SQS attributes.
+- OpenTelemetry traces + metrics export via OTLP to the OpenTelemetry Collector gateway in the `monitoring` namespace, which forwards traces to the in-cluster Tempo and SigV4 remote-writes metrics to Amazon Managed Prometheus. No per-pod sidecars.
+- App writes structured JSON (Pino) to stderr; the OpenTelemetry Collector tails the pods and ships it to the in-cluster Loki. `.child({ incident_id })` correlation and W3C trace context propagated through SQS attributes.
 - `prometheusrule.yaml` carries three SLO + reliability alerts (assembly P99, directory-lookup failure spike, Statuspage publish failures). Off by default — eks-gitops installs the prometheus-operator CRDs but no operator, so the CR applies and sits inert there.
 - `grafana-dashboard.yaml` ships the dashboard as a `GrafanaDashboard` CR the grafana-operator reconciles onto the org Grafana instance.
 
