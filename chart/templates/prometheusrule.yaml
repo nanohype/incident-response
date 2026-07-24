@@ -6,7 +6,7 @@
 # picks these up through prometheus.spec.ruleSelector — set
 # `prometheusRule.selector` if its selector differs from the release label.
 #
-# The PromQL targets OTel metric names as Alloy's Prometheus exporter emits
+# The PromQL targets OTel metric names as the collector's Prometheus exporter emits
 # them: the `incident_response.` namespace and the `.` separators become
 # underscores, and counters gain a `_total` suffix.
 

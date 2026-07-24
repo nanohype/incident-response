@@ -8,7 +8,7 @@ Helm chart for the incident-response incident-commander assistant. Renders two w
 
 Plus:
 
-- **PrometheusRule** — three rules under `incident-response.slo`: assembly P99 SLO breach, directory-lookup failure spike, Statuspage publish failures. Off by default (`prometheusRule.enabled: false`): the CR only does something where a Prometheus Operator ruler watches for it, and the eks-gitops observability catalog runs Alloy remote-writing to Amazon Managed Prometheus with no in-cluster ruler. Turn it on — and set `prometheusRule.selector` to whatever that ruler's `ruleSelector` matches — on a cluster that runs one.
+- **PrometheusRule** — three rules under `incident-response.slo`: assembly P99 SLO breach, directory-lookup failure spike, Statuspage publish failures. Off by default (`prometheusRule.enabled: false`): the CR only does something where a Prometheus Operator ruler watches for it, and the eks-gitops observability catalog runs the OpenTelemetry Collector remote-writing to Amazon Managed Prometheus with no in-cluster ruler. Turn it on — and set `prometheusRule.selector` to whatever that ruler's `ruleSelector` matches — on a cluster that runs one.
 - **GrafanaDashboard CR** — sourced from `chart/dashboards/incident-response.json`. A `GrafanaDashboard` CR (instanceSelector `dashboards: external`) the grafana-operator reconciles onto the external Amazon Managed Grafana.
 
 ## Files
@@ -22,7 +22,7 @@ Plus:
   - `mcp-service.yaml` — ClusterIP in front of the processor's MCP port (the mcp-tunnel target)
   - `serviceaccount.yaml` — single SA shared across both workloads
   - `networkpolicy.yaml` — ingress: the VPC range the ALB's interfaces sit in → webhook, mcp-tunnel namespace → processor MCP port; egress: DNS + HTTPS + OTLP
-  - `externalsecret.yaml` — one remoteRef per integration, at `externalSecret.secretPrefix` plus the suffix in `externalSecret.keys`, composed into one Secret consumed by envFrom. Those are the paths `scripts/seed-secrets.sh` writes; CI renders the chart and fails on any path the seeder does not create. The HMAC secret is not projected — the webhook reads it through the pod's own grant, keyed on VersionId, so it rotates without a restart; the chart passes only its id. No OTLP credential either — the default export target is the unauthenticated in-cluster Alloy receiver
+  - `externalsecret.yaml` — one remoteRef per integration, at `externalSecret.secretPrefix` plus the suffix in `externalSecret.keys`, composed into one Secret consumed by envFrom. Those are the paths `scripts/seed-secrets.sh` writes; CI renders the chart and fails on any path the seeder does not create. The HMAC secret is not projected — the webhook reads it through the pod's own grant, keyed on VersionId, so it rotates without a restart; the chart passes only its id. No OTLP credential either — the default export target is the unauthenticated in-cluster collector gateway receiver
   - `prometheusrule.yaml` — three alert rules (assembly SLO / directory failures / Statuspage publish failures)
   - `grafana-dashboard.yaml` — GrafanaDashboard CR with the dashboard JSON
 
@@ -78,7 +78,7 @@ Three layers meet at this chart. Anything in the right-hand column does not belo
 | Account-level Bedrock invocation-logging-NONE | landing-zone `cluster-bootstrap` |
 | cert-manager, External Secrets Operator, external-dns, the AWS Load Balancer Controller | eks-gitops |
 | The `alb` IngressClass `webhook-ingress.yaml` requests, and the ACM certificate TLS terminates against | the AWS Load Balancer Controller in eks-gitops; the certificate is yours to issue |
-| Grafana Alloy — OTLP receiver + pod log tail, fanning out traces → Tempo, metrics → Amazon Managed Prometheus, logs → Loki | eks-gitops |
+| the OpenTelemetry Collector — OTLP receiver + pod log tail, fanning out traces → Tempo, metrics → Amazon Managed Prometheus, logs → Loki | eks-gitops |
 | The Grafana instance the `GrafanaDashboard` CR reconciles onto, and the grafana-operator that reconciles it | eks-gitops |
 | Namespace, ResourceQuota, LimitRange, default-deny NetworkPolicy, AppProject, tenant IAM role | the eks-agent-platform operator, from `platform.yaml` |
 

@@ -63,7 +63,7 @@ inference logs or third parties**.
 - App-level secrets are projected at deploy time by External Secrets Operator from AWS Secrets
   Manager (one entry per integration under `incident-response/<env>/`, enumerated in `secrets.template.json`)
   into a Kubernetes Secret consumed `envFrom` — never committed. No telemetry credential is among
-  them: the pods export OTLP to the cluster's in-cluster Alloy receiver, which authenticates
+  them: the pods export OTLP to the cluster's in-cluster collector gateway receiver, which authenticates
   nothing, so there is no header to project. The one credential that stays out of the pod spec
   entirely is `incident-response/<env>/grafana-cloud/otlp-auth`, read through the pod's own
   `secretsmanager:GetSecretValue` grant by `src/handlers/webhook-otel-init.ts` and only on a
