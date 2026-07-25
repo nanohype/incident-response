@@ -44,7 +44,7 @@ export type ResponseUrlPoster = (
 
 export interface SlackInteractionDeps {
   commandRegistry: CommandRegistry;
-  approvalGate: Pick<StatuspageApprovalGate, "approveAndPublish">;
+  approvalGate: Pick<StatuspageApprovalGate, "approveAndPublish" | "getDraft" | "reviseDraft">;
   auditWriter: Pick<AuditWriter, "write">;
   dynamoDb: DynamoDBDocumentClient;
   incidentsTableName: string;
@@ -65,6 +65,12 @@ export interface InteractionPayload {
   trigger_id?: string;
   response_url?: string;
   actions?: BlockAction[];
+  // A modal submission carries no `actions` — the payload is the view itself,
+  // keyed by the callback_id the modal was opened with.
+  view?: {
+    callback_id?: string;
+    state?: { values?: Record<string, Record<string, { value?: string | null }>> };
+  };
 }
 
 /**
@@ -187,6 +193,74 @@ export async function handleSlashCommand(
 }
 
 /**
+ * Handle a modal submission. Today that is only the status-page draft editor,
+ * keyed by the `statuspage_edit_submit:<incident>:<draft>` callback_id the modal
+ * was opened with.
+ *
+ * The IC's edit lands on a customer-facing message on the compliance-gated
+ * publish path, so it is a first-class attributed gesture, not a UI nicety: the
+ * revision goes through the approval gate (which rehashes the body and writes an
+ * awaited audit event), and the draft stays PENDING_APPROVAL so the deliberate
+ * Approve & Publish click is still required afterwards.
+ */
+async function handleViewSubmission(
+  deps: SlackInteractionDeps,
+  payload: InteractionPayload,
+): Promise<void> {
+  const callbackId = payload.view?.callback_id ?? "";
+  if (!callbackId.startsWith("statuspage_edit_submit:")) {
+    logger.warn({ callback_id: callbackId }, "Unhandled view_submission callback_id");
+    return;
+  }
+
+  const [, incidentId, draftId] = callbackId.split(":");
+  const newBody = payload.view?.state?.values?.draft_body?.draft_body_input?.value ?? "";
+  const userId = payload.user.id;
+
+  if (!incidentId || !draftId) {
+    logger.error({ callback_id: callbackId }, "Malformed statuspage edit callback_id");
+    return;
+  }
+  if (newBody.trim() === "") {
+    // Slack has already closed the modal by the time we run, so there is no
+    // response_action to return — refusing loudly in the log beats silently
+    // blanking a customer-facing message.
+    logger.warn(
+      { incident_id: incidentId, draft_id: draftId, user_id: userId },
+      "Refusing to save an empty status page draft",
+    );
+    return;
+  }
+
+  try {
+    const { previous_body_sha256, body_sha256 } = await deps.approvalGate.reviseDraft(
+      incidentId,
+      draftId,
+      newBody,
+      userId,
+    );
+    logger.info(
+      {
+        incident_id: incidentId,
+        draft_id: draftId,
+        user_id: userId,
+        previous_body_sha256,
+        body_sha256,
+      },
+      "Status page draft revised; still pending approval",
+    );
+  } catch (err) {
+    // "Silent stubs are bugs" cuts both ways: a failed save must not look like a
+    // successful one. The modal is already gone, so the log and the unchanged
+    // draft in the channel are what the IC has to go on.
+    logger.error(
+      { incident_id: incidentId, draft_id: draftId, error: stringifyError(err) },
+      "Failed to save status page draft revision",
+    );
+  }
+}
+
+/**
  * Dispatch a Block Kit interaction (approve / edit / silence / pulse). Every
  * gesture is attributed to `payload.user.id` — the human who clicked.
  */
@@ -194,6 +268,11 @@ export async function handleInteraction(
   deps: SlackInteractionDeps,
   payload: InteractionPayload,
 ): Promise<void> {
+  if (payload.type === "view_submission") {
+    await handleViewSubmission(deps, payload);
+    return;
+  }
+
   const action = payload.actions?.[0];
   if (!action) return;
   const userId = payload.user.id;
@@ -231,6 +310,24 @@ export async function handleInteraction(
       incident_id: string;
       draft_id: string;
     };
+    // Prefill with the draft as it stands. A modal that opens on placeholder
+    // text invites the IC to retype a customer-facing message from memory —
+    // and whatever they type replaces the real one wholesale.
+    const existing = await deps.approvalGate.getDraft(incident_id, draft_id);
+    if (!existing) {
+      await respond({
+        response_type: "ephemeral",
+        text: `Draft \`${draft_id}\` no longer exists for this incident.`,
+      });
+      return;
+    }
+    if (existing.status !== "PENDING_APPROVAL") {
+      await respond({
+        response_type: "ephemeral",
+        text: `Draft \`${draft_id}\` is ${existing.status.toLowerCase()} and can no longer be edited.`,
+      });
+      return;
+    }
     await deps.slack.views.open({
       trigger_id: payload.trigger_id ?? "",
       view: {
@@ -247,7 +344,7 @@ export async function handleInteraction(
               type: "plain_text_input",
               action_id: "draft_body_input",
               multiline: true,
-              initial_value: "Edit draft here...",
+              initial_value: existing.body,
             },
             label: { type: "plain_text", text: "Status Page Message" },
           },

@@ -26,6 +26,7 @@ export type AuditEventType =
   | "STATUS_REMINDER_SENT"
   | "STATUS_REMINDER_SILENCED"
   | "STATUSPAGE_DRAFT_CREATED"
+  | "STATUSPAGE_DRAFT_REVISED"
   | "STATUSPAGE_DRAFT_APPROVED"
   | "STATUSPAGE_PUBLISHED"
   | "STATUSPAGE_APPROVAL_REJECTED"
@@ -116,6 +117,15 @@ export interface AuditDetailsByType {
       body_sha256: string;
       body_length: number;
       affected_component_ids: string[];
+    }>;
+  // Carries both hashes so the ledger shows what the IC changed, not merely that
+  // a change happened — the approval that follows is over the new body.
+  STATUSPAGE_DRAFT_REVISED: AuditDetailsExtras &
+    LooseOptional<{
+      draft_id: string;
+      body_sha256: string;
+      previous_body_sha256: string;
+      body_length: number;
     }>;
   STATUSPAGE_DRAFT_APPROVED: AuditDetailsExtras &
     LooseOptional<{
