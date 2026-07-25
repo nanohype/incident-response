@@ -174,6 +174,82 @@ export class StatuspageApprovalGate {
     };
   }
 
+  /**
+   * Load a draft for editing. Returns undefined when it does not exist, so the
+   * caller can say so rather than opening a modal over nothing.
+   */
+  async getDraft(incidentId: string, draftId: string): Promise<StatusPageDraft | undefined> {
+    const result = await this.docClient.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: { PK: `INCIDENT#${incidentId}`, SK: `STATUSPAGE_DRAFT#${draftId}` },
+      }),
+    );
+    return result.Item as StatusPageDraft | undefined;
+  }
+
+  /**
+   * Replace a pending draft's body with the IC's edit, keeping it in
+   * PENDING_APPROVAL so it still requires the deliberate Approve & Publish click.
+   *
+   * `body_sha256` is recomputed here, and that is the whole point of routing the
+   * edit through the gate rather than writing the item directly.
+   * `approveAndPublish` hashes what it publishes and
+   * `verifyApprovalBeforePublish` matches it against the approval record — so a
+   * draft whose body changed without its hash following would either publish
+   * text nobody approved or fail the pre-publish check. The revision is its own
+   * awaited audit event carrying both hashes, so the ledger shows what the human
+   * changed, not just that something changed.
+   *
+   * A conditional update on the status enforces the same invariant the approve
+   * path asserts: an already-approved or rejected draft is immutable.
+   */
+  async reviseDraft(
+    incidentId: string,
+    draftId: string,
+    newBody: string,
+    revisingUserId: string,
+  ): Promise<{ body_sha256: string; previous_body_sha256: string }> {
+    const existing = await this.getDraft(incidentId, draftId);
+    if (!existing) throw new Error(`Draft ${draftId} not found for incident ${incidentId}`);
+    if (existing.status !== "PENDING_APPROVAL")
+      throw new Error(
+        `Draft ${draftId} is not in PENDING_APPROVAL status (current: ${existing.status})`,
+      );
+
+    const body_sha256 = crypto.createHash("sha256").update(newBody, "utf8").digest("hex");
+
+    await this.docClient.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: `INCIDENT#${incidentId}`, SK: `STATUSPAGE_DRAFT#${draftId}` },
+        UpdateExpression: "SET #body = :body, body_sha256 = :hash",
+        // Re-asserted at write time, not just read time: two ICs editing the same
+        // draft while a third approves must not overwrite approved text.
+        ConditionExpression: "#status = :pending",
+        ExpressionAttributeNames: { "#body": "body", "#status": "status" },
+        ExpressionAttributeValues: {
+          ":body": newBody,
+          ":hash": body_sha256,
+          ":pending": "PENDING_APPROVAL",
+        },
+      }),
+    );
+
+    await this.auditWriter.write(incidentId, revisingUserId, "STATUSPAGE_DRAFT_REVISED", {
+      draft_id: draftId,
+      body_sha256,
+      previous_body_sha256: existing.body_sha256,
+      body_length: newBody.length,
+    });
+
+    logger.info(
+      { incident_id: incidentId, draft_id: draftId, revising_user: revisingUserId },
+      "Status page draft revised by IC",
+    );
+    return { body_sha256, previous_body_sha256: existing.body_sha256 };
+  }
+
   async rejectDraft(incidentId: string, draftId: string, rejectingUserId: string): Promise<void> {
     await this.docClient.send(
       new UpdateCommand({

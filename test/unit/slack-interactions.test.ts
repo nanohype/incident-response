@@ -26,7 +26,7 @@ import type { SlashCommand } from "../../src/types/slack.js";
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
 interface Fakes extends SlackInteractionDeps {
-  approvalGate: { approveAndPublish: Mock };
+  approvalGate: { approveAndPublish: Mock; getDraft: Mock; reviseDraft: Mock };
   auditWriter: { write: Mock };
   slack: { views: { open: Mock } } & SlackInteractionDeps["slack"];
   respondTo: Mock;
@@ -36,6 +36,18 @@ interface Fakes extends SlackInteractionDeps {
 function mkDeps(): Fakes {
   const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "us-west-2" }));
   const approvalGate = {
+    getDraft: vi.fn().mockResolvedValue({
+      draft_id: "d-1",
+      incident_id: "inc-1",
+      body: "We are investigating an issue affecting some customers.",
+      body_sha256: "sha-original",
+      affected_component_ids: ["comp-1"],
+      status: "PENDING_APPROVAL",
+      created_at: "2026-07-25T00:00:00.000Z",
+    }),
+    reviseDraft: vi
+      .fn()
+      .mockResolvedValue({ body_sha256: "sha-new", previous_body_sha256: "sha-original" }),
     approveAndPublish: vi
       .fn()
       .mockResolvedValue({ statuspage_incident_id: "sp-1", shortlink: "https://status/1" }),
@@ -220,7 +232,7 @@ describe("handleInteraction", () => {
     expect(deps.auditWriter.write).not.toHaveBeenCalled();
   });
 
-  it("SLK-INT-014: edit opens the draft modal", async () => {
+  it("SLK-INT-014: edit opens the draft modal prefilled with the real draft body", async () => {
     const deps = mkDeps();
     await handleInteraction(deps, {
       type: "block_actions",
@@ -236,6 +248,14 @@ describe("handleInteraction", () => {
     expect(deps.slack.views.open).toHaveBeenCalledWith(
       expect.objectContaining({ trigger_id: "tg-9" }),
     );
+    // The modal must open on the draft as it stands. Placeholder text invites the
+    // IC to retype a customer-facing message from memory, and whatever they type
+    // replaces the real one wholesale.
+    const view = deps.slack.views.open.mock.calls[0]?.[0]?.view;
+    expect(view?.blocks?.[0]?.element?.initial_value).toBe(
+      "We are investigating an issue affecting some customers.",
+    );
+    expect(view?.callback_id).toBe("statuspage_edit_submit:inc-1:d-1");
   });
 
   it("SLK-INT-015: empty actions array is ignored", async () => {
@@ -276,5 +296,79 @@ describe("parsing", () => {
     const payload = { type: "block_actions", user: { id: "U1" }, actions: [] };
     const body = `payload=${encodeURIComponent(JSON.stringify(payload))}`;
     expect(parseInteraction(body)).toMatchObject({ type: "block_actions", user: { id: "U1" } });
+  });
+});
+
+/**
+ * The submission half of the edit flow. Before this existed, `statuspage_edit`
+ * opened a modal whose `Save & Re-Review` submit produced a `view_submission`
+ * payload that `handleInteraction` dropped on the floor — it read
+ * `payload.actions?.[0]`, found none, and returned. The IC's edit to a
+ * customer-facing status draft was discarded with no error, on the
+ * compliance-gated publish path.
+ */
+describe("handleInteraction — statuspage edit submission", () => {
+  const submission = (overrides: Record<string, unknown> = {}) => ({
+    type: "view_submission",
+    user: { id: "U-ic" },
+    view: {
+      callback_id: "statuspage_edit_submit:inc-1:d-1",
+      state: {
+        values: { draft_body: { draft_body_input: { value: "Revised customer message." } } },
+      },
+    },
+    ...overrides,
+  });
+
+  it("SLK-INT-020: routes the edit to the approval gate, attributed to the submitting human", async () => {
+    const deps = mkDeps();
+    await handleInteraction(deps, submission());
+    expect(deps.approvalGate.reviseDraft).toHaveBeenCalledWith(
+      "inc-1",
+      "d-1",
+      "Revised customer message.",
+      "U-ic",
+    );
+  });
+
+  it("SLK-INT-021: never publishes — the edit is not an implicit approval", async () => {
+    const deps = mkDeps();
+    await handleInteraction(deps, submission());
+    expect(deps.approvalGate.approveAndPublish).not.toHaveBeenCalled();
+  });
+
+  it("SLK-INT-022: refuses to blank a customer-facing draft", async () => {
+    const deps = mkDeps();
+    await handleInteraction(
+      deps,
+      submission({
+        view: {
+          callback_id: "statuspage_edit_submit:inc-1:d-1",
+          state: { values: { draft_body: { draft_body_input: { value: "   " } } } },
+        },
+      }),
+    );
+    expect(deps.approvalGate.reviseDraft).not.toHaveBeenCalled();
+  });
+
+  it("SLK-INT-023: a failed save does not look like a successful one", async () => {
+    const deps = mkDeps();
+    deps.approvalGate.reviseDraft.mockRejectedValue(new Error("draft already approved"));
+    // Must not throw out of the handler — Slack has already closed the modal —
+    // but must not swallow it into a success path either.
+    await expect(handleInteraction(deps, submission())).resolves.toBeUndefined();
+    expect(deps.approvalGate.approveAndPublish).not.toHaveBeenCalled();
+  });
+
+  it("SLK-INT-024: an unrecognised callback_id is ignored, not misrouted", async () => {
+    const deps = mkDeps();
+    await handleInteraction(deps, submission({ view: { callback_id: "some_other_modal" } }));
+    expect(deps.approvalGate.reviseDraft).not.toHaveBeenCalled();
+  });
+
+  it("SLK-INT-025: a malformed callback_id does not reach the gate", async () => {
+    const deps = mkDeps();
+    await handleInteraction(deps, submission({ view: { callback_id: "statuspage_edit_submit:" } }));
+    expect(deps.approvalGate.reviseDraft).not.toHaveBeenCalled();
   });
 });
