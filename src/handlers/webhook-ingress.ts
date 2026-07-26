@@ -18,12 +18,13 @@ import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 import { injectSqsTraceAttributes } from "../utils/tracing.js";
 import { initOtelIfNeeded } from "./webhook-otel-init.js";
+import { awsRegion } from "../utils/env.js";
 
-const sqsClient = new SQSClient({ region: process.env.AWS_REGION ?? "us-west-2" });
-const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION ?? "us-west-2" });
+const sqsClient = new SQSClient({ region: awsRegion() });
+const dynamoClient = new DynamoDBClient({ region: awsRegion() });
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const secretsClient = new SecretsManagerClient({
-  region: process.env.AWS_REGION ?? "us-west-2",
+  region: awsRegion(),
 });
 
 interface HmacSecretCacheEntry {

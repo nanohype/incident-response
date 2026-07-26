@@ -251,7 +251,12 @@ describe("webhook ingress — malformed requests", () => {
   });
 
   it("rejects a request with no headers at all", async () => {
-    const response = await handler({ body: JSON.stringify(firingPayload()) } as WebhookRequest);
+    // A request object with no headers at all: `as unknown as` because the type
+    // requires them, and the point is what happens when a caller sends one that
+    // does not.
+    const response = await handler({
+      body: JSON.stringify(firingPayload()),
+    } as unknown as WebhookRequest);
     expect(response.statusCode).toBe(401);
   });
 
@@ -278,7 +283,7 @@ describe("webhook ingress — malformed requests", () => {
   it("rejects a request with no body", async () => {
     const response = await handler({
       headers: { "x-grafana-oncall-signature": "deadbeef" },
-    } as WebhookRequest);
+    } as unknown as WebhookRequest);
     expect(response.statusCode).toBe(401);
   });
 

@@ -13,6 +13,7 @@ import type { GrafanaOnCallAlertPayload } from "../types/index.js";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 import { context, extractSqsTraceContext } from "../utils/tracing.js";
+import { awsRegion } from "../utils/env.js";
 
 export type IncidentEventType = "ALERT_RECEIVED" | "ALERT_RESOLVED";
 export type NudgeEventType = "STATUS_UPDATE_NUDGE" | "SLA_CHECK";
@@ -38,7 +39,7 @@ export class SqsConsumer {
     private readonly onNudgeEvent: MessageHandler<NudgeQueueMessage>,
     private readonly pollIntervalMs = 1000,
   ) {
-    this.sqs = new SQSClient({ region: process.env.AWS_REGION ?? "us-west-2" });
+    this.sqs = new SQSClient({ region: awsRegion() });
   }
 
   start(): void {
