@@ -283,8 +283,11 @@ describe("webhook ingress — malformed requests", () => {
   });
 
   it("falls back to the default table name when the env var is unset", async () => {
+    // delete, not `= undefined`: assigning undefined stores the *string*
+    // "undefined", which is not nullish, so the ?? default would never be
+    // reached and this test would assert nothing.
     const previous = process.env.INCIDENTS_TABLE_NAME;
-    process.env.INCIDENTS_TABLE_NAME = undefined;
+    delete process.env.INCIDENTS_TABLE_NAME;
     ddbMock.on(PutCommand).resolves({});
     sqsMock.on(SendMessageCommand).resolves({ MessageId: "m-1" });
 
