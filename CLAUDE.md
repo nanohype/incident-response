@@ -65,7 +65,7 @@ npm run format                     # Biome — write
 npm run format:check               # Biome — verify
 npm run typecheck                  # tsc --noEmit (runs as part of `check`)
 npm run build                      # tsc → dist/
-npm run test:unit                  # enforces 100% branch on audit + approval-gate
+npm run test:unit                  # enforces the per-file 100% set + the global floor
 npm run test:integration           # requires dynamodb-local on :8000 (or use :docker below)
 npm run test:integration:docker    # starts Docker container, runs tests, cleans up
 npm run check                      # typecheck + lint + format:check + test:unit — CI parity
@@ -118,8 +118,17 @@ IncidentResponse-specific:
 
 ### Coverage
 
-- 100% branch on `src/utils/audit.ts` and `src/services/statuspage-approval-gate.ts`. CI fails on regression.
-- Global 55% branches / 75% statements / 75% lines / 75% functions. These are honest thresholds — if a future PR lowers coverage, CI goes red.
+- 100% on all four metrics for the security- and compliance-critical path:
+  `src/services/statuspage-approval-gate.ts`, `src/utils/audit.ts`,
+  `src/handlers/slack-signature.ts`, `src/handlers/webhook-ingress.ts`. CI fails on
+  regression. Statements is pinned alongside the other three: a file can hold every
+  branch and still gain an unexercised statement, which on the approval gate is a
+  write nothing asserts.
+- Global 48% branches / 51% statements / 53% lines / 45% functions — a ratchet under
+  measured, not the org floor. `coverage.include` makes the suite measure every file
+  under `src/`, so an untested module counts against the denominator instead of being
+  invisible to it; the previous 55/75/75/75 were computed over roughly half the source.
+  Closing the gap to the org floor means testing the service and client modules.
 - Regression experiment proves enforcement is live: flipping `ConsistentRead: true` → `false` in `audit.ts` makes `npm run test:unit` exit 1. See README for the procedure.
 
 ### Adding tests
