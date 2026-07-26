@@ -92,7 +92,7 @@ npm run format:check
 npm run check                      # typecheck + lint + format:check + test:unit (CI parity)
 ```
 
-`audit.ts` and `statuspage-approval-gate.ts` are locked at 100% branches / lines / functions — CI fails on any regression there. See [§ Testing](#testing) for the Kent-Dodds-trophy distribution + the proof-of-enforcement experiment.
+`statuspage-approval-gate.ts`, `audit.ts`, `slack-signature.ts` and `webhook-ingress.ts` are locked at 100% on all four metrics — CI fails on any regression there. See [§ Testing](#testing) for the Kent-Dodds-trophy distribution + the proof-of-enforcement experiment.
 
 ## Build
 
@@ -171,13 +171,27 @@ Unit suite covers adapters, circuit breaker, audit writer, approval gate, comman
 
 ### Coverage thresholds
 
-| File | Branches | Functions | Lines |
-|------|----------|-----------|-------|
-| `src/utils/audit.ts` | **100%** | **100%** | **100%** |
-| `src/services/statuspage-approval-gate.ts` | **100%** | **100%** | **100%** |
-| global | 55% | 75% | 75% |
+| File | Branches | Functions | Lines | Statements |
+|------|----------|-----------|-------|------------|
+| `src/services/statuspage-approval-gate.ts` | **100%** | **100%** | **100%** | **100%** |
+| `src/utils/audit.ts` | **100%** | **100%** | **100%** | **100%** |
+| `src/handlers/slack-signature.ts` | **100%** | **100%** | **100%** | **100%** |
+| `src/handlers/webhook-ingress.ts` | **100%** | **100%** | **100%** | **100%** |
+| global | 48% | 45% | 53% | 51% |
 
-Security-critical thresholds are load-bearing — they gate the approval-gate invariant. Global thresholds reflect the current test surface; expanding coverage to 80/85 is tracked as a follow-up.
+The per-file thresholds are load-bearing: the approval-gate invariant, the audit
+record behind it, and the two signature paths that decide whether a request is
+from Slack or Grafana at all. They are not ratchets — lowering one is a decision
+about what the service guarantees.
+
+The global numbers are a ratchet under the measured whole-source figures, and
+they are lower than they look. The suite measures every file under `src/` because
+`coverage.include` says so; without it v8 counts only the modules a test happens
+to import, so an untested file would *raise* the percentage rather than lower it.
+The earlier 55/75/75 were computed over roughly half the source. Raising these
+means testing the service and client modules that denominator concealed — the org
+floor (branches 60 / functions 75 / lines 75 / statements 75, from
+`nanohype/standards/testing-rubric.json`) is the target.
 
 ### Proving enforcement is live
 
