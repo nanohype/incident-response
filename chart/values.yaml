@@ -223,7 +223,11 @@ env:
   # overrides it in that environment's values file, together with the
   # tenantInfra names it goes with.
   AWS_REGION: us-west-2
-  BEDROCK_MODEL_ID: anthropic.claude-sonnet-4-6
+  # Must match src/config defaults + platform.yaml allowedModels. The chart
+  # previously shipped BEDROCK_MODEL_ID, which the app never reads — these two
+  # keys are the ones zod validates.
+  BEDROCK_SONNET_MODEL_ID: us.anthropic.claude-sonnet-5
+  BEDROCK_HAIKU_MODEL_ID: us.anthropic.claude-haiku-4-5-20251001-v1:0
   # MCP streamable-HTTP server port — the read + draft pull surface. Matches
   # mcp.port / processor.mcpPort and the processor's mcp containerPort.
   MCP_PORT: '3002'

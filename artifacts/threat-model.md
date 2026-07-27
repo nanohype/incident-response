@@ -22,7 +22,7 @@ The most catastrophic threat is unauthorized status page publication. The second
 | Attacker replays Grafana OnCall webhook | Creates duplicate war rooms | HMAC-SHA256 signature + idempotency check (alert_group_id) | ✅ Mitigated |
 | Attacker spoofs IC Slack identity | Could approve status page as wrong user | Slack's own auth; IncidentResponse reads user_id from Slack API response, never from message text | ✅ Mitigated |
 | Attacker forges Slack interactive message payload | Could trigger fake approval | Slack signing secret verified on every interactive message callback | ✅ Mitigated |
-| Bedrock prompt injection via alert payload | Attacker crafts alert title to manipulate LLM output | Alert payload passed as structured data in user-turn; output always shown to IC before action; guardrail strips identifying patterns | ✅ Mitigated |
+| Bedrock prompt injection via alert payload | Attacker crafts alert title to manipulate LLM output | Alert title + IC message fenced (`guardrails.ts`) before Bedrock; status-draft + classifier adversarial cases in `evals/` asserted at 100%; PII `redact` on drafts; IC reviews before publish | ✅ Mitigated — measured by `evals/` |
 
 ### Tampering
 
@@ -160,7 +160,7 @@ Slack app manifest lock checked in scaffold-validator. No workspace-admin scope 
 |-------|------|------------------------|
 | A01 Broken Access Control | War room private channels | Private-by-default; WorkOS-based invite; unlock only post-resolution |
 | A02 Cryptographic Failures | Webhook HMAC, token storage | HMAC-SHA256 for webhooks; tokens in Secrets Manager, never in code/logs |
-| A03 Injection | Prompt injection via alert data | Structured prompt construction; alert title treated as data, not instructions; IC reviews before action |
+| A03 Injection | Prompt injection via alert data | Alert title / IC message fenced before Bedrock; `evals/` adversarial cases; IC reviews before publish |
 | A04 Insecure Design | Auto-publish escape hatch | Hard architectural decision: no auto-publish code path exists; AutoPublishNotPermittedError is not catchable-and-continue |
 | A05 Security Misconfiguration | Bedrock logging, IAM roles | Bedrock NONE set at deploy; IAM deny for production systems; explicit scope list for Slack bot |
 | A06 Vulnerable Components | npm dependencies | Dependabot enabled; `npm audit` in CI; pin exact versions for security-critical deps |

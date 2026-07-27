@@ -1,0 +1,58 @@
+name: evals
+
+# Model tier on its own workflow so "tests passed" and "evals passed" stay
+# two signals. Offline fixture validity runs in ci via test:unit.
+on:
+  pull_request:
+    paths:
+      - 'src/ai/**'
+      - 'src/vendor/runtime/guardrails.ts'
+      - 'evals/**'
+      - '.github/workflows/evals.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/ai/**'
+      - 'src/vendor/runtime/guardrails.ts'
+      - 'evals/**'
+  schedule:
+    - cron: '29 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    name: classifier + status-draft golden sets
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || vars.EVALS_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Assume the eval role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_EVAL_ROLE_ARN }}
+          aws-region: ${{ vars.EVAL_REGION || 'us-west-2' }}
+
+      - name: Run the golden sets
+        run: npm run eval
+        env:
+          EVAL_LLM: bedrock
+          EVAL_MODEL: ${{ vars.EVAL_MODEL }}
+          OTEL_SDK_DISABLED: 'true'

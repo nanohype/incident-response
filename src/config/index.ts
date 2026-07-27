@@ -12,11 +12,11 @@ import { z } from "zod";
 import { logger } from "../utils/logger.js";
 
 const ConfigSchema = z.object({
-  // Bedrock model IDs. Sonnet drafts status pages + postmortem narrative;
-  // Haiku classifies IC messages. Override per environment (e.g. to pin a
-  // dated snapshot or a cross-region inference profile).
-  BEDROCK_SONNET_MODEL_ID: z.string().min(1).default("anthropic.claude-sonnet-4-6"),
-  BEDROCK_HAIKU_MODEL_ID: z.string().min(1).default("anthropic.claude-haiku-4-5-20251001-v1:0"),
+  // Bedrock model IDs — cross-region inference profiles. Bare foundation-model
+  // IDs return "on-demand throughput isn't supported". Sonnet drafts status
+  // pages + postmortem narrative; Haiku classifies IC messages.
+  BEDROCK_SONNET_MODEL_ID: z.string().min(1).default("us.anthropic.claude-sonnet-5"),
+  BEDROCK_HAIKU_MODEL_ID: z.string().min(1).default("us.anthropic.claude-haiku-4-5-20251001-v1:0"),
   // MCP streamable-HTTP port — the read + draft pull surface the mcp-tunnel
   // routes to. Default 3002 to avoid colliding with the processor health
   // server and webhook server (both on 3001). Locked to the mcp-tunnel
