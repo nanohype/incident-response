@@ -89,8 +89,8 @@ spec:
     # entries match what the app's config invokes. Undated IDs cover the
     # dated snapshots the config pins (the expansion wildcards the suffix).
     allowedModels:
-      - anthropic.claude-sonnet-4-6 # BEDROCK_SONNET_MODEL_ID — status drafts, postmortems
-      - anthropic.claude-haiku-4-5 # BEDROCK_HAIKU_MODEL_ID — classification, checklist routing
+      - us.anthropic.claude-sonnet-5 # BEDROCK_SONNET_MODEL_ID — status drafts, postmortems
+      - us.anthropic.claude-haiku-4-5-20251001-v1:0 # BEDROCK_HAIKU_MODEL_ID — classification
     # Escape hatch for grants outside the datastore + capability vocabularies.
     # DDB/SQS/S3 access rides spec.datastores and the EventBridge Scheduler grants
     # ride capabilities below, so nothing is needed here.

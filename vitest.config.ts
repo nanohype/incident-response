@@ -12,7 +12,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    include: ["test/unit/**/*.test.ts"],
+    // Offline eval tier (fixture validity + graders) lives under evals/ and
+    // must run on every PR — the model half can be skipped.
+    include: ["test/unit/**/*.test.ts", "evals/**/*.test.ts"],
     testTimeout: 30000,
     coverage: {
       enabled: true,

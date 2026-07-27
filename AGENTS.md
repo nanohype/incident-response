@@ -72,7 +72,7 @@ spec:
   budget: { name: incident-response }
   identity:
     # Bedrock invoke on the tenant role is clamped to exactly these IDs
-    allowedModels: [anthropic.claude-sonnet-4-6, anthropic.claude-haiku-4-5]
+    allowedModels: [us.anthropic.claude-sonnet-5, us.anthropic.claude-haiku-4-5-20251001-v1:0]
     extraPolicyArns: [] # escape hatch; substrate + scheduler grants are operator-generated
     capabilities: [eventBridgeScheduler] # operator grants scheduler:*Schedule + mints the invoke role
   compliance: { soc2: true }

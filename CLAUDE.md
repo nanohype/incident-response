@@ -14,7 +14,7 @@ Fork me for a different client by swapping secrets, DynamoDB table names, Slack 
 
 Grafana OnCall fires a webhook → the webhook Deployment (behind the cluster's ingress controller) verifies HMAC-SHA256, validates Zod schema, idempotently writes to DynamoDB, enqueues to SQS FIFO → the processor Deployment picks up the event, dispatches via `EventRegistry` to `WarRoomAssembler` → Slack private channel created, responders invited via parallel WorkOS Directory Sync + Grafana OnCall queries, Grafana Cloud context snapshot attached, checklist pinned, 15-min nudge scheduled via EventBridge Scheduler.
 
-When the IC runs `/incident-response resolve`, the `CommandRegistry` dispatches to the resolve handler: generates a postmortem draft via Bedrock (`claude-sonnet-4-6`), creates a Linear issue via `@linear/sdk`, deletes the nudge schedule, posts a 1–5 star pulse rating to the channel, flips the incident status to RESOLVED, and writes `INCIDENT_RESOLVED` + `POSTMORTEM_CREATED` audit events.
+When the IC runs `/incident-response resolve`, the `CommandRegistry` dispatches to the resolve handler: generates a postmortem draft via Bedrock (`us.anthropic.claude-sonnet-5`), creates a Linear issue via `@linear/sdk`, deletes the nudge schedule, posts a 1–5 star pulse rating to the channel, flips the incident status to RESOLVED, and writes `INCIDENT_RESOLVED` + `POSTMORTEM_CREATED` audit events.
 
 Customer-facing Statuspage messages ALWAYS go through the `StatuspageApprovalGate`. The gate writes `STATUSPAGE_DRAFT_APPROVED` to the audit log, then queries the same log with `ConsistentRead: true`, and only then calls `StatuspageClient.createIncident()`. If the audit write or the verify fails, the Statuspage call never happens and the gate throws `AutoPublishNotPermittedError`. CI grep-gate prevents any new call site of `createIncident()` outside the gate file.
 
@@ -65,7 +65,8 @@ npm run format                     # Biome — write
 npm run format:check               # Biome — verify
 npm run typecheck                  # tsc --noEmit (runs as part of `check`)
 npm run build                      # tsc → dist/
-npm run test:unit                  # enforces the per-file 100% set + the global floor
+npm run test:unit                  # enforces the per-file 100% set + global floor + offline evals
+npm run eval                       # model tier — needs EVAL_LLM (see evals/README.md)
 npm run test:integration           # requires dynamodb-local on :8000 (or use :docker below)
 npm run test:integration:docker    # starts Docker container, runs tests, cleans up
 npm run check                      # typecheck + lint + format:check + test:unit — CI parity
@@ -147,7 +148,7 @@ IncidentResponse-specific:
 | `@aws-sdk/client-sqs` | Incident event queue (FIFO) |
 | `@aws-sdk/client-secrets-manager` | HMAC secret fetch for the webhook handler (VersionId-keyed cache refresh) |
 | `@aws-sdk/client-scheduler` | EventBridge Scheduler for 15-min nudges |
-| `@aws-sdk/client-bedrock-runtime` | `claude-sonnet-4-6` + `claude-haiku-4-5` inference via `InvokeModel` |
+| `@aws-sdk/client-bedrock-runtime` | Sonnet 5 + Haiku 4.5 inference profiles via `InvokeModel` |
 | `@linear/sdk` | Postmortem issue creation in Linear |
 | `zod` | Boundary validation — webhook payloads, env config defaults, LLM classifier output |
 | `aws-sdk-client-mock`, `aws-sdk-client-mock-vitest` | Mocking AWS calls + custom matchers in unit tests |
