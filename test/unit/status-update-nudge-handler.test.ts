@@ -157,7 +157,7 @@ describe("humanMessages", () => {
       [
         { ts: "3", text: "third" },
         { ts: "5", text: "newest" },
-        { ts: "4", text: "  ", subtype: undefined },
+        { ts: "4", text: "  " },
         { ts: "2", text: "bot noise", bot_id: "B1" },
         { ts: "1", text: "oldest" },
         { ts: "6", text: "subtyped bot", subtype: "bot_message" },
