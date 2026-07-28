@@ -16,7 +16,7 @@ import {
 import { mockClient } from "aws-sdk-client-mock";
 import "aws-sdk-client-mock-vitest/extend";
 
-import { IncidentResponseAI } from "../../src/ai/incident-response-ai.js";
+import { IncidentResponseAI, isDegradedStatusDraft } from "../../src/ai/incident-response-ai.js";
 import { config } from "../../src/config/index.js";
 import type { GrafanaOnCallAlertPayload } from "../../src/types/index.js";
 
@@ -49,14 +49,31 @@ describe("IncidentResponseAI", () => {
 
   describe("classifyAsStatusUpdate", () => {
     it("AI-CLS-001: returns the parsed result for well-formed classifier output", async () => {
+      // The shape the live model actually returns. Haiku wraps its JSON in a
+      // markdown fence despite the prompt asking for JSON only — verified
+      // against Bedrock. The previous mock was bare JSON, which the model never
+      // emits, so this suite passed green while every real classification fell
+      // through to the `false` fallback.
       bedrockMock
         .on(InvokeModelCommand)
-        .resolves(bedrockTextResponse('{"is_status_update": true, "confidence": 0.92}'));
+        .resolves(
+          bedrockTextResponse(
+            '```json\n{\n  "is_status_update": true,\n  "confidence": 0.92\n}\n```',
+          ),
+        );
       const result = await ai.classifyAsStatusUpdate(
         "DB failover complete, error rate recovering",
         "inc-1",
       );
       expect(result).toEqual({ is_status_update: true, confidence: 0.92 });
+    });
+
+    it("AI-CLS-001b: still reads a bare JSON object, without a fence", async () => {
+      bedrockMock
+        .on(InvokeModelCommand)
+        .resolves(bedrockTextResponse('{"is_status_update": true, "confidence": 0.81}'));
+      const result = await ai.classifyAsStatusUpdate("mitigation is live", "inc-1");
+      expect(result).toEqual({ is_status_update: true, confidence: 0.81 });
     });
 
     it("AI-CLS-002: falls back to {false, 0} when the output is valid JSON of the wrong shape", async () => {
@@ -120,6 +137,26 @@ describe("IncidentResponseAI", () => {
       expect(draft).toContain(
         "We are currently investigating an issue affecting payments services",
       );
+    });
+
+    it("AI-DRAFT-002b: the degraded template is recognisable as degraded", async () => {
+      // The eval calls generateStatusDraft directly, so without this the model
+      // tier scores a full green against a provider that is completely down —
+      // the template clears every word band, satisfies every `mentions`, and
+      // carries none of the `absent` markers. This pins the marker to the
+      // template that actually ships: change the wording and drop the
+      // placeholder, and the eval goes blind again unless this fails first.
+      bedrockMock.on(InvokeModelCommand).rejects(new Error("ServiceUnavailable"));
+      const draft = await ai.generateStatusDraft(alert, undefined, undefined, "inc-1");
+      expect(isDegradedStatusDraft(draft)).toBe(true);
+    });
+
+    it("AI-DRAFT-002c: real model output is not mistaken for the template", async () => {
+      bedrockMock
+        .on(InvokeModelCommand)
+        .resolves(bedrockTextResponse("We are investigating elevated error rates for payments."));
+      const draft = await ai.generateStatusDraft(alert, undefined, undefined, "inc-1");
+      expect(isDegradedStatusDraft(draft)).toBe(false);
     });
 
     it("AI-DRAFT-003: fences alert title and IC message in the outgoing user turn", async () => {

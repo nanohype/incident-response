@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { IncidentResponseAI } from "../src/ai/incident-response-ai.js";
+import { IncidentResponseAI, isDegradedStatusDraft } from "../src/ai/incident-response-ai.js";
 import { type GradeResult, gradeDraft, loadDraftSuite, score, toAlert } from "./harness.js";
 
 // Model tier for Sonnet status drafts.
@@ -31,7 +31,29 @@ describe.skipIf(configured === "")(`eval: ${suite.name}`, () => {
             c.input.icMessage,
             `eval-${c.id}`,
           );
-          results.set(c.id, gradeDraft(c.expect, { text }));
+          // generateStatusDraft swallows a provider failure and returns a
+          // template. That is correct in production — an IC mid-P1 still gets
+          // something to edit — but here it would score a clean pass against a
+          // dead provider, because the template clears every band, satisfies
+          // every `mentions`, and carries none of the `absent` markers. The
+          // tier's contract is that EVAL_LLM set means a broken provider is a
+          // hard failure, so the degraded draft is graded as one.
+          results.set(
+            c.id,
+            isDegradedStatusDraft(text)
+              ? {
+                  passed: false,
+                  failures: [
+                    {
+                      check: "degraded",
+                      detail:
+                        "generateStatusDraft returned its provider-failure template, so no model " +
+                        "output was measured — check Bedrock reachability and the model pin",
+                    },
+                  ],
+                }
+              : gradeDraft(c.expect, { text }),
+          );
         } catch (err) {
           results.set(c.id, {
             passed: false,

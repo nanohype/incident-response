@@ -22,7 +22,11 @@ export function buildNudgeEventRegistry(deps: Dependencies): EventRegistry<Nudge
   return new EventRegistry<NudgeQueueMessage>("nudge")
     .on(
       "STATUS_UPDATE_NUDGE",
-      makeStatusUpdateNudgeHandler({ slack: deps.slackWebClient, auditWriter: deps.auditWriter }),
+      makeStatusUpdateNudgeHandler({
+        slack: deps.slackWebClient,
+        auditWriter: deps.auditWriter,
+        incidentResponseAI: deps.incidentResponseAI,
+      }),
     )
     .on("SLA_CHECK", makeSlaCheckHandler());
 }

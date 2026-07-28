@@ -24,6 +24,7 @@ export type AuditEventType =
   | "CHECKLIST_ITEM_UPDATED"
   | "STATUS_UPDATE_SENT"
   | "STATUS_REMINDER_SENT"
+  | "STATUS_REMINDER_SUPPRESSED"
   | "STATUS_REMINDER_SILENCED"
   | "STATUSPAGE_DRAFT_CREATED"
   | "STATUSPAGE_DRAFT_REVISED"
@@ -103,6 +104,18 @@ export interface AuditDetailsByType {
       channel_id: string;
       sent_at: string;
       minutes_since_last: number;
+    }>;
+  // Distinct from STATUS_REMINDER_SILENCED, which records the IC choosing to
+  // stop the reminders. This one records the scheduler firing and the nudge
+  // being withheld because the IC had already posted an update — the reminder
+  // is still armed, it simply had nothing to ask for.
+  STATUS_REMINDER_SUPPRESSED: AuditDetailsExtras &
+    LooseOptional<{
+      channel_id: string;
+      suppressed_at: string;
+      window_minutes: number;
+      matched_message_ts: string;
+      confidence: number;
     }>;
   STATUS_REMINDER_SILENCED: AuditDetailsExtras &
     LooseOptional<{
