@@ -38,8 +38,14 @@ export class SqsConsumer {
     private readonly onIncidentEvent: MessageHandler<IncidentQueueMessage>,
     private readonly onNudgeEvent: MessageHandler<NudgeQueueMessage>,
     private readonly pollIntervalMs = 1000,
+    /**
+     * Injectable client. Production leaves it unset and gets a region-resolved
+     * one; tests supply a fake so the DLQ contract below — a failed handler
+     * must NOT delete its message — is exercised rather than asserted about.
+     */
+    sqs?: SQSClient,
   ) {
-    this.sqs = new SQSClient({ region: awsRegion() });
+    this.sqs = sqs ?? new SQSClient({ region: awsRegion() });
   }
 
   start(): void {

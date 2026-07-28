@@ -31,8 +31,14 @@ export class NudgeScheduler {
      * IAM is scoped to `schedule/${groupName}/*`.
      */
     private readonly groupName: string,
+    /**
+     * Injectable client. Production leaves it unset; tests supply a fake so the
+     * paths whose failures are deliberately swallowed here still have something
+     * checking them.
+     */
+    scheduler?: SchedulerClient,
   ) {
-    this.scheduler = new SchedulerClient({ region: awsRegion });
+    this.scheduler = scheduler ?? new SchedulerClient({ region: awsRegion });
   }
 
   async scheduleNudge(incidentId: string, channelId: string): Promise<void> {
@@ -109,6 +115,16 @@ export class NudgeScheduler {
   }
 
   private name(incidentId: string): string {
-    return `incident-response-nudge-${incidentId.replace(/[^a-zA-Z0-9-_]/g, "-").substring(0, 50)}`;
+    // EventBridge Scheduler caps `Name` at 64 characters and accepts only
+    // [0-9a-zA-Z-_.]. The incident id is Grafana's `alert_group_id`, so its
+    // length and character set are someone else's decision.
+    //
+    // Truncating the id alone is not enough: the prefix is 24 characters, so a
+    // 50-character id yields a 74-character name that CreateSchedule rejects —
+    // and that rejection lands in scheduleNudge's catch, which means nudges
+    // silently never fire for that incident. Budget the whole name instead.
+    const prefix = "incident-response-nudge-";
+    const sanitized = incidentId.replace(/[^a-zA-Z0-9-_]/g, "-");
+    return `${prefix}${sanitized}`.substring(0, 64);
   }
 }

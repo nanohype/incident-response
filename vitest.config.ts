@@ -36,20 +36,20 @@ export default defineConfig({
         // org floor (branches 60 / functions 75 / lines 75 / statements 75 in
         // nanohype/standards/testing-rubric.json).
         //
-        // They read lower than they used to and coverage did not fall: the
-        // denominator was wrong. Without `coverage.include` above, v8 measured
-        // only the modules the suite imported, so every untested service and
-        // client was invisible to the gate and the old 75s were computed over
-        // roughly half the source. Measured whole-source is 52.49 / 49.82 /
-        // 46.37 / 54.12; these sit just under that so a regression fails while
-        // ordinary movement does not.
+        // `coverage.include` above makes the suite measure every file under
+        // src/, so an untested module counts against the denominator instead
+        // of being invisible to it. These sit just under measured so a
+        // regression fails while ordinary movement does not.
         //
-        // Raising them means writing tests for the untested service/client
-        // modules, which is the real work the previous numbers concealed.
-        branches: 48, // measured 49.82
-        functions: 45, // measured 46.37
-        lines: 53, // measured 54.12
-        statements: 51, // measured 52.49
+        // The remaining gap to the org floor is: the Slack adapter, the
+        // per-subcommand handlers, the Block Kit builders, the Grafana Cloud
+        // and Linear clients, and the three composition roots (index.ts,
+        // wiring/dependencies.ts, bin/webhook-server.ts). None are excluded —
+        // they count here rather than being hidden.
+        branches: 57, // measured 58.36
+        functions: 59, // measured 60.70
+        lines: 63, // measured 64.48
+        statements: 62, // measured 62.95
 
         // Per-file 100% on the security- and compliance-critical path, above the
         // global floor — the `security-critical-100` rule. These are not

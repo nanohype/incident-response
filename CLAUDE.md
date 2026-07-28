@@ -33,7 +33,7 @@ Customer-facing Statuspage messages ALWAYS go through the `StatuspageApprovalGat
 - **src/services/statuspage-approval-gate.ts** — THE critical module. ONLY code path that calls `StatuspageClient.createIncident()`. Two-phase commit. 100% branch coverage enforced by CI.
 - **src/services/nudge-scheduler.ts** — EventBridge Scheduler wrapper. Per-incident schedules. IC silence disables (not deletes) the schedule so audit trail is preserved.
 - **src/events/status-update-nudge.ts** — the nudge the scheduler fires. Reads the last 15 minutes of the war room (`groups:history`) and runs each human message through the Haiku classifier; a confident status update suppresses the nudge and writes `STATUS_REMINDER_SUPPRESSED` instead of `STATUS_REMINDER_SENT`. Every failure path — unreadable channel, classifier error, low confidence — nudges anyway, because a redundant reminder costs the IC two seconds and a swallowed one costs an update nobody sent.
-- **src/services/sqs-consumer.ts** — Long-polling SQS consumer. DLQ-safe — no `DeleteMessage` on handler exception. Visibility timeout (300s) drives retry.
+- **src/services/sqs-consumer.ts** — Long-polling SQS consumer. DLQ-safe — no `DeleteMessage` on handler exception; the delete is inside the success path, so a failed handler leaves the message for redelivery. Visibility timeout (300s) drives retry. An unparseable or empty body is deleted instead: it cannot succeed on retry, and recycling it delays everything behind it. The SQS client is constructor-injectable so that contract is exercised rather than asserted.
 - **src/commands/** — one file per `/incident-response` subcommand. Each exports a `make<Name>Handler(deps)` factory. `resolve.ts` is the full 9-step resolution (load → commits → Bedrock postmortem → Linear issue → delete nudge → pulse blocks → status flip + audit → public announce → archive channel). Honest-failure paths: if Linear fails, the incident still flips to RESOLVED but the IC reply is explicit about what worked and what didn't.
 - **src/events/** — one file per SQS event type.
 - **src/clients/** — per-service adapters. All use `HttpClient` (5s timeout, 2-retry cap, jittered backoff) except `linear-client` (uses `@linear/sdk` directly, with every SDK call wrapped in `withTimeout(8000ms)` since the SDK has no native deadline).
@@ -126,11 +126,12 @@ IncidentResponse-specific:
   regression. Statements is pinned alongside the other three: a file can hold every
   branch and still gain an unexercised statement, which on the approval gate is a
   write nothing asserts.
-- Global 48% branches / 51% statements / 53% lines / 45% functions — a ratchet under
+- Global 57% branches / 62% statements / 63% lines / 59% functions — a ratchet under
   measured, not the org floor. `coverage.include` makes the suite measure every file
   under `src/`, so an untested module counts against the denominator instead of being
-  invisible to it; the previous 55/75/75/75 were computed over roughly half the source.
-  Closing the gap to the org floor means testing the service and client modules.
+  invisible to it. The remaining gap is the Slack adapter, the per-subcommand handlers,
+  the Block Kit builders, the Grafana Cloud and Linear clients, and the three
+  composition roots — none of them excluded, so they count here rather than hide.
 - Regression experiment proves enforcement is live: flipping `ConsistentRead: true` → `false` in `audit.ts` makes `npm run test:unit` exit 1. See README for the procedure.
 
 ### Adding tests
