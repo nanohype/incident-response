@@ -40,6 +40,48 @@ const ClassificationResultSchema = z.object({
   confidence: z.number(),
 });
 
+/**
+ * The placeholder the degraded status-draft template carries, and nothing else
+ * does — a real draft never ships an unfilled bracket to a customer.
+ *
+ * Exported because the eval needs it. `generateStatusDraft` deliberately
+ * degrades to a template when Bedrock fails, which is right for a live P1: the
+ * IC still gets something to edit. But the eval calls that same function, so
+ * without a way to recognise the degraded output it scores a full green against
+ * a provider that is completely down — the template satisfies every word band,
+ * every `mentions`, and contains none of the `absent` markers. Graceful
+ * degradation and a blind eval are the same code unless the eval can tell them
+ * apart.
+ */
+export const STATUS_DRAFT_FALLBACK_MARKER = "[describe impact]";
+
+/** True when a draft is the degraded template rather than model output. */
+export function isDegradedStatusDraft(draft: string): boolean {
+  return draft.includes(STATUS_DRAFT_FALLBACK_MARKER);
+}
+
+/**
+ * Parse the first JSON object out of a model response.
+ *
+ * The classification prompt says "Respond ONLY with JSON" and Haiku wraps it in
+ * a markdown code fence anyway — verified against the live model, which returns
+ * ```` ```json\n{...}\n``` ````. `JSON.parse` on the raw string throws on the
+ * leading backticks, and the classifier's catch turns that into a confident
+ * `{ is_status_update: false }`, so every message classified as "not a status
+ * update" no matter what the model decided.
+ *
+ * Slicing to the outermost braces accepts the fenced form, the bare form, and a
+ * response with a prose preamble, without trusting the envelope to be stable.
+ */
+function parseJsonObject(raw: string): unknown {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end <= start) {
+    throw new SyntaxError("model response contained no JSON object");
+  }
+  return JSON.parse(raw.slice(start, end + 1));
+}
+
 const STATUS_DRAFT_SYSTEM_PROMPT = `You are IncidentResponse, an incident assistant. Draft a customer-facing status page message about a service disruption.
 
 RULES (no exceptions):
@@ -139,7 +181,7 @@ export class IncidentResponseAI {
         { incident_id: incidentId, error: stringifyError(err) },
         "Bedrock status draft failed — returning template",
       );
-      return `We are currently investigating an issue affecting ${alert.team_name.toLowerCase()} services. Some customers may be experiencing [describe impact]. Our team is actively working to resolve this issue and will provide updates every 30 minutes.`;
+      return `We are currently investigating an issue affecting ${alert.team_name.toLowerCase()} services. Some customers may be experiencing ${STATUS_DRAFT_FALLBACK_MARKER}. Our team is actively working to resolve this issue and will provide updates every 30 minutes.`;
     }
   }
 
@@ -200,7 +242,7 @@ export class IncidentResponseAI {
         `Message to classify:\n${fenceUntrusted(messageText.substring(0, 500), "Slack message")}`,
         50,
       );
-      const parsed = ClassificationResultSchema.safeParse(JSON.parse(resp.trim()));
+      const parsed = ClassificationResultSchema.safeParse(parseJsonObject(resp));
       if (!parsed.success) {
         logger.debug(
           { incident_id: incidentId, error: parsed.error.message },

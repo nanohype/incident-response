@@ -14,7 +14,7 @@ The canonical list is `secrets.template.json`. Two CI gates keep the three sides
 
 | Secret name (staging / production) | What it is |
 |---|---|
-| `incident-response/{env}/slack/bot-token` | Slack Bot OAuth token (`xoxb-…`). Scopes: `chat:write`, `channels:manage`, `channels:read`, `groups:read`, `groups:write`, `users:read`. |
+| `incident-response/{env}/slack/bot-token` | Slack Bot OAuth token (`xoxb-…`). Scopes: `chat:write`, `channels:manage`, `channels:read`, `groups:read`, `groups:write`, `groups:history`, `users:read`. |
 | `incident-response/{env}/slack/signing-secret` | Slack App signing secret — the webhook Deployment verifies inbound slash-command / interactive-action signatures with it (`src/handlers/slack-signature.ts`, v0 HMAC scheme). |
 | `incident-response/{env}/grafana/oncall-token` | Grafana **service-account token** (`glsa_…`) for the OnCall REST API (escalation-chain + on-call rotation reads). **Not** a Cloud Access Policy. See "Grafana credentials — which is which" below. |
 | `incident-response/{env}/grafana/cloud-token` | Grafana **Cloud Access Policy** token (`glc_…`) scoped `metrics:read`, `logs:read`, `traces:read` — queries Mimir/Loki/Tempo for the war-room context snapshot. Never write. |

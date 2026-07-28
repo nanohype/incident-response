@@ -133,7 +133,7 @@ All configuration via env vars. Required vars are asserted by `src/utils/env.ts`
 
 | Variable | Source | Purpose |
 |----------|--------|---------|
-| `SLACK_BOT_TOKEN` | secret `incident-response/slack/bot-token` | Slack bot OAuth (chat:write, channels:manage, etc.) |
+| `SLACK_BOT_TOKEN` | secret `incident-response/slack/bot-token` | Slack bot OAuth (chat:write, channels:manage, groups:history, etc.) |
 | `SLACK_SIGNING_SECRET` | secret `incident-response/slack/signing-secret` | Verifies inbound Slack slash-command + interactivity POSTs (v0 signature scheme) |
 | `GRAFANA_ONCALL_TOKEN` | secret `incident-response/grafana/oncall-token` | Grafana OnCall REST API (read-only) |
 | `GRAFANA_CLOUD_TOKEN`, `GRAFANA_CLOUD_ORG_ID` | secrets `incident-response/grafana/cloud-token`, `.../cloud-org-id` | Mimir/Loki/Tempo (read-only) |

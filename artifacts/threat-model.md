@@ -63,7 +63,7 @@ The most catastrophic threat is unauthorized status page publication. The second
 
 | Threat | Impact | Control | Status |
 |--------|--------|---------|--------|
-| IncidentResponse bot gains workspace-admin scope | Full workspace access | Slack manifest declares only: chat:write, channels:manage, channels:read, groups:read, groups:write, users:read — no admin scopes | ✅ Mitigated |
+| IncidentResponse bot gains workspace-admin scope | Full workspace access | Slack manifest declares only: chat:write, channels:manage, channels:read, groups:read, groups:write, groups:history, users:read — no admin scopes; groups:history is private-channel read, scoped to the war room and read only inside the nudge window | ✅ Mitigated |
 | Tenant IAM role gains production-system write access | IncidentResponse could modify production | The role carries only the landing-zone `tenant-substrate` inline policy (DDB / SQS / Scheduler / Secrets read / Bedrock invoke); the chart contains no inline IAM, and the operator clamps Bedrock invoke to `spec.identity.allowedModels` | ✅ Mitigated |
 | Statuspage.io API key used for unauthorized publish | Customer-facing message without approval | API key reaches the pod only through the ExternalSecret-projected Secret; all publish calls go through the approval gate; auto-publish code path does not exist | ✅ Mitigated |
 | WorkOS API key used for group modification | Unauthorized group membership changes | WorkOS Directory Sync token has read-only scope (Groups.Read); no write operations in WorkOSClient | ✅ Mitigated |

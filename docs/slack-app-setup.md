@@ -34,8 +34,11 @@ Add each of these. Missing any one of them causes a specific silent failure at r
 | `users:read` | Look up user info by ID during invite flows. |
 | `users:read.email` | Look up Slack users by email. Used by `war-room-assembler.ts:inviteResponders` to convert responder emails (from OnCall escalation chains + WorkOS directory group) into Slack user IDs for `conversations.invite`. Without it, responder auto-invite silently fails for every responder. |
 | `pins:write` | Pin the incident checklist message in the war-room channel. Checklist still posts without this scope but isn't pinned — looks broken on re-open. |
+| `groups:history` | Read the last 15 minutes of the war-room channel before posting a status-update nudge, so an IC who just posted one isn't asked again. Without it `conversations.history` returns `missing_scope`, and the handler falls back to nudging unconditionally — the old behaviour, degraded but not broken. Private-channel scope only; war rooms are private, so `channels:history` is deliberately **not** requested. |
 
 **Don't add scopes IncidentResponse doesn't use.** Every extra scope broadens what a leaked bot token could do. If you're tempted to add `admin`, `channels:history`, or anything Slack flags as "special" — don't.
+
+`groups:history` is the one read-message scope on that list, and it is narrow on purpose: private channels only, and the app reads only the incident's own war room, only inside the nudge window. It is genuinely the most sensitive scope here — it is the difference between a bot that writes and a bot that can read what people said — so it is worth being able to say exactly what reads it (`src/events/status-update-nudge.ts`) and what happens if you withhold it (nudges go back to firing every 15 minutes regardless).
 
 ## 3. The webhook host (Request URL base)
 
