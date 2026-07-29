@@ -17,7 +17,7 @@ It's built as a reusable subsystem. Every external-IO service is a constructor-i
 ```bash
 npm install                # root deps; no workspace or file: links
 cp .env.example .env       # fill in the required keys (see CLAUDE.md > Configuration)
-npm run dev                # ts-node-dev against the processor entrypoint (SQS consumer + MCP server)
+npm run dev                # tsx watch against the processor entrypoint (SQS consumer + MCP server)
 ```
 
 In Slack: `/incident-response help` lists the subcommands; `/incident-response status` posts the current incident state.

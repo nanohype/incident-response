@@ -71,7 +71,7 @@ npm run eval                       # model tier — needs EVAL_LLM (see evals/RE
 npm run test:integration           # requires dynamodb-local on :8000 (or use :docker below)
 npm run test:integration:docker    # starts Docker container, runs tests, cleans up
 npm run check                      # typecheck + lint + format:check + test:unit — CI parity
-npm run dev                        # ts-node-dev against the processor entrypoint (SQS consumer + MCP server)
+npm run dev                        # tsx watch against the processor entrypoint (SQS consumer + MCP server)
 npm run sync:vendored               # re-vendor chart + runtime + config from nanohype at the pinned commit
 npm run sync:vendored -- --ref=<sha> # adopt a newer library: re-vendor and move the pin together
 npm run sync:vendored:check         # blocking gate — vendored bytes == nanohype at the pinned commit
