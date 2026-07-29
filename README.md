@@ -74,7 +74,7 @@ The agent drafts and reads over MCP; a **human approves** customer-facing publis
 ```bash
 npm install
 cp .env.example .env   # fill in values — see "Configuration" below
-npm run dev            # ts-node-dev against the processor entrypoint (SQS consumer + MCP server)
+npm run dev            # tsx watch against the processor entrypoint (SQS consumer + MCP server)
 ```
 
 `npm run dev` runs the processor (SQS consumer + MCP server) and expects live AWS credentials + a Slack bot token for outbound posts. The signed-HTTP Slack surface (slash + interactivity) is served by the webhook Deployment; to exercise it locally, run `npm run start:webhook` behind a tunnel and point the Slack app's Request URLs at `/slack/commands` and `/slack/interactivity`. DynamoDB + SQS URLs can point at staging resources; there is no local-only mode for the production integrations.

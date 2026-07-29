@@ -19,7 +19,7 @@
     "eval": "vitest run --config vitest.eval.config.ts",
     "test:integration": "vitest run --config vitest.config.integration.ts",
     "test:integration:docker": "docker run --rm -d --name incident-response-ddb-local -p 8000:8000 amazon/dynamodb-local && npm run test:integration; STATUS=$?; docker rm -f incident-response-ddb-local > /dev/null 2>&1; exit $STATUS",
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "start:webhook": "node dist/bin/webhook-server.js",
     "sync:vendored": "node scripts/sync-vendored.mjs",
@@ -74,7 +74,7 @@
     "aws-sdk-client-mock-vitest": "^7.1.0",
     "esbuild": "^0.28.1",
     "ts-node": "^10.9.0",
-    "ts-node-dev": "^2.0.0",
+    "tsx": "^4.23.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9",
     "yaml": "^2.9.0"
