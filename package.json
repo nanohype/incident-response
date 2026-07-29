@@ -24,6 +24,8 @@
     "start:webhook": "node dist/bin/webhook-server.js",
     "sync:vendored": "node scripts/sync-vendored.mjs",
     "sync:vendored:check": "node scripts/sync-vendored.mjs --check",
+    "sync:vendored:freshness": "node scripts/sync-vendored.mjs --freshness",
+    "sync:vendored:selftest": "node scripts/sync-vendored.mjs --self-test",
     "chart:lint": "helm lint chart",
     "chart:template:staging": "helm template incident-response chart -f chart/values-staging.yaml",
     "chart:template:production": "helm template incident-response chart -f chart/values-production.yaml",
