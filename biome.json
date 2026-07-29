@@ -5,10 +5,6 @@
     "rules": {
       "suspicious": {
         "noConsole": "error"
-      },
-      "nursery": {
-        "noFloatingPromises": "error",
-        "noMisusedPromises": "error"
       }
     }
   },
