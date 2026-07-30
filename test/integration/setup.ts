@@ -41,6 +41,12 @@ async function waitForDdbLocal(): Promise<void> {
       }
     }
   })();
+  // Not an exception to the no-floating-promises policy — the promise on the next
+  // line is awaited, and every concurrent caller awaits this same one. Biome 2.5.6
+  // reports `await` on a `Promise<T> | undefined` union as floating; it is the
+  // union that trips it, not a missing await. Restructuring to drop the union
+  // (`return (ready ??= …)`) only trades this for `noAssignInExpressions`.
+  // biome-ignore lint/nursery/noFloatingPromises: false positive on `await` of an optional-promise union
   await ready;
 }
 
