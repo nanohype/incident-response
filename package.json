@@ -1,7 +1,7 @@
 {
   "name": "incident-response",
   "version": "0.1.0",
-  "description": "Ceremonial incident commander assistant \u2014 P1 war room assembly, status cadence, status page approval gate, postmortem draft",
+  "description": "Ceremonial incident commander assistant — P1 war room assembly, status cadence, status page approval gate, postmortem draft",
   "private": true,
   "engines": {
     "node": ">=24.0.0"
@@ -45,7 +45,7 @@
     "observe:production": "bash scripts/observe-incident.sh --env production --latest"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.750.0",
+    "@anthropic-ai/sdk": "^0.115.0",
     "@aws-sdk/client-dynamodb": "^3.750.0",
     "@aws-sdk/client-scheduler": "^3.750.0",
     "@aws-sdk/client-secrets-manager": "^3.750.0",
