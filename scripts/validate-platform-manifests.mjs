@@ -46,7 +46,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseAllDocuments, parse as parseYaml } from "yaml";
@@ -454,7 +454,104 @@ function parseResourceAttributes(raw) {
   return out;
 }
 
-function validateChartValues({ tenantName, platformName }) {
+/**
+ * Does an `allowedModels` entry grant an invoked model id?
+ *
+ * Exact match, or a bare foundation-model id granting its `us.` cross-region
+ * profile — which is how the operator expands a bare entry. Deliberately not a
+ * prefix test: `...-sonnet-4` must not satisfy `...-sonnet-5`.
+ */
+function modelGrantCovers(allowed, invoked) {
+  if (allowed === invoked) return true;
+  if (allowed.startsWith("us.") || allowed.startsWith("eu.")) return false;
+  return invoked === `us.${allowed}`;
+}
+
+/**
+ * Every Bedrock model a ModelGateway route resolves to must be covered by
+ * `spec.identity.allowedModels`.
+ *
+ * The gateway runs under the tenant ServiceAccount, so it invokes Bedrock as
+ * the tenant and the operator's explicit Deny over NotResource applies to it. A
+ * model a route names and the CR omits is AccessDenied on every call, in a
+ * deployment whose CI is green. Both sides are free-form strings, so the CRD
+ * schema cannot hold them together and nothing else does.
+ *
+ * What is checked is the model the route *invokes*: its `crossRegionProfile`
+ * when set, otherwise its `modelId` — the same resolution the operator applies
+ * when it fills `modelNameOverride`. Checking both would reject a CR that lists
+ * only `us.`-prefixed grants, which is correct configuration: the bare id is
+ * metadata on such a route and never reaches Bedrock.
+ */
+function validateModelCoverage(docs) {
+  const platform = docs.find((d) => d.kind === "Platform")?.doc;
+  const identity = platform?.spec?.identity ?? {};
+  const allowed = identity.allowedModels;
+  if (!Array.isArray(allowed) || allowed.length === 0) return;
+  if (identity.allowedModelFamilies?.length > 0) return;
+
+  for (const g of docs.filter((d) => d.kind === "ModelGateway")) {
+    for (const route of g.doc.spec?.routes ?? []) {
+      if (route.modelSource === "imported") continue;
+      const field = route.crossRegionProfile ? "crossRegionProfile" : "modelId";
+      const invoked = route.crossRegionProfile || route.modelId;
+      if (typeof invoked !== "string" || invoked === "") continue;
+      if (allowed.some((a) => modelGrantCovers(a, invoked))) continue;
+      record(
+        g.ctx,
+        `routes[${route.name}].${field}="${invoked}" is not covered by ` +
+          `Platform.spec.identity.allowedModels [${allowed.join(", ")}] — the gateway invokes ` +
+          "Bedrock as the tenant, and the operator denies every model outside that list",
+      );
+    }
+  }
+}
+
+/**
+ * The chart's `MODEL_GATEWAY_ENDPOINT` must be the endpoint the operator will
+ * publish, and every configured route must exist on the ModelGateway.
+ *
+ * The operator derives the endpoint from the Platform name and never reads the
+ * chart, so nothing but this couples them. A rename on either side, or a route
+ * the CR does not declare, yields pods that start cleanly and fail every model
+ * call — connection refused, or a gateway 404 for an unmatched route.
+ */
+function validateGatewayWiring(docs, chartEnvs) {
+  const platform = docs.find((d) => d.kind === "Platform")?.doc;
+  const name = platform?.metadata?.name;
+  if (!name) return;
+  const routes = new Set(
+    docs
+      .filter((d) => d.kind === "ModelGateway")
+      .flatMap((g) => (g.doc.spec?.routes ?? []).map((r) => r.name)),
+  );
+  const expected = `http://${name}-gateway.tenants-${name}.svc.cluster.local:8080`;
+
+  for (const { where, env } of chartEnvs) {
+    const endpoint = env?.MODEL_GATEWAY_ENDPOINT;
+    if (typeof endpoint === "string" && endpoint !== "" && endpoint !== expected) {
+      record(
+        where,
+        `env.MODEL_GATEWAY_ENDPOINT="${endpoint}" is not the endpoint the operator publishes ` +
+          `for Platform "${name}" ("${expected}") — the app starts cleanly and fails every ` +
+          "model call with a connection error",
+      );
+    }
+    for (const key of ["MODEL_ROUTE", "MODEL_ROUTE_LIGHT"]) {
+      const route = env?.[key];
+      if (typeof route !== "string" || route === "" || routes.size === 0) continue;
+      if (routes.has(route)) continue;
+      record(
+        where,
+        `env.${key}="${route}" names no route on the ModelGateway (declared: ` +
+          `${[...routes].join(", ")}) — the gateway has no rule matching it, so every request ` +
+          "is refused at the gateway rather than reaching a model",
+      );
+    }
+  }
+}
+
+function validateChartValues({ tenantName, platformName }, chartEnvs) {
   if (!existsSync(CHART_DIR)) return 0;
 
   const files = readdirSync(CHART_DIR)
@@ -473,6 +570,8 @@ function validateChartValues({ tenantName, platformName }) {
   for (const file of files) {
     const where = `chart/${file}`;
     const values = parseYaml(readFileSync(join(CHART_DIR, file), "utf8")) ?? {};
+    // Collected for the gateway-wiring check, which needs the same env blocks.
+    chartEnvs.push({ where, env: values?.env });
 
     const raw = values?.env?.OTEL_RESOURCE_ATTRIBUTES;
     if (raw !== undefined) {
@@ -532,7 +631,10 @@ function gate(rawDocuments, index) {
   }
 
   const names = validateWiring(docs);
-  const chartFileCount = validateChartValues(names);
+  const chartEnvs = [];
+  const chartFileCount = validateChartValues(names, chartEnvs);
+  validateModelCoverage(docs);
+  validateGatewayWiring(docs, chartEnvs);
 
   return { errors: [...errors], docs, chartFileCount };
 }
@@ -573,6 +675,54 @@ function selfTest(documents, index, source, readSchema) {
   const find = (docs, kind) => docs.find((d) => d.kind === kind);
 
   const cases = [
+    {
+      // The drift that costs: a route's model moves and allowedModels does not,
+      // so the operator's Deny makes every call AccessDenied while CI stays green.
+      name: "a route model that allowedModels does not grant",
+      run: () => {
+        const docs = clone();
+        find(docs, "Platform").spec.identity.allowedModels = ["us.anthropic.claude-opus-5"];
+        return gate(docs, index).errors;
+      },
+      expect: /is not covered by Platform\.spec\.identity\.allowedModels/,
+    },
+    {
+      // A bare grant must still cover the `us.` profile a route invokes, or the
+      // gate would reject correct configuration and get relaxed until it
+      // accepted everything.
+      name: "REGRESSION: a bare allowedModels entry covering its us. profile",
+      run: () => {
+        const docs = clone();
+        find(docs, "Platform").spec.identity.allowedModels = [
+          "anthropic.claude-sonnet-5",
+          "anthropic.claude-haiku-4-5-20251001-v1:0",
+        ];
+        return gate(docs, index).errors;
+      },
+      expectNone: /is not covered by Platform\.spec\.identity\.allowedModels/,
+    },
+    {
+      // The chart names a route; the CR declares them. Nothing else couples the
+      // two, and a mismatch is a gateway 404 on every request.
+      name: "a route renamed on the CR while the chart still names the old one",
+      run: () => {
+        const docs = clone();
+        find(docs, "ModelGateway").spec.routes[0].name = "primary";
+        return gate(docs, index).errors;
+      },
+      expect: /names no route on the ModelGateway/,
+    },
+    {
+      // The operator derives the endpoint from the Platform name and never reads
+      // the chart, so a rename on either side is connection-refused at run time.
+      name: "a Platform renamed so the published endpoint no longer matches the chart",
+      run: () => {
+        const docs = clone();
+        find(docs, "Platform").metadata.name = "incident-response-v2";
+        return gate(docs, index).errors;
+      },
+      expect: /is not the endpoint the operator publishes/,
+    },
     {
       name: "a field the CRD does not declare, on Tenant.spec",
       run: () => {
@@ -626,8 +776,17 @@ function selfTest(documents, index, source, readSchema) {
   ];
 
   const failures = [];
-  for (const { name, run, expect } of cases) {
+  for (const { name, run, expect, expectNone } of cases) {
     const found = run();
+    // A case may assert the gate stays quiet instead of firing. The permissive
+    // direction matters as much: a rule that rejects correct configuration gets
+    // relaxed until it accepts everything.
+    if (expectNone) {
+      const wrong = found.find((f) => expectNone.test(f));
+      console.log(`  ${wrong ? "FAIL" : "PASS"}  accepts: ${name}`);
+      if (wrong) failures.push(`${name} — gate wrongly reported: ${wrong}`);
+      continue;
+    }
     const hit = found.find((f) => expect.test(f));
     console.log(`  ${hit ? "PASS" : "FAIL"}  rejects: ${name}`);
     if (hit) {

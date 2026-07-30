@@ -15,8 +15,22 @@ const ConfigSchema = z.object({
   // Bedrock model IDs — cross-region inference profiles. Bare foundation-model
   // IDs return "on-demand throughput isn't supported". Sonnet drafts status
   // pages + postmortem narrative; Haiku classifies IC messages.
-  BEDROCK_SONNET_MODEL_ID: z.string().min(1).default("us.anthropic.claude-sonnet-5"),
-  BEDROCK_HAIKU_MODEL_ID: z.string().min(1).default("us.anthropic.claude-haiku-4-5-20251001-v1:0"),
+  // The Platform's ModelGateway. Every model call goes here: the gateway holds
+  // the AWS identity, applies each route's guardrail, and records the request.
+  // The app holds no model credential.
+  MODEL_GATEWAY_ENDPOINT: z
+    .string()
+    .url()
+    // .url() alone accepts `host:8080` as a URL whose scheme is `host:`, which
+    // the Messages client would only fail on at request time.
+    .refine((v) => /^https?:\/\//.test(v), {
+      message: "MODEL_GATEWAY_ENDPOINT must be an http(s) URL",
+    }),
+  // Route names on that gateway, not model ids. The ModelGateway CR maps each to
+  // a concrete Bedrock model, so pinning a snapshot or moving to another
+  // inference profile is a CR edit rather than an app config change.
+  MODEL_ROUTE: z.string().min(1).default("default"),
+  MODEL_ROUTE_LIGHT: z.string().min(1).default("light"),
   // MCP streamable-HTTP port — the read + draft pull surface the mcp-tunnel
   // routes to. Default 3002 to avoid colliding with the processor health
   // server and webhook server (both on 3001). Locked to the mcp-tunnel

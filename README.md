@@ -145,7 +145,8 @@ All configuration via env vars. Required vars are asserted by `src/utils/env.ts`
 | `INCIDENT_EVENTS_QUEUE_URL`, `NUDGE_EVENTS_QUEUE_URL`, `SLA_CHECK_QUEUE_URL` | from chart `tenantInfra.*` (landing-zone output) | SQS URLs |
 | `SCHEDULER_ROLE_ARN`, `AWS_REGION` | from chart `tenantInfra.*` (landing-zone output) | EventBridge Scheduler |
 | `GRAFANA_ONCALL_HMAC_SECRET_ID` | chart `externalSecret.secretPrefix` + `hmacSecretKey` | name of `incident-response/<env>/grafana/oncall-webhook-hmac` — the handler fetches the value dynamically so rotation doesn't require a pod restart |
-| `BEDROCK_SONNET_MODEL_ID`, `BEDROCK_HAIKU_MODEL_ID` | optional; defaults in `src/config/` | Bedrock model IDs (Sonnet drafts, Haiku classifies) — override to pin a snapshot or cross-region inference profile |
+| `MODEL_GATEWAY_ENDPOINT` | required | The Platform's ModelGateway. Every model call goes here; the app holds no AWS model credential — the gateway signs for Bedrock with its own Pod Identity |
+| `MODEL_ROUTE`, `MODEL_ROUTE_LIGHT` | optional; default `default` / `light` | Route names on that gateway, not model IDs. The `ModelGateway` CR maps them to Sonnet (drafts, postmortems) and Haiku (per-message classification); pin a snapshot by editing the CR |
 | `MCP_PORT` | optional; default `3002` (chart `env.MCP_PORT`) | Port the streamable-HTTP MCP server binds (processor); the mcp-tunnel routes here, locked by NetworkPolicy |
 | `MCP_ACTOR_ID` | optional; default `claude-tag-mcp` | Identity recorded as the creator of an MCP-drafted Statuspage update — never the approver (the human Slack click is attributed at publish) |
 

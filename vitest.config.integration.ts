@@ -14,6 +14,11 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
+    // Same reason as the unit config: MODEL_GATEWAY_ENDPOINT has no default,
+    // and the wiring these tests exercise loads the app config.
+    env: {
+      MODEL_GATEWAY_ENDPOINT: "http://gw.tenants-x.svc.cluster.local:8080",
+    },
     include: ["test/integration/**/*.integration.test.ts"],
     testTimeout: 60000,
   },

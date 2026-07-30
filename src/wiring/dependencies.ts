@@ -13,6 +13,7 @@ import { GrafanaOnCallClient } from "../clients/grafana-oncall-client.js";
 import { LinearIncidentResponseClient } from "../clients/linear-client.js";
 import { StatuspageClient } from "../clients/statuspage-client.js";
 import { WorkOSClient } from "../clients/workos-client.js";
+import { config } from "../config/index.js";
 import { NudgeScheduler } from "../services/nudge-scheduler.js";
 import { StatuspageApprovalGate } from "../services/statuspage-approval-gate.js";
 import { WarRoomAssembler } from "../services/war-room-assembler.js";
@@ -118,7 +119,7 @@ export function buildDependencies(): Dependencies {
     awsRegion,
     process.env.SCHEDULER_GROUP_NAME!,
   );
-  const incidentResponseAI = new IncidentResponseAI(awsRegion);
+  const incidentResponseAI = new IncidentResponseAI(config.MODEL_GATEWAY_ENDPOINT);
   const slackWebClient = new WebClient(process.env.SLACK_BOT_TOKEN, { timeout: 10000 });
   const slackAdapter = createSlackAdapter(slackWebClient);
   const approvalGate = new StatuspageApprovalGate(

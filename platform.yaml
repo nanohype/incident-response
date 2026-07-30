@@ -89,8 +89,8 @@ spec:
     # entries match what the app's config invokes. Undated IDs cover the
     # dated snapshots the config pins (the expansion wildcards the suffix).
     allowedModels:
-      - us.anthropic.claude-sonnet-5 # BEDROCK_SONNET_MODEL_ID — status drafts, postmortems
-      - us.anthropic.claude-haiku-4-5-20251001-v1:0 # BEDROCK_HAIKU_MODEL_ID — classification
+      - us.anthropic.claude-sonnet-5 # the `default` ModelGateway route — status drafts, postmortems
+      - us.anthropic.claude-haiku-4-5-20251001-v1:0 # the `light` ModelGateway route — classification
     # Escape hatch for grants outside the datastore + capability vocabularies.
     # DDB/SQS/S3 access rides spec.datastores and the EventBridge Scheduler grants
     # ride capabilities below, so nothing is needed here.
@@ -152,3 +152,46 @@ spec:
     - name: sla
       kind: queue
       queue: { fifo: true, maxReceiveCount: 3 }
+---
+# The model plane. The app names routes, never models: this CR maps `default` and
+# `light` to concrete Bedrock models, and the gateway rewrites each request
+# upstream. Model selection, the `us.` inference-profile prefix the Claude family
+# requires, the guardrail and the rate limits all live here rather than in chart
+# values, so pinning a snapshot is a CR edit rather than an app redeploy.
+#
+# The operator reconciles this into an Envoy AI Gateway data plane in
+# `tenants-incident-response`, running under the tenant ServiceAccount — so the
+# gateway reaches Bedrock as this tenant and the app itself holds no AWS model
+# credential.
+apiVersion: agents.nanohype.dev/v1alpha1
+kind: ModelGateway
+metadata:
+  name: incident-response
+  namespace: tenants-reliability
+spec:
+  platformRef:
+    name: incident-response
+  routes:
+    # Status drafts and postmortems. Low volume, high stakes — a customer-facing
+    # draft and a written record both want the stronger model.
+    - name: default
+      modelSource: foundation
+      modelFamily: anthropic
+      modelId: anthropic.claude-sonnet-5
+      # The current Claude family reports inferenceTypesSupported:
+      # [INFERENCE_PROFILE], so the bare foundation-model id is rejected by
+      # InvokeModel. Outside the US switch this to `eu.` / `global.` and widen
+      # spec.identity.allowedModels on the Platform to match.
+      crossRegionProfile: us.anthropic.claude-sonnet-5
+      # An incident produces a handful of drafts. This is a runaway guard.
+      rateLimit: 60
+    # The message classifier, which runs on every Slack message in a war room.
+    # Orders of magnitude more calls than drafting, and a wrong answer degrades
+    # to "not a status update" rather than shipping anything — so it takes the
+    # cheap model and a much roomier limit.
+    - name: light
+      modelSource: foundation
+      modelFamily: anthropic
+      modelId: anthropic.claude-haiku-4-5-20251001-v1:0
+      crossRegionProfile: us.anthropic.claude-haiku-4-5-20251001-v1:0
+      rateLimit: 1200

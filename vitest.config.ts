@@ -16,6 +16,13 @@ export default defineConfig({
     // must run on every PR — the model half can be skipped.
     include: ["test/unit/**/*.test.ts", "evals/**/*.test.ts"],
     testTimeout: 30000,
+    // The model gateway endpoint has no default in config — there is no sensible
+    // one, since the operator derives it from the Platform name. Supplied here so
+    // every suite that imports the config can load it; the cases that assert on
+    // its absence clear it themselves.
+    env: {
+      MODEL_GATEWAY_ENDPOINT: "http://gw.tenants-x.svc.cluster.local:8080",
+    },
     coverage: {
       enabled: true,
       provider: "v8",
