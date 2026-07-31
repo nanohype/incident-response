@@ -14,7 +14,7 @@ Fork me for a different client by swapping secrets, DynamoDB table names, Slack 
 
 Grafana OnCall fires a webhook → the webhook Deployment (behind the cluster's ingress controller) verifies HMAC-SHA256, validates Zod schema, idempotently writes to DynamoDB, enqueues to SQS FIFO → the processor Deployment picks up the event, dispatches via `EventRegistry` to `WarRoomAssembler` → Slack private channel created, responders invited via parallel WorkOS Directory Sync + Grafana OnCall queries, Grafana Cloud context snapshot attached, checklist pinned, 15-min nudge scheduled via EventBridge Scheduler.
 
-When the IC runs `/incident-response resolve`, the `CommandRegistry` dispatches to the resolve handler: generates a postmortem draft via Bedrock (`us.anthropic.claude-sonnet-5`), creates a Linear issue via `@linear/sdk`, deletes the nudge schedule, posts a 1–5 star pulse rating to the channel, flips the incident status to RESOLVED, and writes `INCIDENT_RESOLVED` + `POSTMORTEM_CREATED` audit events.
+When the IC runs `/incident-response resolve`, the `CommandRegistry` dispatches to the resolve handler: generates a postmortem draft through the Platform's ModelGateway on the `MODEL_ROUTE` route, creates a Linear issue via `@linear/sdk`, deletes the nudge schedule, posts a 1–5 star pulse rating to the channel, flips the incident status to RESOLVED, and writes `INCIDENT_RESOLVED` + `POSTMORTEM_CREATED` audit events.
 
 Customer-facing Statuspage messages ALWAYS go through the `StatuspageApprovalGate`. The gate writes `STATUSPAGE_DRAFT_APPROVED` to the audit log, then queries the same log with `ConsistentRead: true`, and only then calls `StatuspageClient.createIncident()`. If the audit write or the verify fails, the Statuspage call never happens and the gate throws `AutoPublishNotPermittedError`. CI grep-gate prevents any new call site of `createIncident()` outside the gate file.
 
@@ -38,7 +38,7 @@ Customer-facing Statuspage messages ALWAYS go through the `StatuspageApprovalGat
 - **src/events/** — one file per SQS event type.
 - **src/clients/** — per-service adapters. All use `HttpClient` (5s timeout, 2-retry cap, jittered backoff) except `linear-client` (uses `@linear/sdk` directly, with every SDK call wrapped in `withTimeout(8000ms)` since the SDK has no native deadline).
 - **src/ai/incident-response-ai.ts** — the ModelGateway wrapper, speaking the Anthropic Messages API. It names routes, never models: `MODEL_ROUTE` for drafting and postmortems, `MODEL_ROUTE_LIGHT` for the per-message classifier, both resolved to Bedrock models by the `ModelGateway` CR in `platform.yaml`. System prompts have `cache_control: { type: 'ephemeral' }`. The vendored `redact` (`src/vendor/runtime/pii.ts`, full union category set with typed tokens) runs over every generated status draft before it reaches the IC. Safe fallback templates for both `generateStatusDraft` and `generatePostmortemSections` if the model call fails — `isDegradedStatusDraft` recognises that template so the eval can tell a degraded draft from a real one rather than scoring it green. The classifier slices the first JSON object out of Haiku's response before zod-parsing it (Haiku fences its JSON in markdown despite the prompt asking for bare JSON) and falls back to `{ is_status_update: false, confidence: 0 }` on malformed or wrong-shape output.
-- **src/config/** — zod-validated env config for defaulted values (Bedrock model IDs). Required no-default env vars stay with `requireEnv` at startup.
+- **src/config/** — zod-validated env config for defaulted values (the ModelGateway endpoint and the route names resolved against it). Required no-default env vars stay with `requireEnv` at startup. `gateway-url.ts` derives the Messages base URL: `MODEL_GATEWAY_ENDPOINT` is the gateway root and each client-facing API sits under its own prefix, so the Messages client is handed the `/anthropic` one rather than the root.
 - **src/utils/audit.ts** — All writes AWAITED. ConditionExpression for idempotency.
 - **src/utils/errors.ts** — `stringifyError` — the one error-normalization helper every structured-log `error:` field goes through; both ternary arms covered explicitly in `test/unit/errors.test.ts`.
 - **src/utils/http-client.ts** — Base HTTP client. Hard-capped timeout (≤5000ms) and retries (≤2). AbortController. Structured log on every retry + timeout.
@@ -153,9 +153,9 @@ IncidentResponse-specific:
 | `@aws-sdk/client-sqs` | Incident event queue (FIFO) |
 | `@aws-sdk/client-secrets-manager` | HMAC secret fetch for the webhook handler (VersionId-keyed cache refresh) |
 | `@aws-sdk/client-scheduler` | EventBridge Scheduler for 15-min nudges |
-| `@aws-sdk/client-bedrock-runtime` | Sonnet 5 + Haiku 4.5 inference profiles via `InvokeModel` |
+| `@anthropic-ai/sdk` | The Messages client, pointed at the Platform's ModelGateway. The app holds no model credential — the gateway signs for Bedrock with its own Pod Identity |
 | `@linear/sdk` | Postmortem issue creation in Linear |
 | `zod` | Boundary validation — webhook payloads, env config defaults, LLM classifier output |
 | `aws-sdk-client-mock`, `aws-sdk-client-mock-vitest` | Mocking AWS calls + custom matchers in unit tests |
 
-No heavy AI frameworks (no LangChain) — direct Bedrock SDK calls via `IncidentResponseAI`.
+No heavy AI frameworks (no LangChain) — the Anthropic Messages client behind `IncidentResponseAI`, pointed at the Platform's ModelGateway.

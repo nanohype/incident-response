@@ -7,18 +7,30 @@ import { type GradeResult, gradeDraft, loadDraftSuite, score, toAlert } from "./
 
 const suite = loadDraftSuite();
 const configured = (process.env.EVAL_LLM ?? "").trim();
-const REGION = process.env.AWS_REGION || process.env.BEDROCK_REGION || "us-west-2";
+const GATEWAY = process.env.MODEL_GATEWAY_ENDPOINT ?? "";
 
 describe.skipIf(configured === "")(`eval: ${suite.name}`, () => {
   const results = new Map<string, GradeResult>();
 
   beforeAll(async () => {
-    if (configured !== "bedrock") {
+    if (configured !== "gateway") {
       throw new Error(
-        `EVAL_LLM="${configured}" is not supported — use EVAL_LLM=bedrock or unset to skip.`,
+        `EVAL_LLM="${configured}" is not supported here — status drafts go through the Anthropic ` +
+          `Messages API to a ModelGateway. Use EVAL_LLM=gateway, or unset it to skip the model ` +
+          `tier.`,
       );
     }
-    const ai = new IncidentResponseAI(REGION);
+    if (GATEWAY === "") {
+      // Checked once here: without it every case fails with the same
+      // connection error, which reads as the model failing rather than as
+      // missing config.
+      throw new Error(
+        'EVAL_LLM="gateway" requires MODEL_GATEWAY_ENDPOINT — the base URL of a reachable ' +
+          "ModelGateway. In cluster that is the operator-published endpoint; outside it, run " +
+          "upstream's standalone `aigw` and point at that.",
+      );
+    }
+    const ai = new IncidentResponseAI(GATEWAY);
     const queue = [...suite.cases];
     const workers = Array.from({ length: 4 }, async () => {
       for (;;) {
