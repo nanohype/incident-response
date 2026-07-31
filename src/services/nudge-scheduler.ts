@@ -14,6 +14,7 @@ import {
   ScheduleState,
   UpdateScheduleCommand,
 } from "@aws-sdk/client-scheduler";
+import { boundedRequestHandler } from "../utils/aws-http.js";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 
@@ -38,7 +39,9 @@ export class NudgeScheduler {
      */
     scheduler?: SchedulerClient,
   ) {
-    this.scheduler = scheduler ?? new SchedulerClient({ region: awsRegion });
+    this.scheduler =
+      scheduler ??
+      new SchedulerClient({ region: awsRegion, requestHandler: boundedRequestHandler() });
   }
 
   async scheduleNudge(incidentId: string, channelId: string): Promise<void> {

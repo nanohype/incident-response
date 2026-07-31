@@ -14,17 +14,28 @@ import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-sec
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { GrafanaOnCallPayloadSchema } from "../types/index.js";
+import { boundedRequestHandler } from "../utils/aws-http.js";
+import { awsRegion } from "../utils/env.js";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 import { injectSqsTraceAttributes } from "../utils/tracing.js";
 import { initOtelIfNeeded } from "./webhook-otel-init.js";
-import { awsRegion } from "../utils/env.js";
 
-const sqsClient = new SQSClient({ region: awsRegion() });
-const dynamoClient = new DynamoDBClient({ region: awsRegion() });
+// Every client is bounded. This handler answers Grafana OnCall on a latency
+// SLO, and each of these three calls sits between a P1 firing and the event
+// reaching the queue.
+const sqsClient = new SQSClient({
+  region: awsRegion(),
+  requestHandler: boundedRequestHandler(),
+});
+const dynamoClient = new DynamoDBClient({
+  region: awsRegion(),
+  requestHandler: boundedRequestHandler(),
+});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const secretsClient = new SecretsManagerClient({
   region: awsRegion(),
+  requestHandler: boundedRequestHandler(),
 });
 
 interface HmacSecretCacheEntry {

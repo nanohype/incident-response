@@ -18,6 +18,7 @@ import { NudgeScheduler } from "../services/nudge-scheduler.js";
 import { StatuspageApprovalGate } from "../services/statuspage-approval-gate.js";
 import { WarRoomAssembler } from "../services/war-room-assembler.js";
 import { AuditWriter } from "../utils/audit.js";
+import { boundedRequestHandler } from "../utils/aws-http.js";
 import { createCircuitBreaker } from "../utils/circuit-breaker.js";
 import { setHttpClientMetrics } from "../utils/http-client.js";
 import { MetricsEmitter } from "../utils/metrics.js";
@@ -59,9 +60,15 @@ export function buildDependencies(): Dependencies {
   // marshaling throws "Pass options.removeUndefinedValues=true" and the
   // write fails — which for INCIDENT_RESOLVED would silently drop the
   // resolution audit event.
-  const dynamoDb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: awsRegion }), {
-    marshallOptions: { removeUndefinedValues: true },
-  });
+  // Bounded: the approval gate's read-after-write runs through this client, and
+  // a hung read there stalls the gate rather than failing it — indistinguishable
+  // downstream from a slow publish that is still coming.
+  const dynamoDb = DynamoDBDocumentClient.from(
+    new DynamoDBClient({ region: awsRegion, requestHandler: boundedRequestHandler() }),
+    {
+      marshallOptions: { removeUndefinedValues: true },
+    },
+  );
   const metrics = new MetricsEmitter(awsRegion);
   // Wire HttpClient timeout-emit hook to the shared metrics emitter so that any
   // external client timing out shows up in Mimir without each call site needing
