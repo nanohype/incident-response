@@ -455,16 +455,35 @@ function parseResourceAttributes(raw) {
 }
 
 /**
- * Does an `allowedModels` entry grant an invoked model id?
+ * Cross-region inference-profile geo prefixes, mirroring the operator's
+ * `inferenceProfileGeoPrefixes` (platform_model_scoping.go).
+ */
+const GEO_PREFIXES = ["us.", "eu.", "apac.", "us-gov.", "jp.", "au.", "global."];
+
+/**
+ * Does `allowed` (an entry in spec.identity.allowedModels) grant `invoked`?
  *
- * Exact match, or a bare foundation-model id granting its `us.` cross-region
- * profile — which is how the operator expands a bare entry. Deliberately not a
- * prefix test: `...-sonnet-4` must not satisfy `...-sonnet-5`.
+ * This mirrors the operator's ARN expansion rather than comparing strings,
+ * because the operator is what actually decides. For each entry it emits a
+ * foundation-model ARN and an inference-profile ARN, both with a trailing `*`
+ * (wildcardSuffix), so an entry grants any id that starts with it — and a
+ * geo-prefixed entry additionally grants the de-prefixed foundation id, while a
+ * plain entry additionally grants the `us.`-prefixed profile id.
+ *
+ * The geo-prefixed direction is not a convenience: a cross-region profile fans
+ * invocations out to foundation models in sibling regions, so Bedrock
+ * authorizes the call against both ARNs and the operator grants both. A gate
+ * that treated a `us.` entry as covering only the profile would reject a
+ * correctly-permissioned Platform.
+ *
+ * Getting this wrong in the permissive direction would make the gate pass a
+ * combination the operator then denies, which is the whole failure this check
+ * exists to prevent.
  */
 function modelGrantCovers(allowed, invoked) {
-  if (allowed === invoked) return true;
-  if (allowed.startsWith("us.") || allowed.startsWith("eu.")) return false;
-  return invoked === `us.${allowed}`;
+  const geo = GEO_PREFIXES.find((p) => allowed.startsWith(p));
+  const forms = geo ? [allowed, allowed.slice(geo.length)] : [allowed, `us.${allowed}`];
+  return forms.some((f) => invoked.startsWith(f));
 }
 
 /**
@@ -493,16 +512,25 @@ function validateModelCoverage(docs) {
   for (const g of docs.filter((d) => d.kind === "ModelGateway")) {
     for (const route of g.doc.spec?.routes ?? []) {
       if (route.modelSource === "imported") continue;
-      const field = route.crossRegionProfile ? "crossRegionProfile" : "modelId";
-      const invoked = route.crossRegionProfile || route.modelId;
-      if (typeof invoked !== "string" || invoked === "") continue;
-      if (allowed.some((a) => modelGrantCovers(a, invoked))) continue;
-      record(
-        g.ctx,
-        `routes[${route.name}].${field}="${invoked}" is not covered by ` +
-          `Platform.spec.identity.allowedModels [${allowed.join(", ")}] — the gateway invokes ` +
-          "Bedrock as the tenant, and the operator denies every model outside that list",
-      );
+      // Both identifiers are checked, not just the one the gateway sends.
+      // Invoking a cross-region profile is authorized against the profile ARN
+      // and the underlying foundation-model ARN, so a route that names a
+      // profile still needs its base model granted — and a route moved to a
+      // geo the CR does not cover fails at run time, not here, unless this
+      // looks at both.
+      for (const [field, invoked] of [
+        ["modelId", route.modelId],
+        ["crossRegionProfile", route.crossRegionProfile],
+      ]) {
+        if (typeof invoked !== "string" || invoked === "") continue;
+        if (allowed.some((a) => modelGrantCovers(a, invoked))) continue;
+        record(
+          g.ctx,
+          `routes[${route.name}].${field}="${invoked}" is not covered by ` +
+            `Platform.spec.identity.allowedModels [${allowed.join(", ")}] — the gateway invokes ` +
+            "Bedrock as the tenant, and the operator denies every model outside that list",
+        );
+      }
     }
   }
 }
@@ -700,6 +728,53 @@ function selfTest(documents, index, source, readSchema) {
         return gate(docs, index).errors;
       },
       expectNone: /is not covered by Platform\.spec\.identity\.allowedModels/,
+    },
+    {
+      // The other direction, and the one that matters more: a cross-region
+      // profile fans invocations out to foundation models in sibling regions,
+      // so the operator grants the profile ARN *and* the base foundation-model
+      // ARN for a geo-prefixed entry. A gate that read a `us.` entry as
+      // covering only the profile would reject a Platform the operator
+      // permissions correctly — and the fix for that false failure is to
+      // stop checking, which is how this class of gate dies.
+      name: "REGRESSION: a us. allowedModels entry covering its base foundation model",
+      run: () => {
+        const docs = clone();
+        find(docs, "Platform").spec.identity.allowedModels = [
+          "us.anthropic.claude-sonnet-5",
+          "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        ];
+        for (const g of docs.filter((d) => d.kind === "ModelGateway")) {
+          for (const route of g.spec?.routes ?? []) {
+            if (route.modelSource === "imported") continue;
+            // The shape the check has to accept: the route names its base
+            // model and reaches it through the cross-region profile.
+            route.modelId = "anthropic.claude-sonnet-5";
+            route.crossRegionProfile = "us.anthropic.claude-sonnet-5";
+          }
+        }
+        return gate(docs, index).errors;
+      },
+      expectNone: /is not covered by Platform\.spec\.identity\.allowedModels/,
+    },
+    {
+      // A geo the CR does not cover is the failure checking both fields exists
+      // to catch: the base model is granted, the profile the route actually
+      // invokes is not, and every call is AccessDenied.
+      name: "a route reaching a geo the CR does not grant",
+      run: () => {
+        const docs = clone();
+        find(docs, "Platform").spec.identity.allowedModels = ["anthropic.claude-sonnet-5"];
+        for (const g of docs.filter((d) => d.kind === "ModelGateway")) {
+          for (const route of g.spec?.routes ?? []) {
+            if (route.modelSource === "imported") continue;
+            route.modelId = "anthropic.claude-sonnet-5";
+            route.crossRegionProfile = "eu.anthropic.claude-sonnet-5";
+          }
+        }
+        return gate(docs, index).errors;
+      },
+      expect: /crossRegionProfile="eu\.anthropic\.claude-sonnet-5" is not covered/,
     },
     {
       // The chart names a route; the CR declares them. Nothing else couples the
