@@ -25,6 +25,7 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import { NodeSDK } from "@opentelemetry/sdk-node";
+import { boundedRequestHandler } from "../utils/aws-http.js";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 
@@ -71,7 +72,12 @@ async function initOtel(): Promise<boolean> {
   if (!secretArn || !endpoint) return false;
 
   const region = process.env.AWS_REGION;
-  const sm = region ? new SecretsManagerClient({ region }) : new SecretsManagerClient({});
+  // Bounded like every other AWS client here. This runs during webhook cold
+  // start, so an unbounded fetch would hold the first request open rather than
+  // letting telemetry init fail and the handler get on with serving.
+  const sm = region
+    ? new SecretsManagerClient({ region, requestHandler: boundedRequestHandler() })
+    : new SecretsManagerClient({ requestHandler: boundedRequestHandler() });
   const res = await sm.send(new GetSecretValueCommand({ SecretId: secretArn }));
   if (!res.SecretString) throw new Error("OTLP auth secret has no string value");
 

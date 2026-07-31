@@ -10,10 +10,11 @@ import {
   SQSClient,
 } from "@aws-sdk/client-sqs";
 import type { GrafanaOnCallAlertPayload } from "../types/index.js";
+import { boundedRequestHandler } from "../utils/aws-http.js";
+import { awsRegion } from "../utils/env.js";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 import { context, extractSqsTraceContext } from "../utils/tracing.js";
-import { awsRegion } from "../utils/env.js";
 
 export type IncidentEventType = "ALERT_RECEIVED" | "ALERT_RESOLVED";
 export type NudgeEventType = "STATUS_UPDATE_NUDGE" | "SLA_CHECK";
@@ -45,7 +46,12 @@ export class SqsConsumer {
      */
     sqs?: SQSClient,
   ) {
-    this.sqs = sqs ?? new SQSClient({ region: awsRegion() });
+    // 15s, not the 5s default: ReceiveMessage long-polls for WaitTimeSeconds: 5,
+    // so the wait is the point here and the shared cap would abort every poll
+    // that found nothing. Wide enough to clear the poll plus a slow round trip,
+    // narrow enough that a wedged socket still surfaces.
+    this.sqs =
+      sqs ?? new SQSClient({ region: awsRegion(), requestHandler: boundedRequestHandler(15_000) });
   }
 
   start(): void {
