@@ -20,6 +20,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { anthropicBaseUrl } from "../config/gateway-url.js";
 import { config } from "../config/index.js";
 import type { GrafanaContextSnapshot, GrafanaOnCallAlertPayload } from "../types/index.js";
 import { stringifyError } from "../utils/errors.js";
@@ -138,7 +139,7 @@ export class IncidentResponseAI {
 
   constructor(gatewayEndpoint: string) {
     this.model = new Anthropic({
-      baseURL: gatewayEndpoint,
+      baseURL: anthropicBaseUrl(gatewayEndpoint),
       // The gateway authenticates to Bedrock with its own Pod Identity
       // credentials. The SDK requires the field; the gateway ignores it.
       apiKey: "unused-the-gateway-holds-the-credential",
