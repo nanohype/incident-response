@@ -29,3 +29,6 @@ incident-response-secrets*.json
 # out of the repo — a published record of what a repo scored and how it got
 # fixed is the accretion evidence the greenfield doctrine exists to prevent.
 .plans/
+
+# Generated API reference — `npm run docs` output, regenerated on demand.
+docs/api/

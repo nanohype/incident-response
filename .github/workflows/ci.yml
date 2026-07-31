@@ -45,6 +45,23 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    # The fourth phase FOUR_PHASE_CONTRACT asks for, alongside lint, build and
+    # test-unit above. This repo had no `docs` script at all, so the standard's
+    # own dispatch would have exited non-zero — and nothing invoked it, so the
+    # gap stayed invisible.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run docs
+
   test-unit:
     name: Unit Tests
     runs-on: ubuntu-latest
