@@ -9,15 +9,24 @@ does, on these prompts — and the answer is a rate, not a boolean.
 | **Model** | `npm run eval` | yes | own workflow | Does Haiku / Sonnet hold up? |
 
 ```sh
-EVAL_LLM=gateway MODEL_GATEWAY_ENDPOINT=http://… npm run eval
+MODEL_GATEWAY_ENDPOINT=http://localhost:1975 EVAL_LLM=gateway npm run eval
 ```
 
 `EVAL_LLM` unset skips; set means it **must** run.
 
 Both suites reach the model the way the product does — the Anthropic Messages
-API against a ModelGateway, which is the app's only model path. In cluster
-that endpoint is the one the operator publishes; outside it, run upstream's
-standalone `aigw` and point at that.
+API against a ModelGateway, which is the app's only model path. In cluster that
+endpoint is the one the operator publishes. Outside it, run upstream's
+standalone `aigw`, which serves 1975:
+
+```sh
+node scripts/render-eval-gateway.mjs > /tmp/aigw.yaml
+aigw run /tmp/aigw.yaml
+```
+
+The config is generated from `platform.yaml`, so the routes and model ids are
+the ones this app deploys rather than a second copy that drifts. CI does
+exactly this — see `evals.yml`.
 
 ## Suites
 
