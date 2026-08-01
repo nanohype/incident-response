@@ -13,11 +13,10 @@ describe.skipIf(configured === "")(`eval: ${suite.name}`, () => {
   const results = new Map<string, GradeResult>();
 
   beforeAll(async () => {
-    if (configured !== "gateway") {
+    if (!(EVAL_BACKENDS as readonly string[]).includes(configured)) {
       throw new Error(
-        `EVAL_LLM="${configured}" is not supported here — the classifier speaks the Anthropic ` +
-          `Messages API to a ModelGateway. Use EVAL_LLM=gateway, or unset it to skip the model ` +
-          `tier.`,
+        `EVAL_LLM="${configured}" is not a known eval backend (${EVAL_BACKENDS.join(" | ")}). ` +
+          `Unset EVAL_LLM to skip the model tier; setting it means it must run.`,
       );
     }
     if (GATEWAY === "") {

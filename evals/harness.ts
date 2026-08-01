@@ -15,6 +15,22 @@ import type { GrafanaOnCallAlertPayload } from "../src/types/index.js";
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 /** Classifier case — Haiku decides is_status_update. */
+/**
+ * Backends an eval may name.
+ *
+ * One, and that is the design rather than an omission: every model this org
+ * runs is reached through a ModelGateway, so a backend that went around one
+ * would measure a system nobody deploys. To evaluate a different model, point
+ * the gateway's route at it.
+ *
+ * Exported as a value rather than compared inline against a literal, because
+ * `evals/wiring.test.ts` holds the workflow to it — and because both eval
+ * suites here need the same answer. A contract spelled out only inside an
+ * error message is one nothing can check, and two copies of it drift.
+ */
+export const EVAL_BACKENDS = ["gateway"] as const;
+export type EvalBackend = (typeof EVAL_BACKENDS)[number];
+
 export const classifierCaseSchema = z
   .object({
     id: z.string().min(1),
