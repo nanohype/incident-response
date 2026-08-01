@@ -544,14 +544,47 @@ function validateModelCoverage(docs) {
  * the CR does not declare, yields pods that start cleanly and fail every model
  * call — connection refused, or a gateway 404 for an unmatched route.
  */
+/**
+ * Every chart env var that names a gateway route, and the wire format this app
+ * consumes that route in.
+ *
+ * Both are read by the Anthropic Messages client in
+ * `src/ai/incident-response-ai.ts`, which is handed `anthropicBaseUrl(...)` —
+ * the `/anthropic` prefix. `MODEL_ROUTE_LIGHT` is the cheaper route for
+ * triage-shaped calls; it is a different model, not a different wire format.
+ *
+ * The formats are declared rather than inferred because a route's format is a
+ * property of the CR and the client is a property of the code: only something
+ * outside both can tell you they still agree.
+ */
+const ROUTE_ENV_WIRE_FORMATS = {
+  MODEL_ROUTE: "Anthropic",
+  MODEL_ROUTE_LIGHT: "Anthropic",
+};
+
+/**
+ * The wire format a route resolves to, mirroring the operator's
+ * `effectiveRouteAPI`.
+ *
+ * An explicit `api` wins. Unset, only an anthropic-family foundation model is
+ * reachable in its native shape; everything else — the other families, and any
+ * imported open-weight model whatever its family says — is served as OpenAI.
+ */
+function effectiveRouteApi(route) {
+  if (route.api) return route.api;
+  return route.modelSource !== "imported" && route.modelFamily === "anthropic"
+    ? "Anthropic"
+    : "OpenAI";
+}
+
 function validateGatewayWiring(docs, chartEnvs) {
   const platform = docs.find((d) => d.kind === "Platform")?.doc;
   const name = platform?.metadata?.name;
   if (!name) return;
-  const routes = new Set(
+  const routes = new Map(
     docs
       .filter((d) => d.kind === "ModelGateway")
-      .flatMap((g) => (g.doc.spec?.routes ?? []).map((r) => r.name)),
+      .flatMap((g) => (g.doc.spec?.routes ?? []).map((r) => [r.name, r])),
   );
   const expected = `http://${name}-gateway.tenants-${name}.svc.cluster.local:8080`;
 
@@ -565,16 +598,48 @@ function validateGatewayWiring(docs, chartEnvs) {
           "model call with a connection error",
       );
     }
-    for (const key of ["MODEL_ROUTE", "MODEL_ROUTE_LIGHT"]) {
-      const route = env?.[key];
-      if (typeof route !== "string" || route === "" || routes.size === 0) continue;
-      if (routes.has(route)) continue;
+    // Any env var naming a route has to be declared above. Checking a fixed
+    // list instead is how a route variable added later goes unchecked while
+    // the gate still reports green.
+    for (const key of Object.keys(env ?? {})) {
+      if (!key.endsWith("_ROUTE") || key in ROUTE_ENV_WIRE_FORMATS) continue;
       record(
         where,
-        `env.${key}="${route}" names no route on the ModelGateway (declared: ` +
-          `${[...routes].join(", ")}) — the gateway has no rule matching it, so every request ` +
-          "is refused at the gateway rather than reaching a model",
+        `env.${key} names a gateway route but is missing from ROUTE_ENV_WIRE_FORMATS in ` +
+          "this script — add it with the wire format the app consumes it in, or the route " +
+          "it names is validated by nothing",
       );
+    }
+    for (const [key, wireFormat] of Object.entries(ROUTE_ENV_WIRE_FORMATS)) {
+      const named = env?.[key];
+      if (typeof named !== "string" || named === "" || routes.size === 0) continue;
+      const route = routes.get(named);
+      if (!route) {
+        record(
+          where,
+          `env.${key}="${named}" names no route on the ModelGateway (declared: ` +
+            `${[...routes.keys()].join(", ")}) — the gateway has no rule matching it, so every ` +
+            "request is refused at the gateway rather than reaching a model",
+        );
+        continue;
+      }
+      // The route exists; does it speak what the client speaks? The gateway
+      // serves each format under its own prefix, so a mismatch is a request to
+      // a path with no body processor — no x-ai-eg-model header, no rule match,
+      // every call failing while the Gateway reports healthy.
+      const served = effectiveRouteApi(route);
+      if (served !== wireFormat) {
+        const why = route.api
+          ? `routes[${named}].api="${route.api}"`
+          : `routes[${named}] resolves to ${served} from modelFamily="${route.modelFamily}"` +
+            `/modelSource="${route.modelSource}"`;
+        record(
+          where,
+          `env.${key}="${named}" is consumed as ${wireFormat}, but ${why} — the client is ` +
+            `built against the ${wireFormat} prefix and the gateway serves that route at the ` +
+            `${served} one, so every call to it 404s at the gateway`,
+        );
+      }
     }
   }
 }
@@ -786,6 +851,51 @@ function selfTest(documents, index, source, readSchema) {
         return gate(docs, index).errors;
       },
       expect: /names no route on the ModelGateway/,
+    },
+    {
+      // A route can exist, be named correctly, and still be served in a shape
+      // the client cannot speak. `api` is a CR field and the client is code;
+      // setting one without changing the other applies cleanly and 404s every
+      // call at the gateway.
+      name: "the generation route pinned to a wire format the client does not speak",
+      run: () => {
+        const docs = clone();
+        find(docs, "ModelGateway").spec.routes.find((r) => r.name === "default").api = "OpenAI";
+        return gate(docs, index).errors;
+      },
+      expect: /is consumed as Anthropic, but routes\[default\]\.api="OpenAI"/,
+    },
+    {
+      // The same mismatch arrived at without touching `api`: the format is
+      // derived from the model when unset, so repointing a route to another
+      // family silently changes the prefix it is served under.
+      name: "the light route repointed to a family served in another shape",
+      run: () => {
+        const docs = clone();
+        find(docs, "ModelGateway").spec.routes.find((r) => r.name === "light").modelFamily =
+          "amazon-titan";
+        return gate(docs, index).errors;
+      },
+      expect: /is consumed as Anthropic, but routes\[light\] resolves to OpenAI/,
+    },
+    {
+      // The list of route env vars is what keeps the wire-format check honest,
+      // so a route variable the list does not know about has to fail rather
+      // than pass unexamined.
+      //
+      // Driven through validateGatewayWiring directly: chart values are read
+      // off disk, and this harness never writes. The synthetic env is the
+      // input the function would receive from a values file carrying it.
+      name: "a route env var the wire-format list does not cover",
+      run: () => {
+        const { docs } = gate(clone(), index);
+        errors.length = 0;
+        validateGatewayWiring(docs, [
+          { where: "chart/values.yaml", env: { SUMMARY_ROUTE: "default" } },
+        ]);
+        return [...errors];
+      },
+      expect: /names a gateway route but is missing from ROUTE_ENV_WIRE_FORMATS/,
     },
     {
       // The operator derives the endpoint from the Platform name and never reads
