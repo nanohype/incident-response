@@ -13,7 +13,7 @@
     "lint": "biome lint .",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "check": "npm run typecheck && npm run typecheck:tests && npm run lint && npm run format:check && npm run platform:validate && npm run test:unit",
+    "check": "npm run typecheck && npm run typecheck:tests && npm run typecheck:evals && npm run lint && npm run format:check && npm run platform:validate && npm run test:unit",
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "vitest run --config vitest.config.ts",
     "eval": "vitest run --config vitest.eval.config.ts",
@@ -43,7 +43,8 @@
     "drill:join:production": "bash scripts/join-drill-channel.sh --env production",
     "observe:staging": "bash scripts/observe-incident.sh --env staging --latest",
     "observe:production": "bash scripts/observe-incident.sh --env production --latest",
-    "docs": "typedoc"
+    "docs": "typedoc",
+    "typecheck:evals": "tsc -p tsconfig.evals.json --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

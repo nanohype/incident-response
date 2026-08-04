@@ -5,6 +5,9 @@
     "noEmit": true,
     "types": ["node", "vitest/globals"]
   },
+  // evals/ is typechecked by tsconfig.evals.json instead — it is ESM in a
+  // CommonJS repo, so it needs its own module setting rather than a place in
+  // this list.
   "include": ["src/**/*", "test/**/*"],
   "exclude": ["node_modules", "dist"]
 }

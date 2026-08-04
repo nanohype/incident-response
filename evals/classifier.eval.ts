@@ -1,6 +1,12 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { IncidentResponseAI } from "../src/ai/incident-response-ai.js";
-import { type GradeResult, gradeClassifier, loadClassifierSuite, score } from "./harness.js";
+import {
+  EVAL_BACKENDS,
+  type GradeResult,
+  gradeClassifier,
+  loadClassifierSuite,
+  score,
+} from "./harness.js";
 
 // Model tier for the Haiku classifier.
 // EVAL_LLM unset → skip; set → must run.

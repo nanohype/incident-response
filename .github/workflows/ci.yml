@@ -134,6 +134,12 @@ jobs:
         run: npm run typecheck
       - name: Typecheck (tests — tsconfig.tests.json includes test/**)
         run: npm run typecheck:tests
+      # evals/ is ESM in a CommonJS repo, so it needs its own program rather
+      # than a place in the one above. Without this step it gets no compiler at
+      # all — Vitest strips types instead of checking them — and an undefined
+      # identifier survives every gate until someone dispatches the model tier.
+      - name: Typecheck (evals — tsconfig.evals.json)
+        run: npm run typecheck:evals
       - name: Approval-gate invariant — Statuspage createIncident only inside the gate
         run: |
           VIOLATIONS=$(grep -rE "\.createIncident\(" src/ --include="*.ts" \
