@@ -1,6 +1,13 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { IncidentResponseAI, isDegradedStatusDraft } from "../src/ai/incident-response-ai.js";
-import { type GradeResult, gradeDraft, loadDraftSuite, score, toAlert } from "./harness.js";
+import {
+  EVAL_BACKENDS,
+  type GradeResult,
+  gradeDraft,
+  loadDraftSuite,
+  score,
+  toAlert,
+} from "./harness.js";
 
 // Model tier for Sonnet status drafts.
 // EVAL_LLM unset → skip; set → must run.

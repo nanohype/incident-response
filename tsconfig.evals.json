@@ -1,0 +1,23 @@
+{
+  // Typecheck config for evals/. Separate from tsconfig.tests.json because the
+  // eval tier is genuinely a different module system: the app is CommonJS, and
+  // the eval files are ESM — `import.meta.url` to locate fixtures, explicit
+  // `.js` specifiers on relative imports. Vitest runs them that way without
+  // complaint, and `tsc` under `"module": "commonjs"` rejects `import.meta`
+  // outright, so folding them into the CJS program would trade one blind spot
+  // for a wall of errors about a thing that is not wrong.
+  //
+  // Left unchecked entirely, they get no compiler at all — Vitest strips types
+  // rather than checking them — and a plainly undefined identifier survives
+  // every gate until someone dispatches the model tier.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["evals/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
