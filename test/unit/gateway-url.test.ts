@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anthropicBaseUrl } from "./gateway-url.js";
+import { anthropicBaseUrl } from "../../src/config/gateway-url.js";
 
 const GATEWAY = "http://incident-response-gateway.tenants-incident-response.svc.cluster.local:8080";
 
