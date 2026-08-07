@@ -12,7 +12,7 @@
  * vendored `@nanohype/runtime` metrics module; this class is the app's
  * emitter surface over it. Counters → monotonic counts (e.g.
  * directory_lookup_failure_count). Histograms → distributions (e.g.
- * assembly_duration_ms) so Grafana can surface p50/p99 without
+ * assembly_duration_seconds) so Grafana can surface p50/p99 without
  * pre-aggregating in the app.
  *
  * All emission is non-blocking by design; the OTel SDK buffers and batches.
@@ -60,16 +60,49 @@ export class MetricsEmitter {
     this.metrics.counter(metricName, 1, toAttributes(dimensions));
   }
 
-  /** Record a duration in milliseconds. Routes to a histogram. */
-  durationMs(metricName: string, ms: number, dimensions: MetricDimension[] = []): void {
-    this.metrics.timing(metricName, ms, toAttributes(dimensions));
+  /**
+   * Record a duration in SECONDS. Routes to a histogram with unit `s`.
+   *
+   * `boundaries` is not optional in practice for anything that can run longer
+   * than ten seconds: OTel's default bucket edges top out at 10000, which is
+   * fine as milliseconds and wrong as seconds, and `histogram_quantile` cannot
+   * return a value above the highest finite edge. Assembly's alert threshold sat
+   * 30x past that edge and was false for every possible input.
+   */
+  duration(
+    metricName: string,
+    seconds: number,
+    dimensions: MetricDimension[] = [],
+    boundaries?: readonly number[],
+  ): void {
+    this.metrics.duration(
+      metricName,
+      seconds,
+      toAttributes(dimensions),
+      boundaries ? { boundaries: [...boundaries] } : undefined,
+    );
   }
 }
 
+/**
+ * Bucket edges per duration instrument, in seconds.
+ *
+ * Chosen from each instrument's stated target, not from the observed
+ * distribution — there is none yet. Assembly's runbook target is p50 <= 300s and
+ * p95 <= 480s, so the edges bracket both and extend past the 300s alert
+ * threshold; without an edge above it the alert cannot fire whatever the real
+ * latency is. Approval-gate latency is two DynamoDB round trips, so it is
+ * sub-second shaped.
+ */
+export const DurationBuckets = {
+  assembly: [30, 60, 120, 240, 300, 480, 600, 900],
+  approvalGate: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+} as const;
+
 /** Canonical metric names. Keep in sync with Grafana dashboard panels + alerting rules. */
 export const MetricNames = {
-  AssemblyDurationMs: "assembly_duration_ms",
-  ApprovalGateLatencyMs: "approval_gate_latency_ms",
+  AssemblyDuration: "assembly_duration_seconds",
+  ApprovalGateLatency: "approval_gate_latency_seconds",
   DirectoryLookupFailureCount: "directory_lookup_failure_count",
   StatuspagePublishCount: "statuspage_publish_count",
   IncidentResolvedCount: "incident_resolved_count",

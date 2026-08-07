@@ -25,7 +25,7 @@ spec:
       interval: 1m
       rules:
         - alert: IncidentResponseAssemblyDurationBreach
-          expr: histogram_quantile(0.99, sum by (le) (rate(incident_response_assembly_duration_ms_bucket[5m]))) > 300000
+          expr: histogram_quantile(0.99, sum by (le) (rate(incident_response_assembly_duration_seconds_bucket[5m]))) > 300
           for: 10m
           labels:
             severity: page

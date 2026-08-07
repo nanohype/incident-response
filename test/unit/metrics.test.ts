@@ -77,9 +77,9 @@ describe("MetricsEmitter", () => {
   }
 
   it("METRICS-001: gauge records to histogram with given value", async () => {
-    emitter.gauge(MetricNames.AssemblyDurationMs, 4200, "Milliseconds");
+    emitter.gauge(MetricNames.AssemblyDuration, 4200, "Milliseconds");
     const dps = await collect();
-    const hist = dps.find((d) => d.name === "incident_response.assembly_duration_ms");
+    const hist = dps.find((d) => d.name === "incident_response.assembly_duration_seconds");
     expect(hist).toBeDefined();
     expect(hist!.kind).toBe("histogram");
     expect(hist!.value).toBe(4200);
@@ -95,13 +95,13 @@ describe("MetricsEmitter", () => {
     expect(counter!.value).toBe(2);
   });
 
-  it("METRICS-003: durationMs records histogram sample in ms", async () => {
-    emitter.durationMs(MetricNames.ApprovalGateLatencyMs, 87);
+  it("METRICS-003: duration records histogram sample in seconds", async () => {
+    emitter.duration(MetricNames.ApprovalGateLatency, 0.087);
     const dps = await collect();
-    const hist = dps.find((d) => d.name === "incident_response.approval_gate_latency_ms");
+    const hist = dps.find((d) => d.name === "incident_response.approval_gate_latency_seconds");
     expect(hist).toBeDefined();
     expect(hist!.kind).toBe("histogram");
-    expect(hist!.value).toBe(87);
+    expect(hist!.value).toBe(0.087);
   });
 
   it("METRICS-004: dimensions flow through as attributes", async () => {
