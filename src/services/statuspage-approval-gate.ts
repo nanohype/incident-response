@@ -21,7 +21,7 @@ import type { StatusPageDraft } from "../types/index.js";
 import type { AuditWriter } from "../utils/audit.js";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
-import { MetricNames, type MetricsEmitter } from "../utils/metrics.js";
+import { DurationBuckets, MetricNames, type MetricsEmitter } from "../utils/metrics.js";
 
 export class StatuspageApprovalGate {
   constructor(
@@ -158,7 +158,12 @@ export class StatuspageApprovalGate {
     this.metrics?.increment(MetricNames.StatuspagePublishCount, [
       { name: "outcome", value: "published" },
     ]);
-    this.metrics?.durationMs(MetricNames.ApprovalGateLatencyMs, Date.now() - start);
+    this.metrics?.duration(
+      MetricNames.ApprovalGateLatency,
+      (Date.now() - start) / 1000,
+      [],
+      DurationBuckets.approvalGate,
+    );
     logger.info(
       {
         incident_id: incidentId,

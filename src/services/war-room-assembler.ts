@@ -21,7 +21,7 @@ import type {
 import type { AuditWriter } from "../utils/audit.js";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
-import { MetricNames, type MetricsEmitter } from "../utils/metrics.js";
+import { DurationBuckets, MetricNames, type MetricsEmitter } from "../utils/metrics.js";
 import { withSpan } from "../utils/tracing.js";
 import type { NudgeScheduler } from "./nudge-scheduler.js";
 import { buildChecklistBlocks, buildContextSnapshotBlocks } from "./slack-blocks.js";
@@ -243,9 +243,16 @@ export class WarRoomAssembler {
 
       await this.saveIncidentRecord(incidentRecord);
       const durationMs = Date.now() - start;
-      this.metrics?.durationMs(MetricNames.AssemblyDurationMs, durationMs, [
-        { name: "directory_fallback", value: String(directoryFallback) },
-      ]);
+      // Seconds, matching the instrument's declared unit. Converting here rather
+      // than only renaming the series is the whole of the change: a `_seconds`
+      // histogram fed a millisecond delta reads 1000x high in a series whose
+      // name and unit both promise seconds, which is worse than the wrong name.
+      this.metrics?.duration(
+        MetricNames.AssemblyDuration,
+        durationMs / 1000,
+        [{ name: "directory_fallback", value: String(directoryFallback) }],
+        DurationBuckets.assembly,
+      );
       rootSpan.setAttribute("incident.id", incidentId);
       rootSpan.setAttribute("team.id", alert.team_id);
       rootSpan.setAttribute("directory_fallback", directoryFallback);
