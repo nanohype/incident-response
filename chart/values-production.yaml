@@ -34,5 +34,5 @@ tenantInfra:
   nudgeEventsQueueArn: ''
   slaCheckQueueUrl: ''
   schedulerRoleArn: ''
-  schedulerGroupName: incident-response-production-nudges
+  schedulerGroupName: production-incident-response
   auditBucketName: '' # output: audit_bucket_name

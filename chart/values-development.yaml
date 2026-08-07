@@ -25,5 +25,5 @@ tenantInfra:
   nudgeEventsQueueArn: ''
   slaCheckQueueUrl: ''
   schedulerRoleArn: ''
-  schedulerGroupName: incident-response-development-nudges
+  schedulerGroupName: development-incident-response
   auditBucketName: '' # output: audit_bucket_name
