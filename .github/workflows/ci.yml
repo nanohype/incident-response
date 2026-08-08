@@ -490,6 +490,8 @@ jobs:
     needs:
       [
         lint,
+        build,
+        docs,
         test-unit,
         test-integration,
         security-audit,
@@ -499,22 +501,11 @@ jobs:
         helm-lint,
         docker-build,
       ]
-    if: github.event_name == 'pull_request'
+    # Load-bearing. Without it a failed dependency SKIPS this job, and GitHub
+    # counts a skipped check as passing for branch protection — the gate would
+    # report green exactly when something broke.
+    if: always()
     steps:
-      - name: All gates passed
-        run: |
-          echo "✅ Lint"
-          echo "✅ Unit Tests (100% branch on audit.ts + statuspage-approval-gate.ts)"
-          echo "✅ Integration Tests (ConsistentRead semantics verified against dynamodb-local)"
-          echo "✅ Dependency Security Audit (no HIGH/CRITICAL) + typecheck (src + tests)"
-          echo "✅ Platform CRs valid against the digest-verified eks-agent-platform CRD schemas"
-          echo "✅ Platform CR gate self-test — every seeded defect rejected"
-          echo "✅ Vendored CRD schemas match their pin, and the pin is current with upstream"
-          echo "✅ Helm Lint + Template"
-          echo "✅ Docker Build"
-          echo "✅ Approval-gate invariant verified"
-          echo "✅ Slack adapter discipline verified"
-          echo "✅ HTTP-client discipline verified"
-          echo "✅ Secret inventory lists agree"
-          echo "✅ Every secret path the chart reads is one the seeder creates"
-          echo "✅ Vendored copies byte-identical to nanohype (chart + runtime + config)"
+      - uses: nanohype/.github/actions/merge-gate@6ec6c5b3e6c4a8b15e12da4afd7ac4870a630092 # main
+        with:
+          needs: ${{ toJSON(needs) }}
