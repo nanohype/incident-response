@@ -14,6 +14,7 @@ import { LinearIncidentResponseClient } from "../clients/linear-client.js";
 import { StatuspageClient } from "../clients/statuspage-client.js";
 import { WorkOSClient } from "../clients/workos-client.js";
 import { config } from "../config/index.js";
+import { awsRegion as resolveAwsRegion } from "../utils/env.js";
 import { NudgeScheduler } from "../services/nudge-scheduler.js";
 import { StatuspageApprovalGate } from "../services/statuspage-approval-gate.js";
 import { WarRoomAssembler } from "../services/war-room-assembler.js";
@@ -47,7 +48,11 @@ export interface Dependencies {
 }
 
 export function buildDependencies(): Dependencies {
-  const awsRegion = process.env.AWS_REGION!;
+  // Through the one accessor rather than a `!` assertion: the webhook
+  // entrypoint reaches this without an entrypoint-level env check, so a missing
+  // region has to fail here rather than construct every client against
+  // `undefined`.
+  const awsRegion = resolveAwsRegion();
   const incidentsTableName = process.env.INCIDENTS_TABLE_NAME!;
   const githubRepoNames = (process.env.GITHUB_REPO_NAMES ?? "")
     .split(",")

@@ -14,21 +14,30 @@ export function requireEnv(vars: readonly string[]): void {
 /**
  * The AWS region every SDK client in this service is constructed with.
  *
- * One place rather than four inlined reads. The fallback arm is reachable only
- * when AWS_REGION is unset, and whether it is unset depends on the environment
- * the suite runs in — CI exports it, a developer shell usually does not — so at
- * a module-level client construction exactly one of the two arms is taken per
- * run and the other can never be covered. Here both are, from one place.
+ * One place rather than four inlined reads, and deliberately without a default.
+ * The region decides which account partition every DynamoDB, SQS, Secrets
+ * Manager and Scheduler call lands in, and this service has no basis for
+ * guessing it: the app is forkable (see docs/forking-for-a-new-client.md), so a
+ * baked-in region is this estate's constraint shipped to someone who does not
+ * share it. The deployment supplies it — chart/values.yaml sets AWS_REGION for
+ * both Deployments — and a deploy that forgets fails at boot with this message
+ * rather than silently addressing a region nobody chose.
  *
- * The default is us-east-1 because that is the estate's operating region: the
- * `guardrail-region-lock` SCP on the Ventures OU denies every non-global action
- * outside it, so a client built against any other region fails with an explicit
- * deny naming the policy rather than a missing-resource error.
+ * Throwing is the loud half of the same contract `requireEnv` enforces for the
+ * other required variables. It is a throw rather than a requireEnv entry
+ * because webhook-ingress constructs its three clients at module load, which
+ * runs before any entrypoint statement could check.
  */
 // An empty AWS_REGION is treated as unset. `??` would let "" through, and every
 // SDK client in the process would then be constructed against region "", which
 // fails at the first call with an error that names the SDK rather than the
 // misconfiguration.
 export function awsRegion(): string {
-  return process.env.AWS_REGION || "us-east-1";
+  const region = process.env.AWS_REGION;
+  if (!region) {
+    throw new Error(
+      "AWS_REGION is not set. Every AWS client in this service needs it and there is no safe default — set it on the Deployment (chart/values.yaml sets it for both) or export it locally.",
+    );
+  }
+  return region;
 }
