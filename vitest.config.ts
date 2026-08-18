@@ -22,6 +22,13 @@ export default defineConfig({
     // its absence clear it themselves.
     env: {
       MODEL_GATEWAY_ENDPOINT: "http://gw.tenants-x.svc.cluster.local:8080",
+      // `awsRegion()` has no default and throws when unset, and
+      // handlers/webhook-ingress constructs its clients at module load — so
+      // importing it needs a region present. Set here rather than left to the
+      // shell: CI exports AWS_REGION and a developer shell usually does not,
+      // and a suite that passes in one and fails in the other is worse than
+      // either outcome. The value is arbitrary; nothing here reaches AWS.
+      AWS_REGION: "us-east-1",
     },
     coverage: {
       enabled: true,

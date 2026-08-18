@@ -1,12 +1,16 @@
 /**
  * Unit tests for the environment helpers.
  *
- * awsRegion's fallback is the reason this file exists. Inlined at each SDK client
+ * awsRegion is the reason this file exists. Inlined at each SDK client
  * construction it was un-testable in principle: those run at module load, so
  * exactly one arm is taken per process and which one depends on whether the
  * environment exports AWS_REGION — CI does, a developer shell usually does not.
  * A branch whose coverage flips with the runner is not a branch anyone can hold
  * a floor over. Called from here, both arms are reachable in one run.
+ *
+ * The refusal arm matters more than the accept arm: it is what keeps a
+ * misconfigured deploy from addressing an unintended region, so it is asserted
+ * on the message and not only on the throw.
  */
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,15 +29,19 @@ describe("awsRegion", () => {
     expect(awsRegion()).toBe("eu-central-1");
   });
 
-  it("falls back to us-west-2 when it is unset", () => {
+  it("refuses to guess a region when it is unset", () => {
+    // No default: the region selects the account partition every DynamoDB, SQS,
+    // Secrets Manager and Scheduler call lands in, and a wrong guess is a
+    // silently misaddressed call rather than a visible failure.
     delete process.env.AWS_REGION;
-    expect(awsRegion()).toBe("us-west-2");
+    expect(() => awsRegion()).toThrow(/AWS_REGION is not set/);
   });
 
-  it("falls back rather than passing an empty region to the SDK", () => {
-    // An empty string is not nullish, so `?? ` would let it through and every
-    // SDK client would be constructed against region "". Treat it as unset.
+  it("treats an empty region as unset rather than passing it to the SDK", () => {
+    // An empty string is not nullish, so `??` would let it through and every
+    // SDK client would be constructed against region "", failing later with an
+    // error that names the SDK instead of the misconfiguration.
     process.env.AWS_REGION = "";
-    expect(awsRegion()).toBe("us-west-2");
+    expect(() => awsRegion()).toThrow(/AWS_REGION is not set/);
   });
 });

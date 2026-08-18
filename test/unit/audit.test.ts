@@ -21,7 +21,7 @@ describe("AuditWriter", () => {
   beforeEach(() => {
     ddbMock.reset();
     auditWriter = new AuditWriter(
-      DynamoDBDocumentClient.from(new DynamoDBClient({ region: "us-west-2" })),
+      DynamoDBDocumentClient.from(new DynamoDBClient({ region: "us-east-1" })),
       TABLE_NAME,
     );
   });

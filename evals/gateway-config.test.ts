@@ -24,7 +24,7 @@ const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const manifest = readFileSync(join(repoRoot, "platform.yaml"), "utf8");
 
 const routes = readRoutes(manifest) as Array<Record<string, unknown>>;
-const rendered = renderGateway(routes, "us-west-2") as string;
+const rendered = renderGateway(routes, "us-east-1") as string;
 const docs = rendered
   .split("\n---\n")
   .map((d) => parse(d))
@@ -90,7 +90,7 @@ describe("the mapping mirrors the operator", () => {
     // says, which is why modelSource is part of the test and not just family.
     const imported = renderGateway(
       [{ name: "x", modelFamily: "anthropic", modelSource: "imported", modelId: "m" }],
-      "us-west-2",
+      "us-east-1",
     ) as string;
     const backend = imported
       .split("\n---\n")
@@ -117,7 +117,7 @@ describe("the mapping mirrors the operator", () => {
 
   it("points every route's backend at the one Bedrock upstream", () => {
     const host = byKind("Backend")[0].spec.endpoints[0].fqdn;
-    expect(host).toEqual({ hostname: "bedrock-runtime.us-west-2.amazonaws.com", port: 443 });
+    expect(host).toEqual({ hostname: "bedrock-runtime.us-east-1.amazonaws.com", port: 443 });
     for (const backend of byKind("AIServiceBackend")) {
       expect(backend.spec.backendRef.name).toBe("bedrock");
     }
@@ -127,7 +127,7 @@ describe("the mapping mirrors the operator", () => {
     // A static credential anywhere here would be a second way to reach a model.
     for (const policy of byKind("BackendSecurityPolicy")) {
       expect(policy.spec.type).toBe("AWSCredentials");
-      expect(policy.spec.awsCredentials).toEqual({ region: "us-west-2" });
+      expect(policy.spec.awsCredentials).toEqual({ region: "us-east-1" });
       expect(JSON.stringify(policy)).not.toMatch(/accessKey|secretKey|credentialsFile/i);
     }
   });
@@ -135,7 +135,7 @@ describe("the mapping mirrors the operator", () => {
   it("honours the region it is given", () => {
     const eu = renderGateway(routes, "eu-west-1");
     expect(eu).toContain("bedrock-runtime.eu-west-1.amazonaws.com");
-    expect(eu).not.toContain("us-west-2.amazonaws.com");
+    expect(eu).not.toContain("us-east-1.amazonaws.com");
   });
 });
 
@@ -190,7 +190,7 @@ describe("the config can actually start a gateway", () => {
     expect(tls, "no BackendTLSPolicy rendered — the upstream would be cleartext").toBeDefined();
     expect(tls.spec.validation).toEqual({
       wellKnownCACertificates: "System",
-      hostname: "bedrock-runtime.us-west-2.amazonaws.com",
+      hostname: "bedrock-runtime.us-east-1.amazonaws.com",
     });
     const backend = byKind("Backend")[0];
     expect(tls.spec.targetRefs[0]).toMatchObject({ kind: "Backend", name: backend.metadata.name });

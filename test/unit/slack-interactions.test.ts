@@ -34,7 +34,7 @@ interface Fakes extends SlackInteractionDeps {
 }
 
 function mkDeps(): Fakes {
-  const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "us-west-2" }));
+  const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "us-east-1" }));
   const approvalGate = {
     getDraft: vi.fn().mockResolvedValue({
       draft_id: "d-1",

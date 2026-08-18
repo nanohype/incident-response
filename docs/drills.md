@@ -257,10 +257,10 @@ Each of these paths writes its own audit events — re-run `npm run observe:stag
 For testing the processor in isolation (bypassing the webhook ingress):
 
 ```bash
-QUEUE_URL=$(cd ../landing-zone/live/aws/workload-staging/us-west-2/staging/tenant-substrate \
+QUEUE_URL=$(cd ../landing-zone/live/aws/workload-staging/us-east-1/staging/tenant-substrate \
   && terragrunt output -raw incident_events_queue_url)
 aws sqs send-message \
-  --region us-west-2 \
+  --region us-east-1 \
   --queue-url "$QUEUE_URL" \
   --message-group-id "direct-test-$(date +%s)" \
   --message-deduplication-id "direct-test-$(date +%s)" \
@@ -312,7 +312,7 @@ Two Slack API calls: fetch the channel, invite yourself.
 
 ```bash
 # 1. Pull the bot token (one-time per shell)
-BOT_TOKEN=$(aws secretsmanager get-secret-value --region us-west-2 \
+BOT_TOKEN=$(aws secretsmanager get-secret-value --region us-east-1 \
   --secret-id incident-response/staging/slack/bot-token --query SecretString --output text)
 
 # 2. List the private channels the bot created; copy the id you want
@@ -385,7 +385,7 @@ The same scripted drill runs in CI via `.github/workflows/drill.yml` and `script
 |---|---|
 | secret `AWS_DRILL_ROLE_ARN` | IAM role with GitHub OIDC trust. Needs `secretsmanager:GetSecretValue` on `incident-response/<env>/grafana/oncall-webhook-hmac` + `incident-response/<env>/slack/bot-token`, and `dynamodb:GetItem/Query/DeleteItem` on `incident-response-<env>-*` |
 | variable `INCIDENT_RESPONSE_DRILL_HOST_DEVELOPMENT` / `_STAGING` / `_PRODUCTION` | Each environment's webhook Ingress hostname — all three, not only the one being drilled, because a drill has to prove it is missing the other two. An environment whose `chart/values-<env>.yaml` already names your own hostname needs no variable, and a variable that disagrees with it is refused. An environment with no webhook deployment is declared rather than omitted: set it to `none`. There is no single unscoped variable on purpose — one hostname applied to every environment choice is one environment's signature delivered to another's load balancer |
-| variable `INCIDENT_RESPONSE_DRILL_REGION` | Optional, defaults to `us-west-2` |
+| variable `INCIDENT_RESPONSE_DRILL_REGION` | Optional, defaults to `us-east-1` |
 
 The preflight step runs `fire-drill.sh --env <env> --check-target` and checks the AWS role, and re-derives nothing else. Whether a drill would fire where it signs is one question with one answer; a workflow that read the repository variables itself would be a second opinion about which host belongs to which environment, and two opinions disagree — which is how a run gets blessed by one and misfired by the other. The role ARN is checked here only because it is the one requirement the script has no way to see.
 
@@ -398,14 +398,14 @@ Staging accumulates synthetic incidents over time. To wipe clean:
 ```bash
 # Scan for drill-* incident IDs and batch delete. Not destructive — staging
 # never has real data. Run occasionally; not required between individual drills.
-aws dynamodb scan --region us-west-2 --table-name incident-response-staging-incidents \
+aws dynamodb scan --region us-east-1 --table-name incident-response-staging-incidents \
   --projection-expression 'PK,SK' \
   --filter-expression 'begins_with(PK, :prefix)' \
   --expression-attribute-values '{":prefix":{"S":"INCIDENT#drill-"}}' \
   --query 'Items[*].{PK:PK,SK:SK}' --output json \
   | jq -r '.[] | "\(.PK.S)\t\(.SK.S)"' \
   | while IFS=$'\t' read -r pk sk; do
-      aws dynamodb delete-item --region us-west-2 --table-name incident-response-staging-incidents \
+      aws dynamodb delete-item --region us-east-1 --table-name incident-response-staging-incidents \
         --key "{\"PK\":{\"S\":\"$pk\"},\"SK\":{\"S\":\"$sk\"}}"
     done
 

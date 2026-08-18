@@ -20,7 +20,7 @@ import type { AuditWriter } from "../../src/utils/audit.js";
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
 function mkDeps(): ResolveDeps {
-  const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "us-west-2" }));
+  const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "us-east-1" }));
   const incidentResponseAI = {
     generatePostmortemSections: vi.fn().mockResolvedValue("postmortem body"),
   } as unknown as IncidentResponseAI;

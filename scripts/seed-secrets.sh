@@ -22,14 +22,14 @@
 #   scripts/seed-secrets.sh --env production  --file incident-response-secrets.production.json
 #   scripts/seed-secrets.sh --env staging     --file ... --dry-run
 #
-# Defaults: --region us-west-2, --file incident-response-secrets.${env}.json
+# Defaults: --region us-east-1, --file incident-response-secrets.${env}.json
 #
 # Requires: aws CLI (with creds that can put/create secrets), jq, base64, openssl.
 set -euo pipefail
 
 ENVIRONMENT=""
 FILE=""
-REGION="us-west-2"
+REGION="us-east-1"
 DRY_RUN=0
 
 usage() {

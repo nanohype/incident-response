@@ -66,10 +66,10 @@ describe("webhook-ingress atomic-create", () => {
     sqsMock.reset();
     __resetHmacCacheForTests();
     process.env.GRAFANA_ONCALL_HMAC_SECRET_ID =
-      "arn:aws:secretsmanager:us-west-2:000000000000:secret:test";
+      "arn:aws:secretsmanager:us-east-1:000000000000:secret:test";
     process.env.INCIDENTS_TABLE_NAME = "incident-response-incidents-test";
     process.env.INCIDENT_EVENTS_QUEUE_URL =
-      "https://sqs.us-west-2.amazonaws.com/000000000000/incident-response-events.fifo";
+      "https://sqs.us-east-1.amazonaws.com/000000000000/incident-response-events.fifo";
     smMock.on(GetSecretValueCommand).resolves({ SecretString: HMAC_SECRET, VersionId: "v1" });
   });
 
@@ -195,10 +195,10 @@ describe("webhook ingress — HMAC secret unavailable", () => {
     sqsMock.reset();
     __resetHmacCacheForTests();
     process.env.GRAFANA_ONCALL_HMAC_SECRET_ID =
-      "arn:aws:secretsmanager:us-west-2:000000000000:secret:test";
+      "arn:aws:secretsmanager:us-east-1:000000000000:secret:test";
     process.env.INCIDENTS_TABLE_NAME = "incident-response-incidents-test";
     process.env.INCIDENT_EVENTS_QUEUE_URL =
-      "https://sqs.us-west-2.amazonaws.com/000000000000/incident-response-events.fifo";
+      "https://sqs.us-east-1.amazonaws.com/000000000000/incident-response-events.fifo";
   });
 
   afterEach(() => {
@@ -233,10 +233,10 @@ describe("webhook ingress — malformed requests", () => {
     sqsMock.reset();
     __resetHmacCacheForTests();
     process.env.GRAFANA_ONCALL_HMAC_SECRET_ID =
-      "arn:aws:secretsmanager:us-west-2:000000000000:secret:test";
+      "arn:aws:secretsmanager:us-east-1:000000000000:secret:test";
     process.env.INCIDENTS_TABLE_NAME = "incident-response-incidents-test";
     process.env.INCIDENT_EVENTS_QUEUE_URL =
-      "https://sqs.us-west-2.amazonaws.com/000000000000/incident-response-events.fifo";
+      "https://sqs.us-east-1.amazonaws.com/000000000000/incident-response-events.fifo";
     smMock.on(GetSecretValueCommand).resolves({ SecretString: HMAC_SECRET, VersionId: "v1" });
   });
 
@@ -328,10 +328,10 @@ describe("webhook ingress — secret rotated mid-flight", () => {
     sqsMock.reset();
     __resetHmacCacheForTests();
     process.env.GRAFANA_ONCALL_HMAC_SECRET_ID =
-      "arn:aws:secretsmanager:us-west-2:000000000000:secret:test";
+      "arn:aws:secretsmanager:us-east-1:000000000000:secret:test";
     process.env.INCIDENTS_TABLE_NAME = "incident-response-incidents-test";
     process.env.INCIDENT_EVENTS_QUEUE_URL =
-      "https://sqs.us-west-2.amazonaws.com/000000000000/incident-response-events.fifo";
+      "https://sqs.us-east-1.amazonaws.com/000000000000/incident-response-events.fifo";
   });
 
   afterEach(() => {
