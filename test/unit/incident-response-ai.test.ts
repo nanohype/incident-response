@@ -11,6 +11,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { IncidentResponseAI, isDegradedStatusDraft } from "../../src/ai/incident-response-ai.js";
 import { config } from "../../src/config/index.js";
+import type { MetricsEmitter } from "../../src/utils/metrics.js";
 import type { GrafanaOnCallAlertPayload } from "../../src/types/index.js";
 
 /**
@@ -198,5 +199,116 @@ describe("IncidentResponseAI", () => {
       expect(user).toMatch(/untrusted-[0-9a-f]{12}/);
       expect(systemBlocks(body)[0].text).toMatch(/untrusted-\* tags/);
     });
+  });
+});
+
+/**
+ * Token metering.
+ *
+ * A BudgetPolicy kill-switch is a ceiling on the whole tenant; it cannot say
+ * which route spent the money. These assert the per-request attribution under
+ * it, and that a metering fault never costs the caller a generated draft.
+ */
+describe("IncidentResponseAI usage metering", () => {
+  let ai: IncidentResponseAI;
+  let counted: Array<{ name: string; value: number; route: string | undefined }>;
+  let incremented: string[];
+
+  function fakeMetrics() {
+    return {
+      count: (name: string, value: number, dims: Array<{ name: string; value: string }> = []) => {
+        counted.push({ name, value, route: dims.find((d) => d.name === "route")?.value });
+      },
+      increment: (name: string) => {
+        incremented.push(name);
+      },
+    };
+  }
+
+  beforeEach(() => {
+    counted = [];
+    incremented = [];
+    model = fakeModel();
+    ai = new IncidentResponseAI(
+      "http://gw.tenants-x.svc.cluster.local:8080",
+      fakeMetrics() as unknown as MetricsEmitter,
+    );
+    (ai as unknown as { model: Anthropic }).model = model.client;
+  });
+
+  it("AI-USAGE-001: records input, output and cache tokens against the route", async () => {
+    model.create.mockResolvedValue({
+      content: [{ type: "text", text: "a draft" }],
+      usage: {
+        input_tokens: 1200,
+        output_tokens: 90,
+        cache_read_input_tokens: 800,
+        cache_creation_input_tokens: 40,
+      },
+    });
+
+    await ai.generateStatusDraft(alert, undefined, undefined, "inc-1");
+
+    const byName = Object.fromEntries(counted.map((c) => [c.name, c.value]));
+    expect(byName.model_input_tokens).toBe(1200);
+    expect(byName.model_output_tokens).toBe(90);
+    expect(byName.model_cache_read_tokens).toBe(800);
+    expect(byName.model_cache_write_tokens).toBe(40);
+    expect(incremented).toContain("model_invocation_count");
+    // Dimensioned by route, which is the whole point — the drafting route and
+    // the classifier route have different costs and different volumes.
+    expect(counted.every((c) => c.route === config.MODEL_ROUTE)).toBe(true);
+  });
+
+  it("AI-USAGE-002: attributes classifier spend to the light route", async () => {
+    model.create.mockResolvedValue({
+      content: [{ type: "text", text: '{"is_status_update":true,"confidence":0.9}' }],
+      usage: { input_tokens: 40, output_tokens: 12 },
+    });
+
+    await ai.classifyAsStatusUpdate("we are still investigating", "inc-1");
+
+    expect(counted.every((c) => c.route === config.MODEL_ROUTE_LIGHT)).toBe(true);
+    // Absent cache fields report zero rather than being skipped, so the series
+    // exists for every call and a cache regression shows as a drop to zero
+    // rather than as a gap.
+    const byName = Object.fromEntries(counted.map((c) => [c.name, c.value]));
+    expect(byName.model_cache_read_tokens).toBe(0);
+  });
+
+  it("AI-USAGE-003: still counts the call when the gateway reports no usage", async () => {
+    model.create.mockResolvedValue({ content: [{ type: "text", text: "a draft" }] });
+
+    await ai.generateStatusDraft(alert, undefined, undefined, "inc-1");
+
+    expect(incremented).toContain("model_invocation_count");
+    expect(counted).toHaveLength(0);
+  });
+
+  it("AI-USAGE-004: a broken emitter does not cost the caller its draft", async () => {
+    // Metrics are best-effort. The caller is holding a generated draft at this
+    // point; losing it to a metrics bug would be the more expensive failure.
+    const exploding = {
+      count: () => {
+        throw new Error("meter provider exploded");
+      },
+      increment: () => {
+        throw new Error("meter provider exploded");
+      },
+    };
+    const ai2 = new IncidentResponseAI(
+      "http://gw.tenants-x.svc.cluster.local:8080",
+      exploding as unknown as MetricsEmitter,
+    );
+    (ai2 as unknown as { model: Anthropic }).model = model.client;
+    model.create.mockResolvedValue({
+      content: [{ type: "text", text: "a real draft" }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    const draft = await ai2.generateStatusDraft(alert, undefined, undefined, "inc-1");
+
+    expect(draft).toContain("a real draft");
+    expect(isDegradedStatusDraft(draft)).toBe(false);
   });
 });
