@@ -55,15 +55,17 @@ export default defineConfig({
         // of being invisible to it. These sit just under measured so a
         // regression fails while ordinary movement does not.
         //
-        // The remaining gap to the org floor is: the Slack adapter, the
-        // per-subcommand handlers, the Block Kit builders, the Grafana Cloud
-        // and Linear clients, and the three composition roots (index.ts,
+        // Branches now clears the org floor of 60 outright. The other three sit
+        // below 75 and the remaining gap is named rather than hidden: the Slack
+        // adapter, the per-subcommand handlers, the Grafana Cloud and Linear
+        // clients, and the three composition roots (index.ts,
         // wiring/dependencies.ts, bin/webhook-server.ts). None are excluded —
-        // they count here rather than being hidden.
-        branches: 57, // measured 58.36
-        functions: 59, // measured 60.70
-        lines: 63, // measured 64.48
-        statements: 62, // measured 62.95
+        // they count against the denominator here rather than disappearing
+        // from it.
+        branches: 64, // measured 64.55 — above the org floor of 60
+        functions: 68, // measured 68.46
+        lines: 73, // measured 73.58
+        statements: 71, // measured 71.72
 
         // Per-file 100% on the security- and compliance-critical path, above the
         // global floor — the `security-critical-100` rule. These are not
