@@ -3,8 +3,9 @@
  *
  * Coverage is always on so `npm run test:unit` enforces the thresholds
  * locally exactly as CI does (the README regression experiment depends on
- * a threshold violation exiting 1). Only files loaded by the tests are
- * measured — matching the gate the thresholds were calibrated against.
+ * a threshold violation exiting 1). Every file under src/ is measured, not
+ * only the ones the suite happens to import — see `coverage.include` below for
+ * why that direction matters.
  */
 import { coverageConfigDefaults, defineConfig } from "vitest/config";
 
@@ -55,15 +56,26 @@ export default defineConfig({
         // of being invisible to it. These sit just under measured so a
         // regression fails while ordinary movement does not.
         //
-        // The remaining gap to the org floor is: the Slack adapter, the
-        // per-subcommand handlers, the Block Kit builders, the Grafana Cloud
-        // and Linear clients, and the three composition roots (index.ts,
-        // wiring/dependencies.ts, bin/webhook-server.ts). None are excluded —
-        // they count here rather than being hidden.
-        branches: 57, // measured 58.36
-        functions: 59, // measured 60.70
-        lines: 63, // measured 64.48
-        statements: 62, // measured 62.95
+        // All four clear the org floor. What remains uncovered is almost
+        // entirely composition roots — index.ts, wiring/dependencies.ts and
+        // bin/webhook-server.ts — which are deliberately NOT unit-tested, and
+        // that is a decision rather than a backlog item. A composition root's job is
+        // wiring; a unit test that simulates a boot to reach one asserts the
+        // shape of the wiring rather than any behaviour, and goes green when
+        // the wiring is wrong in a way the test also encodes. That raises the
+        // number without raising confidence, which is the failure the Testing
+        // Trophy shape exists to avoid. They are verified by the tiers that
+        // actually boot the process: the integration suite and the scripted
+        // drill (scripts/fire-drill.sh, scripts/ci-drill.sh).
+        //
+        // They stay inside `coverage.include` regardless. Excluding them would
+        // move these numbers by converting a visible, explained gap into an
+        // invisible one, and the point of measuring every file under src/ is
+        // that the denominator tells the truth.
+        branches: 76, // measured 76.46 — org floor 60
+        functions: 79, // measured 79.31 — org floor 75
+        lines: 83, // measured 83.57 — org floor 75
+        statements: 82, // measured 82.18 — org floor 75
 
         // Per-file 100% on the security- and compliance-critical path, above the
         // global floor — the `security-critical-100` rule. These are not

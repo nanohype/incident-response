@@ -16,7 +16,9 @@
 
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { GitHubClient } from "../../src/clients/github-client.js";
+import { GrafanaCloudClient } from "../../src/clients/grafana-cloud-client.js";
 import { GrafanaOnCallClient } from "../../src/clients/grafana-oncall-client.js";
+import { LinearIncidentResponseClient } from "../../src/clients/linear-client.js";
 import { StatuspageClient } from "../../src/clients/statuspage-client.js";
 
 const realFetch = globalThis.fetch;
@@ -215,5 +217,276 @@ describe("GrafanaOnCallClient", () => {
     // Silent stubs are bugs — the IC is told what did and did not happen, so
     // this has to answer honestly rather than always returning true.
     await expect(client().resolveAlertGroup("ag_1")).resolves.toBe(false);
+  });
+});
+
+/**
+ * GrafanaCloudClient — the war-room context snapshot.
+ *
+ * This client is best-effort by design: it fans out to Mimir, Loki and Tempo
+ * with Promise.allSettled, and a dead datasource must cost the IC that one
+ * panel rather than the whole snapshot. These cover the degradation, since the
+ * happy path is the case that never happens during an incident.
+ */
+describe("GrafanaCloudClient — context snapshot degradation", () => {
+  const client = () => new GrafanaCloudClient("https://grafana.example", "org-1", "tok");
+
+  /** Route a stubbed reply per datasource by URL path. */
+  function stubDatasources(replies: { mimir?: Reply; loki?: Reply; tempo?: Reply }) {
+    stubFetch((url) => {
+      if (url.includes("/api/prom")) return replies.mimir ?? { body: mimirValue("0") };
+      if (url.includes("/loki/")) return replies.loki ?? { body: emptyLoki };
+      return replies.tempo ?? { body: { traces: [] } };
+    });
+  }
+
+  const mimirValue = (v: string) => ({
+    status: "success",
+    data: { resultType: "vector", result: [{ metric: {}, value: [1, v] as [number, string] }] },
+  });
+  const emptyLoki = { status: "success", data: { resultType: "streams", result: [] } };
+
+  it("GCC-001: returns a populated snapshot when every datasource answers", async () => {
+    stubDatasources({
+      mimir: { body: mimirValue("0.25") },
+      loki: {
+        body: {
+          status: "success",
+          data: {
+            resultType: "streams",
+            result: [{ stream: {}, values: [["1", "upstream connect error"]] }],
+          },
+        },
+      },
+      tempo: { body: { traces: [{ traceID: "t-1" }] } },
+    });
+
+    const snap = await client().getContextSnapshot("payments", "inc-1");
+
+    expect(snap.error_rate_2h.current).toBe(0.25);
+    expect(snap.log_excerpts).toEqual(["upstream connect error"]);
+    expect(snap.sample_trace_ids).toEqual(["t-1"]);
+    // Both arms of the ratio are the same stub, so the burn rate is 1x.
+    expect(snap.error_budget_burn_rate).toBe(1);
+    expect(snap.datasource_errors).toBeUndefined();
+  });
+
+  it("GCC-002: names the failing datasource rather than dropping the snapshot", async () => {
+    // Loki down. The IC still gets error rate, latency and traces — losing the
+    // log panel must not lose the other three.
+    stubDatasources({ loki: { status: 503 }, tempo: { body: { traces: [{ traceID: "t-9" }] } } });
+
+    const snap = await client().getContextSnapshot("payments", "inc-1");
+
+    expect(snap.sample_trace_ids).toEqual(["t-9"]);
+    expect(snap.log_excerpts).toEqual([]);
+  });
+
+  it("GCC-003: reports zeros rather than guessing when Mimir is unreachable", async () => {
+    stubDatasources({ mimir: { status: 500 } });
+
+    const snap = await client().getContextSnapshot("payments", "inc-1");
+
+    expect(snap.error_rate_2h).toEqual({ current: 0, baseline: 0, series_url: "" });
+    expect(snap.p99_latency_ms).toEqual({ current: 0, baseline: 0 });
+  });
+
+  it("GCC-004: refuses to divide by a zero baseline", async () => {
+    // A brand-new service has no 2h baseline. Dividing by it would report an
+    // infinite burn rate and page on arithmetic rather than on impact.
+    stubDatasources({ mimir: { body: mimirValue("0") } });
+
+    const snap = await client().getContextSnapshot("payments", "inc-1");
+
+    expect(snap.error_budget_burn_rate).toBe(0);
+    expect(Number.isFinite(snap.error_budget_burn_rate)).toBe(true);
+  });
+
+  it("GCC-005: truncates a log line rather than pasting a whole stack into Slack", async () => {
+    stubDatasources({
+      loki: {
+        body: {
+          status: "success",
+          data: {
+            resultType: "streams",
+            result: [{ stream: {}, values: [["1", "x".repeat(500)]] }],
+          },
+        },
+      },
+    });
+
+    const snap = await client().getContextSnapshot("payments", "inc-1");
+
+    expect(snap.log_excerpts[0]).toHaveLength(200);
+  });
+
+  it("GCC-006: caps excerpts at ten and traces at five", async () => {
+    stubDatasources({
+      loki: {
+        body: {
+          status: "success",
+          data: {
+            resultType: "streams",
+            result: [
+              {
+                stream: {},
+                values: Array.from({ length: 25 }, (_, i) => [String(i), `line ${i}`]),
+              },
+            ],
+          },
+        },
+      },
+      tempo: { body: { traces: Array.from({ length: 20 }, (_, i) => ({ traceID: `t-${i}` })) } },
+    });
+
+    const snap = await client().getContextSnapshot("payments", "inc-1");
+
+    expect(snap.log_excerpts).toHaveLength(10);
+    expect(snap.sample_trace_ids).toHaveLength(5);
+  });
+
+  it("GCC-007: treats an unparseable metric value as zero", async () => {
+    // Mimir answering 200 with a non-numeric sample is a malformed upstream,
+    // not a number — NaN here would propagate into the burn rate and the
+    // Slack block.
+    stubDatasources({ mimir: { body: mimirValue("not-a-number") } });
+
+    const snap = await client().getContextSnapshot("payments", "inc-1");
+
+    expect(snap.error_rate_2h.current).toBe(0);
+    expect(Number.isNaN(snap.error_rate_2h.current)).toBe(false);
+  });
+
+  it("GCC-008: scopes every query to the incident's org", async () => {
+    stubDatasources({});
+    await client().getContextSnapshot("payments", "inc-1");
+
+    expect(requests.length).toBeGreaterThan(0);
+    for (const r of requests) {
+      const headers = r.init?.headers as Record<string, string>;
+      expect(headers["X-Scope-OrgID"]).toBe("org-1");
+      expect(headers.Authorization).toBe("Bearer tok");
+    }
+  });
+});
+
+/**
+ * LinearIncidentResponseClient — the postmortem issue.
+ *
+ * `@linear/sdk` builds its own transport from an API key, so unlike the other
+ * clients there is no fetch seam to stand behind: the SDK instance is replaced
+ * on the constructed object, the same way the AI wrapper's Anthropic client is.
+ * The client's own mapping, timeout wrapping and failure decisions all still
+ * run — only the GraphQL round trip is absent.
+ */
+describe("LinearIncidentResponseClient — postmortem creation", () => {
+  const DATE = new Date("2026-08-18T12:00:00.000Z");
+
+  function build(sdk: Record<string, unknown>) {
+    const client = new LinearIncidentResponseClient("key", "proj-1", "team-1");
+    (client as unknown as { client: Record<string, unknown> }).client = sdk;
+    return client;
+  }
+
+  /** An SDK that answers every call this client makes, successfully. */
+  function workingSdk(overrides: Record<string, unknown> = {}) {
+    return {
+      viewer: Promise.resolve({ id: "U-ic" }),
+      issueLabels: vi.fn().mockResolvedValue({ nodes: [{ id: "lbl-1" }] }),
+      createIssueLabel: vi.fn().mockResolvedValue({ issueLabel: Promise.resolve({ id: "lbl-2" }) }),
+      createIssue: vi.fn().mockResolvedValue({
+        issue: Promise.resolve({ id: "iss-1", url: "https://linear.app/iss-1" }),
+      }),
+      ...overrides,
+    };
+  }
+
+  it("LIN-001: returns the created issue with a 48-hour postmortem deadline", async () => {
+    const draft = await build(workingSdk()).createPostmortemDraft(
+      "inc-1",
+      "API error rate breach",
+      "# Postmortem",
+      "U-ic",
+      "war-room",
+      DATE,
+    );
+
+    expect(draft.linear_issue_id).toBe("iss-1");
+    expect(draft.linear_issue_url).toBe("https://linear.app/iss-1");
+    // The title carries the incident date, not the creation date — a postmortem
+    // written three days late still belongs to the day it happened.
+    expect(draft.title).toContain("2026-08-18");
+    const slaHours = (Date.parse(draft.sla_deadline) - Date.parse(draft.created_at)) / 3_600_000;
+    expect(Math.round(slaHours)).toBe(48);
+  });
+
+  it("LIN-002: attaches the postmortem and p1 labels it resolved", async () => {
+    const sdk = workingSdk();
+    await build(sdk).createPostmortemDraft("inc-1", "t", "body", undefined, undefined, DATE);
+
+    const args = (sdk.createIssue as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(args.labelIds).toEqual(["lbl-1", "lbl-1"]);
+    expect(args.teamId).toBe("team-1");
+    expect(args.projectId).toBe("proj-1");
+  });
+
+  it("LIN-003: creates a label that does not exist yet", async () => {
+    const sdk = workingSdk({ issueLabels: vi.fn().mockResolvedValue({ nodes: [] }) });
+    await build(sdk).createPostmortemDraft("inc-1", "t", "body", undefined, undefined, DATE);
+
+    expect(sdk.createIssueLabel).toHaveBeenCalled();
+    const args = (sdk.createIssue as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(args.labelIds).toEqual(["lbl-2", "lbl-2"]);
+  });
+
+  it("LIN-004: still files the postmortem when labelling fails entirely", async () => {
+    // A label is metadata. Losing it must not cost the IC the postmortem
+    // issue, which is the artefact the SLA is measured against.
+    const sdk = workingSdk({
+      issueLabels: vi.fn().mockRejectedValue(new Error("Linear labels down")),
+      createIssueLabel: vi.fn().mockRejectedValue(new Error("Linear labels down")),
+    });
+
+    const draft = await build(sdk).createPostmortemDraft(
+      "inc-1",
+      "t",
+      "body",
+      undefined,
+      undefined,
+      DATE,
+    );
+
+    expect(draft.linear_issue_id).toBe("iss-1");
+    const args = (sdk.createIssue as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(args.labelIds).toBeUndefined();
+  });
+
+  it("LIN-005: omits the assignee rather than inventing one", async () => {
+    // No IC user id means unassigned. Assigning the API token's own viewer
+    // would put the postmortem on whoever owns the integration.
+    const sdk = workingSdk();
+    await build(sdk).createPostmortemDraft("inc-1", "t", "body", undefined, undefined, DATE);
+
+    const args = (sdk.createIssue as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(args.assigneeId).toBeUndefined();
+    expect(sdk.createIssue).toHaveBeenCalledTimes(1);
+  });
+
+  it("LIN-006: raises when Linear accepts the call but returns no issue", async () => {
+    // The caller flips the incident to RESOLVED and tells the IC what landed.
+    // A silent success here would report a postmortem that does not exist.
+    const sdk = workingSdk({ createIssue: vi.fn().mockResolvedValue({ issue: null }) });
+
+    await expect(
+      build(sdk).createPostmortemDraft("inc-1", "t", "body", undefined, undefined, DATE),
+    ).rejects.toThrow(/no issue field/);
+  });
+
+  it("LIN-007: propagates a Linear outage to the caller", async () => {
+    const sdk = workingSdk({ createIssue: vi.fn().mockRejectedValue(new Error("Linear 503")) });
+
+    await expect(
+      build(sdk).createPostmortemDraft("inc-1", "t", "body", undefined, undefined, DATE),
+    ).rejects.toThrow(/Linear 503/);
   });
 });
