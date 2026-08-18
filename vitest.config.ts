@@ -55,17 +55,33 @@ export default defineConfig({
         // of being invisible to it. These sit just under measured so a
         // regression fails while ordinary movement does not.
         //
-        // Branches now clears the org floor of 60 outright. The other three sit
-        // below 75 and the remaining gap is named rather than hidden: the Slack
-        // adapter, the per-subcommand handlers, the Grafana Cloud and Linear
-        // clients, and the three composition roots (index.ts,
-        // wiring/dependencies.ts, bin/webhook-server.ts). None are excluded —
-        // they count against the denominator here rather than disappearing
-        // from it.
-        branches: 64, // measured 64.55 — above the org floor of 60
-        functions: 68, // measured 68.46
-        lines: 73, // measured 73.58
-        statements: 71, // measured 71.72
+        // Statements, lines and branches all clear the org floor. Functions is
+        // the one still under it, and where it sits is a function of two
+        // different things worth separating.
+        //
+        // Ordinary gaps, which more tests would close: the Slack adapter
+        // (src/adapters, 0%) and the per-subcommand handlers (src/commands,
+        // 30.76% functions).
+        //
+        // Composition roots — index.ts, wiring/dependencies.ts and
+        // bin/webhook-server.ts — are deliberately NOT unit-tested, and that is
+        // a decision rather than a backlog item. A composition root's job is
+        // wiring; a unit test that simulates a boot to reach one asserts the
+        // shape of the wiring rather than any behaviour, and goes green when
+        // the wiring is wrong in a way the test also encodes. That raises the
+        // number without raising confidence, which is the failure the Testing
+        // Trophy shape exists to avoid. They are verified by the tiers that
+        // actually boot the process: the integration suite and the scripted
+        // drill (scripts/fire-drill.sh, scripts/ci-drill.sh).
+        //
+        // They stay inside `coverage.include` regardless. Excluding them would
+        // move these numbers by converting a visible, explained gap into an
+        // invisible one, and the point of measuring every file under src/ is
+        // that the denominator tells the truth.
+        branches: 72, // measured 72.62 — clears the org floor of 60
+        functions: 72, // measured 72.79 — the one still under its floor of 75
+        lines: 79, // measured 79.69 — clears the org floor of 75
+        statements: 78, // measured 78.35 — clears the org floor of 75
 
         // Per-file 100% on the security- and compliance-critical path, above the
         // global floor — the `security-critical-100` rule. These are not
