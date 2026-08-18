@@ -14,7 +14,12 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { awsRegion } from "../../src/utils/env.js";
+import {
+  awsRegion,
+  REQUIRED_ENV_SHARED,
+  REQUIRED_ENV_WEBHOOK,
+  requiredEnv,
+} from "../../src/utils/env.js";
 
 describe("awsRegion", () => {
   const ORIGINAL = process.env.AWS_REGION;
@@ -43,5 +48,51 @@ describe("awsRegion", () => {
     // error that names the SDK instead of the misconfiguration.
     process.env.AWS_REGION = "";
     expect(() => awsRegion()).toThrow(/AWS_REGION is not set/);
+  });
+});
+
+describe("requiredEnv", () => {
+  const NAME = "INCIDENT_RESPONSE_TEST_ONLY_VAR";
+
+  afterEach(() => {
+    delete process.env[NAME];
+  });
+
+  it("returns the value when it is set", () => {
+    process.env[NAME] = "value";
+    expect(requiredEnv(NAME)).toBe("value");
+  });
+
+  it("throws naming the variable when it is unset", () => {
+    delete process.env[NAME];
+    // The name is in the message because the caller is usually a config
+    // mistake in a manifest, not a bug in the code that read it.
+    expect(() => requiredEnv(NAME)).toThrow(new RegExp(`${NAME} is not set`));
+  });
+
+  it("treats an empty value as unset", () => {
+    process.env[NAME] = "";
+    expect(() => requiredEnv(NAME)).toThrow(new RegExp(`${NAME} is not set`));
+  });
+});
+
+describe("entrypoint env contracts", () => {
+  it("requires the webhook's HMAC secret id on the webhook only", () => {
+    // The webhook fetches that secret through its own pod grant; the processor
+    // never verifies a Grafana signature and has no such grant.
+    expect(REQUIRED_ENV_WEBHOOK).toContain("GRAFANA_ONCALL_HMAC_SECRET_ID");
+    expect(REQUIRED_ENV_SHARED).not.toContain("GRAFANA_ONCALL_HMAC_SECRET_ID");
+  });
+
+  it("holds the webhook to at least everything the processor requires", () => {
+    // The asymmetry this guards against is the one that shipped: the processor
+    // validated its environment and the webhook validated nothing, so the
+    // webhook booted healthy with a dead Slack surface. Both entrypoints build
+    // the same dependency graph, so neither may require less than the other.
+    for (const v of REQUIRED_ENV_SHARED) expect(REQUIRED_ENV_WEBHOOK).toContain(v);
+  });
+
+  it("names no variable twice", () => {
+    expect(new Set(REQUIRED_ENV_WEBHOOK).size).toBe(REQUIRED_ENV_WEBHOOK.length);
   });
 });

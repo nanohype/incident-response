@@ -16,35 +16,13 @@ import * as http from "node:http";
 import { config } from "./config/index.js";
 import { createMcpHttpServer } from "./mcp/server.js";
 import { SqsConsumer } from "./services/sqs-consumer.js";
-import { requireEnv } from "./utils/env.js";
+import { REQUIRED_ENV_SHARED, requireEnv } from "./utils/env.js";
 import { stringifyError } from "./utils/errors.js";
 import { logger } from "./utils/logger.js";
 import { buildDependencies } from "./wiring/dependencies.js";
 import { buildIncidentEventRegistry, buildNudgeEventRegistry } from "./wiring/events.js";
 
-requireEnv([
-  "SLACK_BOT_TOKEN",
-  "SLACK_SIGNING_SECRET",
-  "GRAFANA_ONCALL_TOKEN",
-  "GRAFANA_CLOUD_TOKEN",
-  "GRAFANA_CLOUD_ORG_ID",
-  "STATUSPAGE_API_KEY",
-  "STATUSPAGE_PAGE_ID",
-  "LINEAR_API_KEY",
-  "LINEAR_PROJECT_ID",
-  "LINEAR_TEAM_ID",
-  "WORKOS_API_KEY",
-  "WORKOS_DIRECTORY_ID",
-  "INCIDENTS_TABLE_NAME",
-  "AUDIT_TABLE_NAME",
-  "INCIDENT_EVENTS_QUEUE_URL",
-  "NUDGE_EVENTS_QUEUE_URL",
-  "NUDGE_EVENTS_QUEUE_ARN",
-  "SLA_CHECK_QUEUE_URL",
-  "SCHEDULER_ROLE_ARN",
-  "SCHEDULER_GROUP_NAME",
-  "AWS_REGION",
-]);
+requireEnv(REQUIRED_ENV_SHARED);
 
 const deps = buildDependencies();
 const incidentEvents = buildIncidentEventRegistry(deps);
