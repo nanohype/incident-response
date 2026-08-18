@@ -131,4 +131,40 @@ describe("MetricsEmitter", () => {
     expect(dps).toHaveLength(2);
     expect(dps.map((d) => d.attrs.outcome).sort()).toEqual(["failed", "published"]);
   });
+
+  it("METRICS-007: count adds the given amount rather than 1", async () => {
+    // The distinction that makes token metering possible: a call is one event
+    // but hundreds of tokens, and counting events cannot be turned into spend.
+    emitter.count(MetricNames.ModelInputTokens, 1200);
+    emitter.count(MetricNames.ModelInputTokens, 300);
+    const dps = await collect();
+    const c = dps.find((d) => d.name === "incident_response.model_input_tokens");
+    expect(c).toBeDefined();
+    expect(c!.kind).toBe("counter");
+    expect(c!.value).toBe(1500);
+  });
+
+  it("METRICS-008: count drops NaN rather than poisoning the series", async () => {
+    // One NaN makes every downstream sum and rate over this series NaN, so it
+    // is refused at the emitter rather than recorded.
+    emitter.count(MetricNames.ModelOutputTokens, Number.NaN);
+    const dps = await collect();
+    expect(dps.find((d) => d.name === "incident_response.model_output_tokens")).toBeUndefined();
+  });
+
+  it("METRICS-009: count drops negatives, which a monotonic counter cannot hold", async () => {
+    emitter.count(MetricNames.ModelOutputTokens, -5);
+    const dps = await collect();
+    expect(dps.find((d) => d.name === "incident_response.model_output_tokens")).toBeUndefined();
+  });
+
+  it("METRICS-010: count records a legitimate zero", async () => {
+    // Zero is not absent: a fully cached call really did read zero fresh input
+    // tokens, and suppressing it would hide the cache working.
+    emitter.count(MetricNames.ModelCacheWriteTokens, 0);
+    const dps = await collect();
+    const c = dps.find((d) => d.name === "incident_response.model_cache_write_tokens");
+    expect(c).toBeDefined();
+    expect(c!.value).toBe(0);
+  });
 });
