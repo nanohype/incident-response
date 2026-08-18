@@ -131,7 +131,7 @@ export function buildDependencies(): Dependencies {
     awsRegion,
     process.env.SCHEDULER_GROUP_NAME!,
   );
-  const incidentResponseAI = new IncidentResponseAI(config.MODEL_GATEWAY_ENDPOINT);
+  const incidentResponseAI = new IncidentResponseAI(config.MODEL_GATEWAY_ENDPOINT, metrics);
   const slackWebClient = new WebClient(process.env.SLACK_BOT_TOKEN, { timeout: 10000 });
   const slackAdapter = createSlackAdapter(slackWebClient);
   const approvalGate = new StatuspageApprovalGate(

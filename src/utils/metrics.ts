@@ -61,6 +61,21 @@ export class MetricsEmitter {
   }
 
   /**
+   * Add an arbitrary amount to a counter.
+   *
+   * Distinct from `increment` because token counts are quantities, not events:
+   * a single model call contributes hundreds of input tokens, and counting the
+   * call rather than the tokens gives a rate that cannot be turned into spend.
+   * Non-finite and negative values are dropped rather than recorded — a
+   * monotonic counter cannot represent them, and a NaN poisons the series for
+   * every query that touches it.
+   */
+  count(metricName: string, value: number, dimensions: MetricDimension[] = []): void {
+    if (!Number.isFinite(value) || value < 0) return;
+    this.metrics.counter(metricName, value, toAttributes(dimensions));
+  }
+
+  /**
    * Record a duration in SECONDS. Routes to a histogram with unit `s`.
    *
    * `boundaries` is not optional in practice for anything that can run longer
@@ -111,4 +126,16 @@ export const MetricNames = {
   HttpErrorCount: "http_error_count",
   CircuitOpenCount: "circuit_open_count",
   CircuitOpenRejectCount: "circuit_open_reject_count",
+
+  // Model usage, dimensioned by ModelGateway route (`default` / `light`) and
+  // outcome. The BudgetPolicy kill-switch is a platform-layer ceiling on the
+  // whole tenant; these are the per-request attribution under it, which is what
+  // answers "which route spent it" rather than only "the tenant spent it".
+  // Separate cache series because a cache read is an order of magnitude cheaper
+  // than a fresh input token, so summing them would misstate cost.
+  ModelInvocationCount: "model_invocation_count",
+  ModelInputTokens: "model_input_tokens",
+  ModelOutputTokens: "model_output_tokens",
+  ModelCacheReadTokens: "model_cache_read_tokens",
+  ModelCacheWriteTokens: "model_cache_write_tokens",
 } as const;

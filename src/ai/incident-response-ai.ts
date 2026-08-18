@@ -25,6 +25,7 @@ import { config } from "../config/index.js";
 import type { GrafanaContextSnapshot, GrafanaOnCallAlertPayload } from "../types/index.js";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
+import { MetricNames, type MetricsEmitter } from "../utils/metrics.js";
 import { fenceUntrusted, normalizeDelimiters } from "../vendor/runtime/guardrails.js";
 import { redact } from "../vendor/runtime/pii.js";
 
@@ -136,8 +137,15 @@ export interface PostmortemInput {
 
 export class IncidentResponseAI {
   private readonly model: Anthropic;
+  private readonly metrics: MetricsEmitter | undefined;
 
-  constructor(gatewayEndpoint: string) {
+  /**
+   * `metrics` is optional so a caller that only wants generation — a test, a
+   * script — does not have to stand up an emitter. Production wires one in
+   * `wiring/dependencies.ts`; without it, usage simply goes unrecorded rather
+   * than failing the call.
+   */
+  constructor(gatewayEndpoint: string, metrics?: MetricsEmitter) {
     this.model = new Anthropic({
       baseURL: anthropicBaseUrl(gatewayEndpoint),
       // The gateway authenticates to Bedrock with its own Pod Identity
@@ -145,6 +153,42 @@ export class IncidentResponseAI {
       apiKey: "unused-the-gateway-holds-the-credential",
       timeout: 10_000,
     });
+    this.metrics = metrics;
+  }
+
+  /**
+   * Record what one model call consumed, dimensioned by route.
+   *
+   * Emission is best-effort and must never turn a successful draft into a
+   * failed one, so a broken emitter is swallowed here rather than propagated:
+   * the caller is holding a generated postmortem at this point, and losing it
+   * to a metrics bug would be the more expensive failure.
+   *
+   * `usage` is read defensively. The cache fields are only present when the
+   * system prompt actually hit the cache, and a gateway that declines to
+   * report usage at all should cost nothing.
+   */
+  private recordUsage(route: string, usage: Anthropic.Usage | undefined): void {
+    if (!this.metrics) return;
+    const dims = [{ name: "route", value: route }];
+    try {
+      this.metrics.increment(MetricNames.ModelInvocationCount, dims);
+      if (!usage) return;
+      this.metrics.count(MetricNames.ModelInputTokens, usage.input_tokens, dims);
+      this.metrics.count(MetricNames.ModelOutputTokens, usage.output_tokens, dims);
+      this.metrics.count(
+        MetricNames.ModelCacheReadTokens,
+        usage.cache_read_input_tokens ?? 0,
+        dims,
+      );
+      this.metrics.count(
+        MetricNames.ModelCacheWriteTokens,
+        usage.cache_creation_input_tokens ?? 0,
+        dims,
+      );
+    } catch (err) {
+      logger.debug({ route, error: stringifyError(err) }, "Model usage metric emission failed");
+    }
   }
 
   async generateStatusDraft(
@@ -287,6 +331,10 @@ export class IncidentResponseAI {
       system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: userContent }],
     });
+    // Before the content check below: a response that spent tokens and then
+    // returned no text block still cost money, and a route that fails this way
+    // is exactly the one worth seeing in the series.
+    this.recordUsage(route, resp.usage);
     // The content array is a union of block kinds, so the text block is found
     // rather than assumed to be first.
     const text = resp.content.find((c) => c.type === "text");
