@@ -15,7 +15,7 @@ import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { GrafanaOnCallPayloadSchema } from "../types/index.js";
 import { boundedRequestHandler } from "../utils/aws-http.js";
-import { awsRegion } from "../utils/env.js";
+import { awsRegion, requiredEnv } from "../utils/env.js";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 import { injectSqsTraceAttributes } from "../utils/tracing.js";
@@ -155,7 +155,10 @@ export const handler = async (event: WebhookRequest): Promise<WebhookResponse> =
   try {
     await docClient.send(
       new PutCommand({
-        TableName: process.env.INCIDENTS_TABLE_NAME ?? "incident-response-incidents",
+        // No fallback table name: guessing one sends the incident record to a
+        // table nobody reads, and the write succeeds, so the failure surfaces
+        // only when someone goes looking for an incident that was accepted.
+        TableName: requiredEnv("INCIDENTS_TABLE_NAME"),
         Item: {
           PK: `INCIDENT#${alertGroupId}`,
           SK: "METADATA",
