@@ -287,23 +287,26 @@ describe("webhook ingress — malformed requests", () => {
     expect(response.statusCode).toBe(401);
   });
 
-  it("falls back to the default table name when the env var is unset", async () => {
+  it("refuses to write the incident anywhere when the table name is unset", async () => {
     // delete, not `= undefined`: assigning undefined stores the *string*
-    // "undefined", which is not nullish, so the ?? default would never be
-    // reached and this test would assert nothing.
+    // "undefined", which is truthy, so the guard would never fire and this test
+    // would assert nothing.
+    //
+    // A fallback table name was the worse failure: the write SUCCEEDS against a
+    // table nothing reads, the webhook answers 200, and Grafana OnCall records
+    // the P1 as delivered. Nobody learns the incident is missing until someone
+    // goes looking for it. Refusing keeps the failure at the moment it happens.
     const previous = process.env.INCIDENTS_TABLE_NAME;
     delete process.env.INCIDENTS_TABLE_NAME;
     ddbMock.on(PutCommand).resolves({});
     sqsMock.on(SendMessageCommand).resolves({ MessageId: "m-1" });
 
     try {
-      const body = JSON.stringify(firingPayload("alert-group-default-table"));
-      const response = await handler(signedEvent(body));
+      const body = JSON.stringify(firingPayload("alert-group-no-table"));
 
-      expect(response.statusCode).toBe(200);
-      expect(ddbMock.commandCalls(PutCommand)[0].args[0].input.TableName).toBe(
-        "incident-response-incidents",
-      );
+      await expect(handler(signedEvent(body))).rejects.toThrow(/INCIDENTS_TABLE_NAME is not set/);
+      // Nothing was written, rather than written somewhere unintended.
+      expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
     } finally {
       if (previous !== undefined) process.env.INCIDENTS_TABLE_NAME = previous;
     }

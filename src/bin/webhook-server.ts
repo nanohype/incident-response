@@ -27,13 +27,25 @@ import {
 } from "../handlers/slack-interactions.js";
 import { verifySlackSignature } from "../handlers/slack-signature.js";
 import { handler, type WebhookResponse } from "../handlers/webhook-ingress.js";
+import { REQUIRED_ENV_WEBHOOK, requireEnv, requiredEnv } from "../utils/env.js";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 import { buildCommandRegistry } from "../wiring/commands.js";
 import { buildDependencies } from "../wiring/dependencies.js";
 
+// Before anything is constructed. Without this the Deployment booted, passed
+// its probes, and answered every Slack request with a signature failure —
+// verifySlackSignature rejects an empty secret, so the surface was dead rather
+// than open, but dead while reporting healthy. A missing variable has to stop
+// the pod, not degrade it silently.
+//
+// AWS_REGION is in this list and also enforced inside awsRegion(), because
+// handlers/webhook-ingress constructs its clients at module load — that import
+// runs before this statement, so the accessor is what actually guards it here.
+requireEnv(REQUIRED_ENV_WEBHOOK);
+
 const PORT = Number.parseInt(process.env.PORT ?? "3001", 10);
-const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET ?? "";
+const SLACK_SIGNING_SECRET = requiredEnv("SLACK_SIGNING_SECRET");
 
 // Slack Request URLs served by this Deployment.
 const SLACK_COMMANDS_PATH = "/slack/commands";
