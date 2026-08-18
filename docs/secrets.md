@@ -119,7 +119,7 @@ LOKI_HOST=logs-prod-XXX.grafana.net        # from your stack's Loki panel
 BASIC_AUTH=$(printf '%s:%s' "$OTLP_INSTANCE_ID" "$OTLP_API_TOKEN" | base64)
 
 aws secretsmanager create-secret \
-  --region us-west-2 \
+  --region us-east-1 \
   --name incident-response/staging/grafana-cloud/otlp-auth \
   --description 'Grafana Cloud (staging): OTLP + Loki + pre-computed basic_auth for an authenticated OTLP gateway.' \
   --secret-string "{
@@ -169,62 +169,62 @@ If you need to rotate one key from a machine without the repo checked out, the r
 ENV=staging                                           # or: production
 
 aws secretsmanager put-secret-value \
-  --region us-west-2 \
+  --region us-east-1 \
   --secret-id incident-response/${ENV}/slack/bot-token \
   --secret-string 'xoxb-...'
 
 aws secretsmanager put-secret-value \
-  --region us-west-2 \
+  --region us-east-1 \
   --secret-id incident-response/${ENV}/slack/signing-secret \
   --secret-string '...'
 
 aws secretsmanager put-secret-value \
-  --region us-west-2 \
+  --region us-east-1 \
   --secret-id incident-response/${ENV}/grafana/oncall-token \
   --secret-string '...'
 
 aws secretsmanager put-secret-value \
-  --region us-west-2 \
+  --region us-east-1 \
   --secret-id incident-response/${ENV}/grafana/cloud-token \
   --secret-string 'glc_...'
 
 aws secretsmanager put-secret-value \
-  --region us-west-2 \
+  --region us-east-1 \
   --secret-id incident-response/${ENV}/grafana/cloud-org-id \
   --secret-string '123456'
 
 aws secretsmanager put-secret-value \
-  --region us-west-2 \
+  --region us-east-1 \
   --secret-id incident-response/${ENV}/statuspage/api-key \
   --secret-string '...'
 
 aws secretsmanager put-secret-value \
-  --region us-west-2 \
+  --region us-east-1 \
   --secret-id incident-response/${ENV}/statuspage/page-id \
   --secret-string '...'
 
 aws secretsmanager put-secret-value \
-  --region us-west-2 \
+  --region us-east-1 \
   --secret-id incident-response/${ENV}/github/token \
   --secret-string 'ghp_...'
 
 aws secretsmanager put-secret-value \
-  --region us-west-2 \
+  --region us-east-1 \
   --secret-id incident-response/${ENV}/linear/api-key \
   --secret-string 'lin_api_...'
 
 aws secretsmanager put-secret-value \
-  --region us-west-2 \
+  --region us-east-1 \
   --secret-id incident-response/${ENV}/linear/project-id \
   --secret-string '...'
 
 aws secretsmanager put-secret-value \
-  --region us-west-2 \
+  --region us-east-1 \
   --secret-id incident-response/${ENV}/workos/api-key \
   --secret-string 'sk_live_...'
 
 aws secretsmanager put-secret-value \
-  --region us-west-2 \
+  --region us-east-1 \
   --secret-id incident-response/${ENV}/grafana/oncall-webhook-hmac \
   --secret-string "$(openssl rand -base64 32)"   # generate a fresh random secret
 # — then paste the same value into Grafana OnCall → Webhook integration → Signing secret
@@ -244,7 +244,7 @@ Secrets Manager overwrites the previous value on `put-secret-value` (with a vers
 ENV=staging
 
 aws secretsmanager put-secret-value \
-  --region us-west-2 \
+  --region us-east-1 \
   --secret-id incident-response/${ENV}/statuspage/api-key \
   --secret-string '<new-value>'
 

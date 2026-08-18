@@ -57,7 +57,7 @@ describe("StatuspageApprovalGate — SECURITY CRITICAL", () => {
     } as unknown as Mocked<StatuspageClient>;
 
     gate = new StatuspageApprovalGate(
-      DynamoDBDocumentClient.from(new DynamoDBClient({ region: "us-west-2" })),
+      DynamoDBDocumentClient.from(new DynamoDBClient({ region: "us-east-1" })),
       TABLE_NAME,
       mockAuditWriter,
       mockStatuspageClient,

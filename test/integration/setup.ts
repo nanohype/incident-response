@@ -16,7 +16,7 @@ const ENDPOINT = process.env.DDB_LOCAL_ENDPOINT ?? "http://localhost:8000";
 
 export const ddbLocalClient = new DynamoDBClient({
   endpoint: ENDPOINT,
-  region: "us-west-2",
+  region: "us-east-1",
   credentials: { accessKeyId: "fake", secretAccessKey: "fake" },
 });
 

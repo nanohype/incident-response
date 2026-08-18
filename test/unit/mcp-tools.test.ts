@@ -29,7 +29,7 @@ interface Fakes extends McpToolDeps {
 }
 
 function mkDeps(): Fakes {
-  const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "us-west-2" }));
+  const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "us-east-1" }));
   return {
     docClient,
     incidentsTableName: "incidents",

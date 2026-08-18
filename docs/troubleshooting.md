@@ -125,7 +125,7 @@ If the probe still fails, the app isn't reaching `listen` — check the startup 
 Quick diagnosis — check whether the approval row exists:
 
 ```bash
-aws dynamodb query --region us-west-2 --table-name incident-response-{env}-audit \
+aws dynamodb query --region us-east-1 --table-name incident-response-{env}-audit \
   --key-condition-expression 'PK = :pk' \
   --expression-attribute-values '{":pk":{"S":"INCIDENT#<incident-id>"}}' \
   --query 'Items[*].[timestamp.S,action_type.S]' --output table
@@ -204,7 +204,7 @@ Three distinct causes — check in this order:
 
 2. **Secret is scheduled for deletion.** `describe-secret` succeeds but shows `DeletedDate`. Restore:
    ```bash
-   aws secretsmanager restore-secret --region us-west-2 \
+   aws secretsmanager restore-secret --region us-east-1 \
      --secret-id incident-response/{env}/<name>
    ```
 
@@ -253,7 +253,7 @@ Both should reference the same AWS account ID — the one the cluster's `inciden
 
 **Cause:** AWS Bedrock requires Claude 4.x-family models to be invoked through a **cross-region inference profile** when using on-demand throughput. Direct foundation-model invocation only works with provisioned-throughput commitments (pre-purchased capacity, $$). The app uses on-demand throughput — the cheap path for bursty incident volume.
 
-**Fix:** in `src/ai/incident-response-ai.ts`, switch the model IDs from foundation-model names to inference-profile IDs. For the US geo (us-west-2, us-east-1, us-east-2):
+**Fix:** in `src/ai/incident-response-ai.ts`, switch the model IDs from foundation-model names to inference-profile IDs. For the US geo (us-east-1, us-east-2, us-west-2):
 
 ```ts
 const SONNET_MODEL_ID = 'us.anthropic.claude-sonnet-4-6';
@@ -285,7 +285,7 @@ arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0
 **Fix:** get the team UUID via the GraphQL API and reseed:
 
 ```bash
-LINEAR_KEY=$(aws secretsmanager get-secret-value --region us-west-2 \
+LINEAR_KEY=$(aws secretsmanager get-secret-value --region us-east-1 \
   --secret-id incident-response/{env}/linear/api-key --query SecretString --output text)
 
 curl -sS -X POST https://api.linear.app/graphql \
@@ -293,7 +293,7 @@ curl -sS -X POST https://api.linear.app/graphql \
   -d '{"query":"{ teams { nodes { id key name } } }"}' | jq '.data.teams.nodes'
 
 # Find the team you want, copy its `id` field, then:
-aws secretsmanager put-secret-value --region us-west-2 \
+aws secretsmanager put-secret-value --region us-east-1 \
   --secret-id incident-response/{env}/linear/team-id \
   --secret-string '<the-UUID>'
 
@@ -353,7 +353,7 @@ kubectl -n tenants-incident-response get deploy incident-response-processor \
 kubectl -n tenants-incident-response logs deploy/incident-response-processor --since=5m
 
 # What's in the queue?
-aws sqs get-queue-attributes --region us-west-2 \
+aws sqs get-queue-attributes --region us-east-1 \
   --queue-url <IncidentEventsQueueUrl> \
   --attribute-names ApproximateNumberOfMessages,ApproximateNumberOfMessagesNotVisible
 

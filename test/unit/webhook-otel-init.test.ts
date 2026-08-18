@@ -46,7 +46,7 @@ describe("initOtelIfNeeded", () => {
 
   it("OTEL-INIT-002: returns false when OTLP endpoint is missing", async () => {
     process.env.GRAFANA_CLOUD_OTLP_SECRET_ARN =
-      "arn:aws:secretsmanager:us-west-2:111111111111:secret:incident-response/staging/grafana-cloud/otlp-auth-abc";
+      "arn:aws:secretsmanager:us-east-1:111111111111:secret:incident-response/staging/grafana-cloud/otlp-auth-abc";
     const started = await initOtelIfNeeded();
     expect(started).toBe(false);
     expect(smMock.calls()).toHaveLength(0);

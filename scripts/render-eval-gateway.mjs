@@ -108,7 +108,7 @@ function effectiveModelID(route) {
 }
 
 function parseArgs(argv) {
-  const args = { region: process.env.EVAL_REGION || "us-west-2" };
+  const args = { region: process.env.EVAL_REGION || "us-east-1" };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--region") {
       const next = argv[++i];

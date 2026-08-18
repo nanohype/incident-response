@@ -23,7 +23,7 @@ set -euo pipefail
 ENVIRONMENT="staging"
 USER_ID="${SLACK_USER_ID:-}"
 MAX_AGE_SEC=120
-REGION="${AWS_REGION:-us-west-2}"
+REGION="${AWS_REGION:-us-east-1}"
 
 usage() {
   cat <<EOF

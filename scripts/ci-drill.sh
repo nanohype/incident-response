@@ -14,7 +14,7 @@
 #   - DDB incident row is deleted (keeps the environment tidy for repeated runs)
 #
 # Env:
-#   AWS_REGION          default us-west-2
+#   AWS_REGION          default us-east-1
 #   ENVIRONMENT         default staging
 #   POLL_SEC            default 90 — how long to wait for ROOM_ASSEMBLED
 #   DRILL_WEBHOOK_HOST_<ENV>
@@ -34,7 +34,7 @@
 set -euo pipefail
 
 ENVIRONMENT="${ENVIRONMENT:-staging}"
-REGION="${AWS_REGION:-us-west-2}"
+REGION="${AWS_REGION:-us-east-1}"
 POLL_SEC="${POLL_SEC:-90}"
 
 INCIDENTS_TABLE="incident-response-${ENVIRONMENT}-incidents"

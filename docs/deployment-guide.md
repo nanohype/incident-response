@@ -222,7 +222,7 @@ for s in slack/bot-token slack/signing-secret grafana/oncall-token \
          grafana/cloud-token grafana/cloud-org-id statuspage/api-key statuspage/page-id \
          github/token linear/api-key linear/project-id linear/team-id workos/api-key \
          grafana/oncall-webhook-hmac grafana-cloud/otlp-auth; do
-  aws secretsmanager delete-secret --region us-west-2 \
+  aws secretsmanager delete-secret --region us-east-1 \
     --secret-id "incident-response/${ENV}/$s" --force-delete-without-recovery
 done
 ```

@@ -12,7 +12,7 @@
 #   scripts/observe-incident.sh --env staging --latest
 #
 # For a live tail of the processor's stderr, run in another pane:
-#   aws logs tail /incident-response/staging/processor --region us-west-2 --follow
+#   aws logs tail /incident-response/staging/processor --region us-east-1 --follow
 #
 # Requires: aws CLI, jq.
 set -euo pipefail
@@ -20,7 +20,7 @@ set -euo pipefail
 ENVIRONMENT="staging"
 INCIDENT_ID=""
 LATEST=0
-REGION="${AWS_REGION:-us-west-2}"
+REGION="${AWS_REGION:-us-east-1}"
 
 while (( $# > 0 )); do
   case "$1" in

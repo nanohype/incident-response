@@ -20,7 +20,7 @@ import type { McpToolDeps } from "../../src/mcp/tools.js";
 const ddbMock = mockClient(DynamoDBDocumentClient);
 
 function makeDeps(): McpToolDeps {
-  const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "us-west-2" }));
+  const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "us-east-1" }));
   return {
     docClient,
     incidentsTableName: "incidents",

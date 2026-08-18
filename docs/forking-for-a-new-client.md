@@ -8,7 +8,7 @@ Budget ~2 hours end-to-end: 30 min for third-party account setup, 30 min for loc
 
 Have ready:
 
-- An AWS account + region you own (defaults to `us-west-2`; set `AWS_REGION` for the cluster + substrate).
+- An AWS account + region you own (defaults to `us-east-1`; set `AWS_REGION` for the cluster + substrate).
 - A cluster running the `eks-agent-platform` operator, with `kubectl` + `helm` context on it.
 - Admin access to a Slack workspace where you can create an app.
 - Access to Grafana Cloud (OnCall for the alert source, plus the Mimir/Loki/Tempo stack the war-room context snapshot reads) — a free tier works for drills. This is the app's upstream, not where its own telemetry lands: that goes to the cluster's OpenTelemetry Collector → Tempo / AMP / Loki.

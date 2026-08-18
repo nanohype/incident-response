@@ -216,13 +216,17 @@ networkPolicy:
 
 env:
   # Where this tenant's substrate lives. landing-zone provisions the
-  # tenant-substrate component — DynamoDB tables, SQS queues,
-  # Secrets Manager tree, EventBridge Scheduler group — in us-west-2 for all
-  # three environments, so this is base rather than per-env; the source
-  # defaults to the same region. A per-env deployment on a different region
-  # overrides it in that environment's values file, together with the
-  # tenantInfra names it goes with.
-  AWS_REGION: us-west-2
+  # tenant-substrate component — DynamoDB tables, SQS queues, Secrets Manager
+  # tree, EventBridge Scheduler group — in us-east-1 for all three
+  # environments, so this is base rather than per-env; the source defaults to
+  # the same region.
+  #
+  # us-east-1 is not a preference, it is the only region this account can
+  # reach: the `guardrail-region-lock` SCP on the Ventures OU denies every
+  # non-global action where aws:RequestedRegion != us-east-1. Overriding this
+  # per-env does not widen that — it produces an explicit deny naming the
+  # policy at the first SDK call.
+  AWS_REGION: us-east-1
   # The Platform's ModelGateway. The operator derives this from the Platform name
   # and publishes it on ModelGateway.status.endpoint; the app holds no AWS model
   # credential and reaches Bedrock only through here.
