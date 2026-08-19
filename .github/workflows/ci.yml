@@ -40,7 +40,18 @@ jobs:
       # TS and JSON to biome, and Make requires tabs for recipes and spaces for
       # the continuation lines inside them. A second opinion there would either
       # be wrong or demand churn, so this gate takes the rules nothing else owns.
-      - run: npm run editorconfig
+      #
+      # The npm package is a shim, not the checker: on first run it resolves the
+      # real binary through the GitHub releases API with an Octokit client built
+      # as `new X({ auth: process.env.GITHUB_TOKEN })`. Unset, that call goes out
+      # unauthenticated and is rate-limited per source IP — which on a hosted
+      # runner is shared with every other Actions customer on that host, so this
+      # step's outcome would depend on strangers' traffic in the preceding hour.
+      # The token proves who is asking; it grants nothing beyond the default
+      # read permission this workflow already has.
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run editorconfig
 
   build:
     name: Build
