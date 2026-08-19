@@ -249,30 +249,48 @@ Both should reference the same AWS account ID — the one the cluster's `inciden
 
 ## Bedrock errors
 
-### `Invocation of model ID anthropic.claude-sonnet-4-6 with on-demand throughput isn't supported. Retry your request with the ID or ARN of an inference profile that contains this model.`
+### `Invocation of model ID anthropic.claude-sonnet-5 with on-demand throughput isn't supported. Retry your request with the ID or ARN of an inference profile that contains this model.`
 
 **Cause:** AWS Bedrock requires Claude 4.x-family models to be invoked through a **cross-region inference profile** when using on-demand throughput. Direct foundation-model invocation only works with provisioned-throughput commitments (pre-purchased capacity, $$). The app uses on-demand throughput — the cheap path for bursty incident volume.
 
-**Fix:** in `src/ai/incident-response-ai.ts`, switch the model IDs from foundation-model names to inference-profile IDs. For the US geo (us-east-1, us-east-2, us-west-2):
+**First: this should not be reachable as configured.** Both routes already declare
+a `crossRegionProfile`, so the gateway sends the `us.`-prefixed profile id
+upstream rather than the bare foundation-model id. Seeing this error means the
+CR was changed, not that the app needs a fix.
 
-```ts
-const SONNET_MODEL_ID = 'us.anthropic.claude-sonnet-4-6';
-const HAIKU_MODEL_ID  = 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
-```
+**Do not look in `src/ai/incident-response-ai.ts`.** It holds no model ids at
+all — by design. The app names ModelGateway *routes* (`default`, `light`) and
+the gateway resolves them, so pinning a model is a CR edit rather than an app
+redeploy. There is nothing to change in application code, and adding a model id
+there would put it in the one layer built to not have one.
 
-The `us.` prefix is the cross-region inference profile for the US — AWS routes each request across multiple regions for capacity availability. Equivalent profiles exist for EU (`eu.`) and APAC (`apac.`).
+**Fix, both in `platform.yaml`:**
 
-**Also update the IAM policy** in `landing-zone tenant-substrate`. The role's `bedrock:InvokeModel` permission needs:
+1. The `ModelGateway` route — set `crossRegionProfile` to the inference-profile
+   id for the geo. The `us.` prefix routes each request across the US regions
+   for capacity; `eu.` and `apac.` are the equivalents elsewhere.
 
-```
-# The inference-profile ARNs
-arn:aws:bedrock:<region>:<account>:inference-profile/us.anthropic.claude-sonnet-4-6
-arn:aws:bedrock:<region>:<account>:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0
-# The underlying foundation models the profile routes to — wildcard region
-# because the profile hits multiple regions.
-arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6
-arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0
-```
+   ```yaml
+   - name: default
+     modelId: anthropic.claude-sonnet-5
+     crossRegionProfile: us.anthropic.claude-sonnet-5
+   ```
+
+2. `Platform.spec.identity.allowedModels` — the same id. The
+   `eks-agent-platform` operator clamps `bedrock:InvokeModel` on the tenant role
+   to exactly this list via its `bedrock-model-scoping` inline policy, so a
+   profile the gateway sends but the list omits fails with AccessDenied instead.
+   This is *not* a `landing-zone` edit: the tenant role's model grant is
+   reconciled by the operator from this field.
+
+   ```yaml
+   allowedModels:
+     - us.anthropic.claude-sonnet-5
+     - us.anthropic.claude-haiku-4-5-20251001-v1:0
+   ```
+
+Undated ids cover the dated snapshots the routes pin — the expansion wildcards
+the suffix — so the two lists agree without restating every snapshot.
 
 **Degraded fallback:** `IncidentResponseAI.generatePostmortemSections()` has an inline fallback template that renders a skeleton postmortem when Bedrock fails. An incident resolve with Bedrock failing still produces a Linear issue, but the issue body is generic. Look for `"Bedrock postmortem failed — returning template"` in the processor logs.
 
