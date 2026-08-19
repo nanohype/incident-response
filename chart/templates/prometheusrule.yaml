@@ -34,7 +34,7 @@ spec:
           annotations:
             summary: IncidentResponse P99 war-room assembly exceeds 5-minute SLO
             description: |
-              P99 assembly duration over the last 5 minutes is {{ "{{" }} $value | printf "%.0f" {{ "}}" }} ms (>300000 ms).
+              P99 assembly duration over the last 5 minutes is {{ "{{" }} $value | humanizeDuration {{ "}}" }} (SLO: 5 min).
               Runbook: artifacts/runbook.md § "SLO breach — assembly latency"
 
         - alert: IncidentResponseDirectoryLookupFailureSpike
