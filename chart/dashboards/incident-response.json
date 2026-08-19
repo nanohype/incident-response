@@ -16,11 +16,11 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "War Room Assembly Duration — p50 / p99 (ms)",
-      "description": "SLO: p99 ≤ 5 min (300 s). Source: OTel histogram incident_response_assembly_duration_seconds.",
+      "title": "War Room Assembly Duration — p50 / p99",
+      "description": "SLO: p99 ≤ 5 min (300 s). Source: OTel histogram incident_response_assembly_duration_seconds. Unit is seconds, matching the series and the 300 in the alert — a panel declaring ms renders a threshold breach as '300 ms', which reads as excellent.",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "${DS_METRICS}" },
-      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "fieldConfig": { "defaults": { "unit": "s" } },
       "targets": [
         {
           "refId": "P50",
@@ -37,11 +37,11 @@
     {
       "id": 3,
       "type": "timeseries",
-      "title": "Approval Gate Latency — p50 / p99 (ms)",
-      "description": "Time between IC approval click and Statuspage.io publish. Source: OTel histogram incident_response_approval_gate_latency_seconds.",
+      "title": "Approval Gate Latency — p50 / p99",
+      "description": "Time between IC approval click and Statuspage.io publish. Source: OTel histogram incident_response_approval_gate_latency_seconds. Unit is seconds, matching the series.",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "${DS_METRICS}" },
-      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "fieldConfig": { "defaults": { "unit": "s" } },
       "targets": [
         {
           "refId": "P50",
@@ -150,11 +150,20 @@
       "description": "From the webhook Deployment's own OTel HTTP server instrumentation.",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 27 },
       "datasource": { "type": "prometheus", "uid": "${DS_METRICS}" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byFrameRefID", "options": "D" },
+            "properties": [{ "id": "unit", "value": "s" }]
+          }
+        ]
+      },
       "targets": [
         {
           "refId": "D",
           "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_namespace=\"incident-response\"}[5m])))",
-          "legendFormat": "p99 duration (s)"
+          "legendFormat": "p99 duration"
         },
         {
           "refId": "E",
@@ -183,6 +192,59 @@
         }
       ],
       "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none" }
+    },
+    {
+      "id": 13,
+      "type": "row",
+      "title": "Model usage — per ModelGateway route",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 46 }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Token Consumption by Route (5-min rate)",
+      "description": "Split by route because `default` (Sonnet — drafts, postmortems) and `light` (Haiku — per-message classification) differ by an order of magnitude in both unit cost and volume; a blended series hides either one moving. Cache reads are a separate series rather than folded into input tokens: a cache read is far cheaper, so summing them would overstate cost exactly when prompt caching is working.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 47 },
+      "datasource": { "type": "prometheus", "uid": "${DS_METRICS}" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "refId": "IN",
+          "expr": "sum by (route) (rate(incident_response_model_input_tokens_total[5m]))",
+          "legendFormat": "{{route}} input"
+        },
+        {
+          "refId": "OUT",
+          "expr": "sum by (route) (rate(incident_response_model_output_tokens_total[5m]))",
+          "legendFormat": "{{route}} output"
+        },
+        {
+          "refId": "CR",
+          "expr": "sum by (route) (rate(incident_response_model_cache_read_tokens_total[5m]))",
+          "legendFormat": "{{route}} cache read"
+        },
+        {
+          "refId": "CW",
+          "expr": "sum by (route) (rate(incident_response_model_cache_write_tokens_total[5m]))",
+          "legendFormat": "{{route}} cache write"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Model Invocations by Route (5-min rate)",
+      "description": "Call count rather than token count. Read against the panel beside it: invocations flat while tokens climb means prompts are growing, which is the cheaper problem to catch early. A cache-read series dropping to zero here is a caching regression — it reports 0 on every call rather than going absent, so the drop is visible instead of being a gap.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 47 },
+      "datasource": { "type": "prometheus", "uid": "${DS_METRICS}" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "refId": "INV",
+          "expr": "sum by (route) (rate(incident_response_model_invocation_count_total[5m]))",
+          "legendFormat": "{{route}}"
+        }
+      ]
     }
   ],
   "templating": {
