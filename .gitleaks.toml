@@ -28,8 +28,8 @@ regexes = [
   # `replace-me` / `replace_me` / `REPLACE_ME` placeholders used across the env
   # template, the secret template, and docs.
   '''(?i)replace[-_](me|with|[a-z0-9-]+)''',
-  # Example ARNs in docs/prose (zeroed or example account IDs)
-  '''arn:aws:[a-z0-9-]+:[a-z0-9-]*:(000000000000|123456789012):[a-z0-9/_:-]+''',
+  # Example ARNs in docs/prose (placeholder account IDs)
+  '''arn:aws:[a-z0-9-]+:[a-z0-9-]*:(111111111111|123456789012):[a-z0-9/_:-]+''',
   # Angle-bracket placeholders in doc examples (e.g. <cloud-org-id>, <token>) —
   # a real secret value never contains a literal <...> placeholder.
   '''<[a-z][a-z0-9-]*>''',
@@ -52,9 +52,9 @@ description = "12-digit AWS account ID embedded in an IAM ARN"
 regex = '''arn:aws:[a-z0-9-]*:[a-z0-9-]*:([0-9]{12}):'''
 keywords = ["arn:aws"]
 [[rules.allowlists]]
-description = "Allow zeroed (mock) + example account IDs in docs + tests"
+description = "Allow placeholder account IDs in docs + tests"
 regexes = [
-  '''000000000000''',
+  '''111111111111''',
   '''123456789012''',
   '''REPLACE''',
 ]
