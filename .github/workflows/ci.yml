@@ -41,17 +41,14 @@ jobs:
       # the continuation lines inside them. A second opinion there would either
       # be wrong or demand churn, so this gate takes the rules nothing else owns.
       #
-      # The npm package is a shim, not the checker: on first run it resolves the
-      # real binary through the GitHub releases API with an Octokit client built
-      # as `new X({ auth: process.env.GITHUB_TOKEN })`. Unset, that call goes out
-      # unauthenticated and is rate-limited per source IP — which on a hosted
-      # runner is shared with every other Actions customer on that host, so this
-      # step's outcome would depend on strangers' traffic in the preceding hour.
-      # The token proves who is asking; it grants nothing beyond the default
-      # read permission this workflow already has.
-      - env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run editorconfig
+      # The gate reads the tree and fetches nothing, so the verdict on a merge
+      # does not depend on a third party answering while the merge waits. It
+      # self-tests before it reads — a gate that has quietly stopped rejecting
+      # passes everything, and the tree it passed looks exactly like one that
+      # conforms — and it names which of its two non-zero verdicts a red check
+      # is, because "your file is malformed" and "nothing was checked" call for
+      # different reactions and only one of them is about the branch.
+      - uses: nanohype/.github/actions/editorconfig-gate@b2eada74413fcc9f3042f22126ee5b350a2b846e # main
 
   build:
     name: Build
