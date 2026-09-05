@@ -264,6 +264,20 @@ function walk(value, schema, path, ctx) {
     if (typeof schema.minItems === "number" && value.length < schema.minItems) {
       record(ctx, `${path} needs at least ${schema.minItems} item(s), has ${value.length}`);
     }
+    // The upper bound is the half that carries a privilege consequence. Several
+    // of these lists are rendered into one IAM document — allowedModels into the
+    // NotResource of a Deny, attribution.operators into an sts:SourceIdentity
+    // condition — and the operator derives each maxItems from that document's
+    // character budget. An over-long list is not a style problem: it is a
+    // LimitExceeded at reconcile, on a Platform that then stays Provisioning.
+    // Reading minItems and skipping maxItems validated the bound that cannot be
+    // exceeded by accident and ignored the one that can.
+    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) {
+      record(
+        ctx,
+        `${path} has ${value.length} item(s), above the schema maximum of ${schema.maxItems}`,
+      );
+    }
     if (schema.items) {
       value.forEach((item, i) => {
         walk(item, schema.items, `${path}[${i}]`, ctx);
@@ -907,6 +921,29 @@ function selfTest(documents, index, source, readSchema) {
         return gate(docs, index).errors;
       },
       expect: /is not the endpoint the operator publishes/,
+    },
+    {
+      // maxItems is declared on six fields here and was read on none of them.
+      // The count is checked on the field where exceeding it costs most: every
+      // allowedModels entry becomes two ARNs in the tenant role's inline
+      // bedrock-model-scoping policy, and that document has a hard character
+      // cap. The list is padded past the bound with entries that are each
+      // individually valid, so nothing but the count can reject it.
+      name: "an allowedModels list longer than the schema allows",
+      run: () => {
+        const docs = clone();
+        const platform = find(docs, "Platform");
+        const models = platform.spec.identity.allowedModels;
+        platform.spec.identity.allowedModels = [
+          ...models,
+          ...Array.from(
+            { length: 33 - models.length },
+            (_, i) => `us.anthropic.claude-pad${i}-v1:0`,
+          ),
+        ];
+        return gate(docs, index).errors;
+      },
+      expect: /allowedModels has 33 item\(s\), above the schema maximum of 32/,
     },
     {
       name: "a field the CRD does not declare, on Tenant.spec",
