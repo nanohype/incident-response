@@ -113,3 +113,61 @@ The gate added here — `test/unit/crd-freshness-report.test.ts` — is the shap
 that would catch it: build an upstream repository whose HEAD the fixture chose,
 run the report against it through the checkout seam, and assert on the emitted
 bytes rather than on the code that builds them.
+
+---
+
+## 2. Two verdicts that change with no commit, and only one of them is a defect
+
+**Owner:** an estate-wide distinction, recorded here because this repository met both
+failure modes in the same evening and mistook the second for the first.
+
+### The observation
+
+Two checks in this repository's CI can go from green to red with no commit in between:
+
+- the format step, when `editorconfig-checker` resolved a release through the GitHub API
+  and downloaded a binary at check time;
+- `npm audit --omit=dev --audit-level=high`, which queries the advisory database when it
+  runs.
+
+Both were verified on a lockfile and a tree that had not changed. The audit case was
+confirmed against `main`'s own lockfile in a scratch tree: identical findings, on a commit
+whose CI run was green.
+
+### The distinction
+
+They differ in what is fetched, and the difference decides whether a red build is a defect
+to fix or a gate to obey.
+
+**`editorconfig-checker` fetched the TOOL.** When the fetch failed, nothing had been
+learned about the tree — the verdict was unavailable — and it printed as a FORMAT failure,
+which reads as a claim that files are malformed. A gate that cannot run is not a gate, and
+a gate that reports a tree defect when it never read the tree is worse than absent. That is
+unavailability wearing a verdict's clothes.
+
+**`npm audit` fetches the DATA.** When the answer changes, something new and true has been
+learned: the world's knowledge of these dependencies moved. The tree did not change and its
+risk did, because risk was never a property of the bytes — it is a property of the bytes
+plus what is known about them.
+
+So "a verdict that can change with no commit" is a defect when what changed is whether a
+download succeeded, and is the entire point when what changed is what the world knows.
+
+**The tell is what a red build tells you to do.** Editorconfig red said to fix a formatting
+defect that did not exist, and sent the reader nowhere. Audit red said to take a fix that
+exists, and sent the reader somewhere real.
+
+### What follows from it
+
+The advisory clock belongs to whoever publishes advisories. This is why the estate's
+Renovate preset opens a CVE pull request the moment a fix exists rather than waiting for a
+scheduled scan: a gate whose input moves on someone else's schedule needs a channel that
+moves on the same schedule, not a slower one.
+
+It also sets what a fix has to clear. The audit reports what the database knows, so
+satisfying the audit and being fixed are different conditions, and they came apart here:
+`fast-uri` 3.1.6 patches the four advisories the audit reported, while 3.1.7 — a security
+release published the same day — fixes two more that return 404 from the global advisory
+API. Taking the version the audit is satisfied by would have produced a green gate over a
+tree with two known high-severity defects. Read the release notes at the boundary; the
+audit's silence is the database's coverage, not a verdict.
