@@ -164,6 +164,31 @@ Renovate preset opens a CVE pull request the moment a fix exists rather than wai
 scheduled scan: a gate whose input moves on someone else's schedule needs a channel that
 moves on the same schedule, not a slower one.
 
+### The corollary: two overrides wearing the same button
+
+The distinction decides more than how to read a red build. It decides whether
+overriding one is an act at all.
+
+A gate that could not run has produced no verdict, so overriding it overrides
+nothing — it records that a check was unavailable, which was already true. A gate
+that ran and objected has produced a verdict, and overriding it discards evidence
+someone gathered. Those are different acts behind the same button, and the button
+does not distinguish them.
+
+That is not a licence to use the first one. An override leaves no record that a
+decision was made: the next reader at the same wall re-derives it, or does not, and
+the repository says nothing about which way it went. Where the two failures can be
+fixed together instead, fixing them is strictly better than overriding either,
+because the reasoning ends up somewhere the next reader will find it.
+
+Which is the case this repository met. Two defects reached `main` independently and
+neither was fixable alone — a branch carrying either fix still failed the merge gate
+on the other, because `Merge Gate` needs both `lint` and `security-audit`. "A branch
+fixes one thing" serves reviewability, and two defects coupled by one gate are one
+change from that gate's perspective, so keeping them apart served nothing. The
+combined branch names the JOB rather than the two defects, which is what makes a
+two-argument diff legible rather than arbitrary.
+
 It also sets what a fix has to clear. The audit reports what the database knows, so
 satisfying the audit and being fixed are different conditions, and they came apart here:
 `fast-uri` 3.1.6 patches the four advisories the audit reported, while 3.1.7 — a security
