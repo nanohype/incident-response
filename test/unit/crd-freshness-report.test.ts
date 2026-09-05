@@ -126,7 +126,7 @@ function fixture(pinnedAt: "behind" | "current" = "behind"): Fixture {
       `apiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n  name: ${file}\n`,
     );
   }
-  git("add", "-A");
+  git("add", ...files.map((f) => `${upstreamPath}/${f}`));
   git("commit", "-qm", "before the operator gained the bound");
   const firstCommit = git("rev-parse", "HEAD");
 
@@ -137,13 +137,13 @@ function fixture(pinnedAt: "behind" | "current" = "behind"): Fixture {
     path.join(bases, DRIFTED),
     "                        pattern: ^(us\\.)?anthropic\\.[a-z0-9-]+-v[0-9]+:[0-9]+$\n",
   );
-  git("add", "-A");
+  git("add", `${upstreamPath}/${DRIFTED}`);
   git("commit", "-qm", "allowedModels admits a truncated model id");
   const schemasSettled = git("rev-parse", "HEAD");
 
   // Upstream moves for reasons that are none of this repository's business.
   fs.writeFileSync(path.join(upstream, "README.md"), "unrelated to the CRDs\n");
-  git("add", "-A");
+  git("add", "README.md");
   git("commit", "-qm", "docs: unrelated to the vendored path");
   const head = git("rev-parse", "HEAD");
 
