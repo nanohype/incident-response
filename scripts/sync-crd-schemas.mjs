@@ -5,6 +5,7 @@
  *
  *   node scripts/sync-crd-schemas.mjs                 # re-vendor at the pinned ref
  *   node scripts/sync-crd-schemas.mjs --ref=<sha>     # re-vendor and move the pin
+ *   node scripts/sync-crd-schemas.mjs --ref=latest    # ... to whatever upstream's tip is when it runs
  *   node scripts/sync-crd-schemas.mjs --check         # the blocking CI gate
  *   node scripts/sync-crd-schemas.mjs --freshness     # is the pin behind upstream? (exit 2 = behind)
  *
@@ -46,15 +47,18 @@
  * through this script reports success without having compared something.
  *
  * Upstream resolves two ways, both deterministic:
- *   - `$EKS_AGENT_PLATFORM_DIR` — a checkout. Under `--check` its HEAD must
- *     equal the pinned ref; CI checks that SHA out, and a local working tree
- *     sitting on some other commit is an error rather than a silent
- *     substitution.
+ *   - `$EKS_AGENT_PLATFORM_DIR` — a checkout, read through git objects at the
+ *     ref rather than off the working tree. Under `--check` its HEAD must equal
+ *     the pinned ref; CI checks that SHA out, and a local working tree sitting
+ *     on some other commit is an error rather than a silent substitution.
  *   - otherwise — raw.githubusercontent.com at the pinned ref.
  *
  * Re-vendor when the operator's API types change: run with the new `--ref`,
  * review the schema diff, and ship it with whatever `platform.yaml` change it
- * implies.
+ * implies. `--ref=latest` resolves upstream's tip at the moment it runs, which
+ * is what `--freshness` names when it reports the pin is behind — a report read
+ * days after it was written must state the question, because any answer it
+ * printed has had days to stop being true.
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -76,6 +80,10 @@ const exec = promisify(execFile);
 const out = (line) => process.stdout.write(`${line}\n`);
 const digest = (buf) => createHash("sha256").update(buf).digest("hex");
 const isSha = (value) => typeof value === "string" && /^[0-9a-f]{40}$/.test(value);
+// The one `--ref` argument that is not a commit. It names the question — what is
+// upstream's tip — and is answered when the re-vendor runs, which is the only
+// moment the answer is wanted.
+const LATEST = "latest";
 
 function die(message, remedy) {
   process.stderr.write(`\n  ✗ ${message}\n${remedy ? `    ${remedy}\n` : ""}\n`);
@@ -136,7 +144,17 @@ async function assertNoUndeclaredSchemas(manifest) {
   }
 }
 
-/** Resolve an upstream reader for `ref`, failing loudly if it cannot be reached. */
+/**
+ * Resolve an upstream reader for `ref`, failing loudly if it cannot be reached.
+ *
+ * Both modes read AT `ref`. The checkout mode could read the working tree
+ * instead — the files are right there — but then the ref would name one commit
+ * while the bytes came from another, which is the divergence `--check` exists to
+ * catch. It also makes `--ref` inert: an argument the caller passed and the
+ * script silently replaced with whatever the checkout happened to be sitting on.
+ * `--ref=latest` depends on this, since the whole of `latest` is that the
+ * resolved commit decides what gets vendored and pinned.
+ */
 async function upstreamReader(manifest, ref) {
   const { repository, path } = manifest.upstream;
 
@@ -158,18 +176,18 @@ async function upstreamReader(manifest, ref) {
       );
     }
     return {
-      origin: `${CHECKOUT} @ ${head}`,
-      head,
+      origin: `${CHECKOUT} @ ${ref}`,
+      head: ref,
       async read(file) {
-        const from = join(CHECKOUT, path, file);
-        try {
-          return await readFile(from);
-        } catch (err) {
+        const from = `${path}/${file}`;
+        const bytes = await gitShow(CHECKOUT, ref, from);
+        if (bytes === null) {
           die(
-            `cannot read ${from} (${err.message})`,
-            `Is ${CHECKOUT} a checkout of ${repository}?`,
+            `cannot read ${from} at ${ref} in $EKS_AGENT_PLATFORM_DIR=${CHECKOUT}`,
+            `Is ${CHECKOUT} a checkout of ${repository} with that commit reachable?`,
           );
         }
+        return bytes;
       },
     };
   }
@@ -181,6 +199,77 @@ async function upstreamReader(manifest, ref) {
       return await fetchAtRef(repository, path, ref, file);
     },
   };
+}
+
+/**
+ * The commit upstream's default branch is on right now.
+ *
+ * This is the same commit `--freshness` compares the pin against — `git show
+ * HEAD:` in the checkout mode, `/HEAD/` in the raw.githubusercontent.com URL
+ * otherwise — and resolving `latest` through it is what makes the freshness
+ * report's remediation true rather than merely plausible: re-vendoring at
+ * `latest` moves the pin onto the commit the verdict was a statement about, so
+ * the run that filed the verdict is the run that closes it.
+ *
+ * It resolves the two ways the rest of this script resolves upstream, so the
+ * same seam CI already uses to hand the script a checkout also drives this. In
+ * the checkout mode "upstream's tip" means that checkout's HEAD, feature branch
+ * included — which is not a caveat but the whole point of resolving through the
+ * seam: `--freshness` compared against exactly that commit, so the two answer
+ * for the same thing and cannot disagree about what `latest` was.
+ *
+ * Neither path falls back to the pin. `latest` that quietly resolved to the
+ * commit you are trying to leave would report success for a re-vendor that
+ * moved nothing, and would do it in the one situation where nobody is checking:
+ * on the day someone finally acts on a drift issue.
+ */
+async function upstreamHead(manifest) {
+  const { repository } = manifest.upstream;
+
+  if (CHECKOUT) {
+    let head;
+    try {
+      const { stdout } = await exec("git", ["-C", CHECKOUT, "rev-parse", "HEAD"]);
+      head = stdout.trim();
+    } catch (err) {
+      die(
+        `cannot read HEAD from $EKS_AGENT_PLATFORM_DIR=${CHECKOUT} (${err.message})`,
+        `Point it at a checkout of ${repository}, or unset it to resolve from GitHub instead.`,
+      );
+    }
+    if (!isSha(head)) {
+      die(
+        `$EKS_AGENT_PLATFORM_DIR=${CHECKOUT} HEAD is ${JSON.stringify(head)}, not a commit SHA`,
+        "An unborn branch or a bare ref cannot be pinned.",
+      );
+    }
+    return head;
+  }
+
+  const url = `https://api.github.com/repos/${repository}/commits/HEAD`;
+  let response;
+  try {
+    response = await fetch(url, { headers: { accept: "application/vnd.github+json" } });
+  } catch (err) {
+    die(
+      `cannot ask ${url} which commit is newest (${err.message})`,
+      "`latest` resolves upstream's tip when it runs. It does not fall back to the pin.",
+    );
+  }
+  if (!response.ok) {
+    die(
+      `cannot ask ${url} which commit is newest: HTTP ${response.status} ${response.statusText}`,
+      response.status === 403 || response.status === 429
+        ? "Unauthenticated GitHub API calls are rate-limited per source IP. Retry, point " +
+            "$EKS_AGENT_PLATFORM_DIR at a checkout, or pass the reviewed SHA with --ref=<sha>."
+        : "Pass the reviewed SHA with --ref=<sha> instead.",
+    );
+  }
+  const sha = (await response.json())?.sha;
+  if (!isSha(sha)) {
+    die(`${url} answered ${JSON.stringify(sha)}, which is not a commit SHA`);
+  }
+  return sha;
 }
 
 /** Read one schema from raw.githubusercontent.com at `ref`. Never degrades into a skip. */
@@ -215,11 +304,20 @@ async function fetchAtRef(repository, path, ref, file) {
  *
  * Reads both sides at a ref rather than from a working tree, so a checkout on
  * any commit answers correctly as long as the pinned commit is reachable.
+ *
+ * What it prints names no commit but the pin, and that is a constraint on this
+ * function rather than a description of it. The report is copied verbatim into
+ * an issue body that is re-edited weekly and read on whatever day someone opens
+ * it. A commit resolved here is accurate for one run and is presented as current
+ * for as long as the issue stays open, so an operator acting on it re-vendors to
+ * a ref that is no longer the newest and closes an issue that should have stayed
+ * open — a wrong instruction that also dismisses its own warning. The pin is the
+ * exception because it is not resolved here: it is read from the manifest in the
+ * commit under test, and moving it is the act this report is asking for.
  */
 async function reportFreshness(manifest) {
   const { repository, path, ref } = manifest.upstream;
   const behind = [];
-  let tip;
 
   if (CHECKOUT) {
     try {
@@ -230,8 +328,6 @@ async function reportFreshness(manifest) {
         "Check the repository out with full history (fetch-depth: 0) so the pinned commit is reachable.",
       );
     }
-    const { stdout } = await exec("git", ["-C", CHECKOUT, "rev-parse", "HEAD"]);
-    tip = stdout.trim();
     for (const { file } of manifest.files) {
       const [atPin, atTip] = await Promise.all([
         gitShow(CHECKOUT, ref, `${path}/${file}`),
@@ -246,11 +342,10 @@ async function reportFreshness(manifest) {
       if (atTip === null) {
         behind.push(`${file} — removed or renamed upstream since the pin`);
       } else if (!atPin.equals(atTip)) {
-        behind.push(`${file} — changed upstream between the pin and ${tip.slice(0, 12)}`);
+        behind.push(`${file} — changed upstream since the pin`);
       }
     }
   } else {
-    tip = "HEAD";
     for (const { file } of manifest.files) {
       const [atPin, atTip] = await Promise.all([
         fetchAtRef(repository, path, ref, file),
@@ -263,18 +358,15 @@ async function reportFreshness(manifest) {
   }
 
   if (behind.length === 0) {
-    out(
-      `✓ the pin ${ref.slice(0, 12)} is current with ${repository}@${tip === "HEAD" ? "HEAD" : tip.slice(0, 12)}`,
-    );
+    out(`✓ the pin ${ref.slice(0, 12)} is current with ${repository}`);
     return;
   }
 
   process.stderr.write(
-    `\n  ✗ the pin ${ref.slice(0, 12)} is behind ${repository}@` +
-      `${tip === "HEAD" ? "HEAD" : tip.slice(0, 12)}:\n` +
+    `\n  ✗ the pin ${ref.slice(0, 12)} is behind ${repository}:\n` +
       `${behind.map((b) => `      ${b}`).join("\n")}\n` +
       "\n    Nothing is broken — the vendored copies still match the commit they claim.\n" +
-      "    Adopt the newer operator API when convenient: `npm run schemas:sync -- --ref=<sha>`,\n" +
+      "    Adopt the newer operator API when convenient: `npm run schemas:sync -- --ref=latest`,\n" +
       "    review the schema diff, and ship it with whatever platform.yaml change it implies.\n\n",
   );
   // Exit 2, not 1, and the distinction is load-bearing. `die` exits 1 for every
@@ -302,8 +394,10 @@ async function gitShow(dir, ref, path) {
 async function main() {
   const modes = [CHECK, FRESHNESS, REF_ARG !== undefined].filter(Boolean).length;
   if (modes > 1) die("--check, --freshness and --ref are mutually exclusive");
-  if (REF_ARG !== undefined && !isSha(REF_ARG)) {
-    die(`--ref must be a full 40-character commit SHA, got ${JSON.stringify(REF_ARG)}`);
+  if (REF_ARG !== undefined && REF_ARG !== LATEST && !isSha(REF_ARG)) {
+    die(
+      `--ref must be \`${LATEST}\` or a full 40-character commit SHA, got ${JSON.stringify(REF_ARG)}`,
+    );
   }
 
   const manifest = await readSourceManifest();
@@ -314,7 +408,10 @@ async function main() {
     return;
   }
 
-  const ref = REF_ARG ?? manifest.upstream.ref;
+  // `latest` becomes a commit here, before anything reads or writes at it, so
+  // every path below sees the same concrete ref a caller could have typed.
+  const ref =
+    REF_ARG === LATEST ? await upstreamHead(manifest) : (REF_ARG ?? manifest.upstream.ref);
   const source = await upstreamReader(manifest, ref);
 
   const tampered = [];
@@ -370,7 +467,7 @@ async function main() {
       }
       process.stderr.write(
         "\n    Fixes belong upstream in nanohype/eks-agent-platform. To adopt a newer operator\n" +
-          "    API here, run `npm run schemas:sync -- --ref=<sha>` and review the schema diff.\n" +
+          "    API here, run `npm run schemas:sync -- --ref=<sha>|latest` and review the diff.\n" +
           "    Never hand-edit a file under schemas/crd/.\n\n",
       );
       process.exit(1);
@@ -382,6 +479,15 @@ async function main() {
     return;
   }
 
+  // readSourceManifest rejects a non-SHA `upstream.ref`, but only on the next
+  // run — by which point the bad pin is committed and every gate reading it is
+  // dead rather than wrong. Refuse to write it in the first place.
+  if (!isSha(source.head)) {
+    die(
+      `refusing to pin ${JSON.stringify(source.head)} — upstream.ref must be a full ` +
+        "40-character commit SHA",
+    );
+  }
   const pinned = { ...manifest, upstream: { ...manifest.upstream, ref: source.head }, files };
   await writeFile(SOURCE_PATH, `${JSON.stringify(pinned, null, 2)}\n`);
   out(`✓ vendored from ${source.origin}; pin and digests rewritten`);
