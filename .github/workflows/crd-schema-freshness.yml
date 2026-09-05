@@ -110,9 +110,14 @@ jobs:
           Re-vendor and re-validate:
 
           \`\`\`
-          npm run schemas:sync -- --ref=<sha>
+          npm run schemas:sync -- --ref=latest
           npm run platform:validate
           \`\`\`
+
+          \`latest\` resolves upstream's tip at the moment the re-vendor runs. This body is
+          rewritten weekly and read on whatever day the issue is opened, so a commit named
+          here would be the newest one for at most a week and would still read as current
+          afterwards — re-vendoring to the wrong ref and closing this issue in one step.
 
           Read the schema diff before merging — a new constraint upstream usually implies a
           \`platform.yaml\` change here. This issue closes itself once the pin is current.

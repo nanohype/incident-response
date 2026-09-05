@@ -69,6 +69,10 @@ at the pinned commit. An unreachable upstream is a failure, never a skip.
 
 1. `npm run schemas:sync -- --ref=<40-char-sha>` — moves the pin and rewrites
    the copies and their digests in one step, so the two cannot drift apart.
+   `--ref=latest` resolves upstream's tip when it runs, and is what
+   `npm run schemas:freshness` names when it reports the pin is behind: that
+   report is copied into an issue read days after it was written, so it states
+   the question rather than one run's answer to it.
 2. `npm run platform:validate` — a CRD change that invalidates `platform.yaml`
    surfaces here, before a cluster sees it.
 3. Commit the schema diff, the pin move, and any manifest changes together.
