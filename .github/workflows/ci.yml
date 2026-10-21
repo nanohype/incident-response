@@ -48,7 +48,7 @@ jobs:
       # conforms — and it names which of its two non-zero verdicts a red check
       # is, because "your file is malformed" and "nothing was checked" call for
       # different reactions and only one of them is about the branch.
-      - uses: nanohype/.github/actions/editorconfig-gate@b2eada74413fcc9f3042f22126ee5b350a2b846e # main
+      - uses: nanohype/.github/actions/editorconfig-gate@dc3d13a9b1dbdec20da8599f66068556059c8aa7 # main
 
   build:
     name: Build
@@ -373,7 +373,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
         with:
-          version: v3.22.0
+          version: v3.22.1
       - name: helm lint
         run: helm lint chart
       - name: helm template (every environment, ingress on and off)
@@ -480,7 +480,7 @@ jobs:
           print(f"ok  {checked} DNS egress rule(s) scope to kube-dns, not to a whole namespace")
           EOF
       - name: assert no unfilled sentinels in rendered output
-        uses: nanohype/nanohype/.github/actions/render-assert@main
+        uses: nanohype/nanohype/.github/actions/render-assert@0d6c5e15f9d98b0afdfc6d89f3026e19dfe405ee # main
         with:
           manifests: rendered
 
@@ -514,6 +514,6 @@ jobs:
     # report green exactly when something broke.
     if: always()
     steps:
-      - uses: nanohype/.github/actions/merge-gate@6ec6c5b3e6c4a8b15e12da4afd7ac4870a630092 # main
+      - uses: nanohype/.github/actions/merge-gate@dc3d13a9b1dbdec20da8599f66068556059c8aa7 # main
         with:
           needs: ${{ toJSON(needs) }}
