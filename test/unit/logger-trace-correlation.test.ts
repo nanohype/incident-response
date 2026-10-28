@@ -5,26 +5,26 @@
  */
 
 import { context, trace } from "@opentelemetry/api";
-import { AsyncHooksContextManager } from "@opentelemetry/context-async-hooks";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import {
-  BasicTracerProvider,
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
+  TracerProvider,
+} from "@opentelemetry/sdk-trace";
 import type { MockInstance } from "vitest";
 
 import { logger } from "../../src/utils/logger.js";
 
 describe("logger trace correlation", () => {
-  let provider: BasicTracerProvider;
-  let ctxMgr: AsyncHooksContextManager;
+  let provider: TracerProvider;
+  let ctxMgr: AsyncLocalStorageContextManager;
   let stdoutSpy: MockInstance;
 
   beforeAll(() => {
-    ctxMgr = new AsyncHooksContextManager().enable();
+    ctxMgr = new AsyncLocalStorageContextManager().enable();
     context.setGlobalContextManager(ctxMgr);
-    provider = new BasicTracerProvider({
-      spanProcessors: [new SimpleSpanProcessor(new InMemorySpanExporter())],
+    provider = new TracerProvider({
+      spanProcessors: [new SimpleSpanProcessor({ exporter: new InMemorySpanExporter() })],
     });
     trace.setGlobalTracerProvider(provider);
   });

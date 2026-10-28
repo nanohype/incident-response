@@ -4,13 +4,13 @@
  */
 
 import { context, propagation, trace } from "@opentelemetry/api";
-import { AsyncHooksContextManager } from "@opentelemetry/context-async-hooks";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import {
-  BasicTracerProvider,
   InMemorySpanExporter,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
+  TracerProvider,
+} from "@opentelemetry/sdk-trace";
 
 import {
   extractSqsTraceContext,
@@ -20,13 +20,13 @@ import {
 
 describe("tracing helpers", () => {
   const exporter = new InMemorySpanExporter();
-  let provider: BasicTracerProvider;
-  let contextManager: AsyncHooksContextManager;
+  let provider: TracerProvider;
+  let contextManager: AsyncLocalStorageContextManager;
 
   beforeAll(() => {
-    contextManager = new AsyncHooksContextManager().enable();
+    contextManager = new AsyncLocalStorageContextManager().enable();
     context.setGlobalContextManager(contextManager);
-    provider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
+    provider = new TracerProvider({ spanProcessors: [new SimpleSpanProcessor({ exporter })] });
     trace.setGlobalTracerProvider(provider);
     propagation.setGlobalPropagator(new W3CTraceContextPropagator());
   });
