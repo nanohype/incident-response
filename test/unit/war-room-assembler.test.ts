@@ -13,8 +13,8 @@
  */
 
 import { context, trace } from "@opentelemetry/api";
-import { AsyncHooksContextManager } from "@opentelemetry/context-async-hooks";
-import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { TracerProvider } from "@opentelemetry/sdk-trace";
 import {
   afterAll,
   afterEach,
@@ -97,13 +97,13 @@ describe("WarRoomAssembler", () => {
   // `context.active().current` on undefined and every assembly throws before
   // reaching the code under test — a failure that looks like a broken
   // assembler rather than a missing harness.
-  let contextManager: AsyncHooksContextManager;
-  let provider: BasicTracerProvider;
+  let contextManager: AsyncLocalStorageContextManager;
+  let provider: TracerProvider;
 
   beforeAll(() => {
-    contextManager = new AsyncHooksContextManager().enable();
+    contextManager = new AsyncLocalStorageContextManager().enable();
     context.setGlobalContextManager(contextManager);
-    provider = new BasicTracerProvider();
+    provider = new TracerProvider();
     trace.setGlobalTracerProvider(provider);
   });
 

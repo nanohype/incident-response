@@ -97,13 +97,15 @@ async function initOtel(): Promise<boolean> {
       url: `${endpoint.replace(/\/$/, "")}/v1/traces`,
       headers,
     }),
-    metricReader: new PeriodicExportingMetricReader({
-      exporter: new OTLPMetricExporter({
-        url: `${endpoint.replace(/\/$/, "")}/v1/metrics`,
-        headers,
+    metricReaders: [
+      new PeriodicExportingMetricReader({
+        exporter: new OTLPMetricExporter({
+          url: `${endpoint.replace(/\/$/, "")}/v1/metrics`,
+          headers,
+        }),
+        exportIntervalMillis: Number(process.env.OTEL_METRIC_EXPORT_INTERVAL ?? 60000),
       }),
-      exportIntervalMillis: Number(process.env.OTEL_METRIC_EXPORT_INTERVAL ?? 60000),
-    }),
+    ],
     instrumentations: [
       // Auto-instruments http/fetch/aws-sdk. Slimmer than the full contrib set
       // since the webhook's call graph is narrow.
