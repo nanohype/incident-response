@@ -12,7 +12,7 @@
 | Tool     | Version                           |
 | -------- | --------------------------------- |
 | `node`   | see `package.json` engines (≥ 24) |
-| `npm`    | bundled with Node 24              |
+| `npm`    | bundled with Node 24; the `.npmrc` release-age floor needs 11.10.0 or later, which Node 24.14.1 and later bundle |
 | `helm`   | matches the target cluster minor  |
 | `task`   | latest                            |
 | `docker` | for the container build job and `test:integration:docker` (runs `amazon/dynamodb-local`) |
@@ -33,6 +33,11 @@ Tests run on **Vitest** (`vitest.config.ts` + `vitest.config.integration.ts`) wi
 coverage provider; per-file thresholds carry the 100%-branch guarantee. Lint and formatting are
 **Biome** (`biome.json`, extending the shared `biome.base.json`) — one tool, one pass, no
 separate formatter.
+
+`.npmrc` sets `min-release-age`, so npm resolves a version range only to releases older than that
+many days. When no release that satisfies a `package.json` range is that old, `npm install` fails
+with `ETARGET` and a "with a date before" message. The comment in `.npmrc` explains the floor and
+gives the command that takes a younger release for one run.
 
 ## The test contract (grep-enforced in CI)
 
