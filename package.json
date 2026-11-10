@@ -43,7 +43,7 @@
     "drill:join:production": "bash scripts/join-drill-channel.sh --env production",
     "observe:staging": "bash scripts/observe-incident.sh --env staging --latest",
     "observe:production": "bash scripts/observe-incident.sh --env production --latest",
-    "docs": "typedoc",
+    "docs": "node scripts/patch-typedoc-minimatch.mjs && typedoc",
     "typecheck:evals": "tsc -p tsconfig.evals.json --noEmit"
   },
   "dependencies": {
@@ -93,7 +93,7 @@
     "axios": "^1.20.0",
     "body-parser": "^2.4.0",
     "typedoc": {
-      "brace-expansion": "^5.0.12"
+      "minimatch": "^11.0.1"
     },
     "@hono/node-server": "^2.1.5",
     "gaxios": "^7.3.0"
