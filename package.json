@@ -47,7 +47,7 @@
     "typecheck:evals": "tsc -p tsconfig.evals.json --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.137.0",
+    "@anthropic-ai/sdk": "^1.0.0",
     "@aws-sdk/client-dynamodb": "^3.750.0",
     "@aws-sdk/client-scheduler": "^3.750.0",
     "@aws-sdk/client-secrets-manager": "^3.750.0",
