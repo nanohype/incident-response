@@ -84,7 +84,7 @@ jobs:
       # rather than lean on whatever the runner image happens to carry.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 24
+          node-version: 26
 
       # Whether a drill would fire where it signs is one question with one
       # answer, and `fire-drill.sh --check-target` is where that answer lives: it

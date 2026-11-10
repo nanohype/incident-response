@@ -39,7 +39,7 @@ Full walkthrough in [`docs/slack-app-setup.md`](slack-app-setup.md). Summary: yo
 
 ### Local tooling
 
-- Node 24 (Active LTS)
+- Node 26 (Active LTS)
 - `aws` CLI ≥ 2.15 with creds for the target account (for secret seeding + drills)
 - `kubectl` + `helm` with a context on the target cluster
 - `jq` (recommended for inspecting `tofu output` + Slack/SQS responses)
