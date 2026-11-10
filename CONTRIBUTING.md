@@ -12,7 +12,7 @@
 | Tool     | Version                           |
 | -------- | --------------------------------- |
 | `node`   | see `package.json` engines (≥ 24) |
-| `npm`    | bundled with Node 24; the `.npmrc` release-age floor needs 11.10.0 or later, which Node 24.14.1 and later bundle |
+| `npm`    | bundled with Node 26; the `.npmrc` release-age floor needs 11.10.0 or later, which every Node 26 release bundles (26.0.0 ships npm 11.12.1) |
 | `helm`   | matches the target cluster minor  |
 | `task`   | latest                            |
 | `docker` | for the container build job and `test:integration:docker` (runs `amazon/dynamodb-local`) |
@@ -24,7 +24,7 @@ See [README.md](./README.md), [AGENTS.md](./AGENTS.md), and [ARCHITECTURE.md](./
 ## Toolchain
 
 This repo is **CommonJS**, not ESM — `package.json` has no `"type": "module"` and
-`tsconfig.json` emits `module: commonjs`. It runs on Node 24 and every dependency is
+`tsconfig.json` emits `module: commonjs`. It runs on Node 26 and every dependency is
 CJS-compatible. This is a deliberate choice: it removes the "looks like ESM but isn't" ambiguity
 around the two 100%-branch-coverage invariant files. See
 [ARCHITECTURE.md](./ARCHITECTURE.md) > Key decisions.

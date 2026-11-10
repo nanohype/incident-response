@@ -98,7 +98,7 @@ See README's Configuration table and `docs/secrets.md`. Secrets live in AWS Secr
 
 ## Conventions
 
-Baseline conventions: Node 24, CommonJS (see `ARCHITECTURE.md` > Key decisions), strict TS with `exactOptionalPropertyTypes`, Zod at boundaries, structured JSON logging, Biome for lint + format, Vitest for tests.
+Baseline conventions: Node 26, CommonJS (see `ARCHITECTURE.md` > Key decisions), strict TS with `exactOptionalPropertyTypes`, Zod at boundaries, structured JSON logging, Biome for lint + format, Vitest for tests.
 
 IncidentResponse-specific:
 

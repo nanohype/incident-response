@@ -158,7 +158,7 @@ Both ship as Kubernetes resources from the chart — no manual import step. `cha
 
 ## Conventions
 
-TypeScript, CommonJS (see [`ARCHITECTURE.md`](ARCHITECTURE.md) > Key decisions), Node 24, 2-space indent, strict TS (`exactOptionalPropertyTypes: true`), Zod at system boundaries, structured JSON logging to stderr/stdout, Vitest for tests, Biome for lint + format.
+TypeScript, CommonJS (see [`ARCHITECTURE.md`](ARCHITECTURE.md) > Key decisions), Node 26, 2-space indent, strict TS (`exactOptionalPropertyTypes: true`), Zod at system boundaries, structured JSON logging to stderr/stdout, Vitest for tests, Biome for lint + format.
 
 IncidentResponse-specific:
 - **Ubiquitous language.** `WarRoomAssembler`, `StatuspageApprovalGate`, `NudgeScheduler`, `CommandRegistry` — not `DataProcessor` or `ExternalServiceAdapter`.

@@ -1,4 +1,4 @@
-FROM node:24-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ COPY src/ ./src/
 RUN npm run build
 
 # ── Production image ──────────────────────────────────────────────────────────
-FROM node:24-alpine AS production
+FROM node:26-alpine AS production
 
 # Security: run as non-root user
 RUN addgroup -g 1001 -S incident-response && adduser -u 1001 -S incident-response -G incident-response

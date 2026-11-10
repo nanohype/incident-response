@@ -168,7 +168,7 @@ The processor drains two FIFO queues; each message dispatches through an `EventR
 - **Registry dispatch.** New subcommand = one file in `src/commands/` + one `.register()` line. New SQS event = one file in `src/events/` + one `.on()` line. Never grow a `switch` in `src/index.ts`.
 - **The `StatuspageApprovalGate` invariant.** The two-phase commit (write `STATUSPAGE_DRAFT_APPROVED` → re-read `ConsistentRead: true` → `createIncident()`) is the only path that publishes to Statuspage. No auto-publish, no escape hatch, no silent mode. The grep-gate and the 100%-branch coverage on `src/services/statuspage-approval-gate.ts` + `src/utils/audit.ts` stay live in CI.
 - **Slack calls have explicit deadlines.** WebClient-level `timeout` plus per-call `withTimeout` / `withTimeoutOrDefault` on non-critical paths. Assembly must finish in the ≤5-min SLO and can't be hostage to one wedged call. Metrics are best-effort — `MetricsEmitter` swallows errors and never throws up to the caller.
-- TypeScript strict (`exactOptionalPropertyTypes`), CommonJS, Node ≥ 24. Zod at every boundary (config, webhook payloads). Pino JSON to stderr with OTel `trace_id`/`span_id` correlation. Explicit timeouts on every external call (`HttpClient` 5s/2-retry; `withTimeout(8000)` around the deadline-less `@linear/sdk`). Biome for lint + format, Vitest for tests.
+- TypeScript strict (`exactOptionalPropertyTypes`), CommonJS, Node ≥ 26. Zod at every boundary (config, webhook payloads). Pino JSON to stderr with OTel `trace_id`/`span_id` correlation. Explicit timeouts on every external call (`HttpClient` 5s/2-retry; `withTimeout(8000)` around the deadline-less `@linear/sdk`). Biome for lint + format, Vitest for tests.
 
 ## Pointers
 
