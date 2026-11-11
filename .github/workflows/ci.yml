@@ -48,7 +48,7 @@ jobs:
       # conforms — and it names which of its two non-zero verdicts a red check
       # is, because "your file is malformed" and "nothing was checked" call for
       # different reactions and only one of them is about the branch.
-      - uses: nanohype/.github/actions/editorconfig-gate@b2eada74413fcc9f3042f22126ee5b350a2b846e # main
+      - uses: nanohype/.github/actions/editorconfig-gate@9911d2952b1f9078816c323baa253a63242c1c31 # v1
 
   build:
     name: Build
@@ -514,6 +514,6 @@ jobs:
     # report green exactly when something broke.
     if: always()
     steps:
-      - uses: nanohype/.github/actions/merge-gate@6ec6c5b3e6c4a8b15e12da4afd7ac4870a630092 # main
+      - uses: nanohype/.github/actions/merge-gate@9911d2952b1f9078816c323baa253a63242c1c31 # v1
         with:
           needs: ${{ toJSON(needs) }}
