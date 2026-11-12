@@ -9,6 +9,9 @@ import {
   DescribeTableCommand,
   DynamoDBClient,
   ListTablesCommand,
+  ResourceNotFoundException,
+  waitUntilTableExists,
+  waitUntilTableNotExists,
 } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 
@@ -50,12 +53,41 @@ async function waitForDdbLocal(): Promise<void> {
   await ready;
 }
 
+/**
+ * CreateTable and DeleteTable return while the table is still CREATING or
+ * DELETING. DynamoDB rejects item operations on a CREATING table and a
+ * CreateTable for a name that is still DELETING, both with
+ * ResourceNotFoundException / ResourceInUseException, for as long as the
+ * transition takes (seconds on a real table). dynamodb-local finishes both
+ * before it answers, which hides the gap, so every create and delete here waits
+ * for the table state it needs before returning.
+ *
+ * Two waits fit inside the 60 s hookTimeout in vitest.config.integration.ts.
+ */
+const TABLE_WAITER = {
+  client: ddbLocalClient,
+  minDelay: 1,
+  maxDelay: 2,
+  maxWaitTime: 25,
+} as const;
+
+async function deleteAndWait(tableName: string): Promise<void> {
+  try {
+    await ddbLocalClient.send(new DeleteTableCommand({ TableName: tableName }));
+  } catch (err) {
+    if (err instanceof ResourceNotFoundException) return;
+    throw err;
+  }
+  await waitUntilTableNotExists(TABLE_WAITER, { TableName: tableName });
+}
+
 async function createPkSkTable(tableName: string): Promise<void> {
   await waitForDdbLocal();
   try {
     await ddbLocalClient.send(new DescribeTableCommand({ TableName: tableName }));
-    await ddbLocalClient.send(new DeleteTableCommand({ TableName: tableName }));
-  } catch {
+    await deleteAndWait(tableName);
+  } catch (err) {
+    if (!(err instanceof ResourceNotFoundException)) throw err;
     /* not present */
   }
   await ddbLocalClient.send(
@@ -72,14 +104,11 @@ async function createPkSkTable(tableName: string): Promise<void> {
       BillingMode: "PAY_PER_REQUEST",
     }),
   );
+  await waitUntilTableExists(TABLE_WAITER, { TableName: tableName });
 }
 
 async function dropTable(tableName: string): Promise<void> {
-  try {
-    await ddbLocalClient.send(new DeleteTableCommand({ TableName: tableName }));
-  } catch {
-    /* already gone */
-  }
+  await deleteAndWait(tableName);
 }
 
 export const createAuditTable = createPkSkTable;
