@@ -7,13 +7,12 @@ import {
   DeleteMessageCommand,
   type Message,
   ReceiveMessageCommand,
-  SQSClient,
+  type SQSClient,
 } from "@aws-sdk/client-sqs";
 import type { GrafanaOnCallAlertPayload } from "../types/index.js";
-import { boundedRequestHandler } from "../utils/aws-http.js";
-import { awsRegion } from "../utils/env.js";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
+import { createSqsClient } from "../utils/sqs-client.js";
 import { context, extractSqsTraceContext } from "../utils/tracing.js";
 
 export type IncidentEventType = "ALERT_RECEIVED" | "ALERT_RESOLVED";
@@ -50,8 +49,7 @@ export class SqsConsumer {
     // so the wait is the point here and the shared cap would abort every poll
     // that found nothing. Wide enough to clear the poll plus a slow round trip,
     // narrow enough that a wedged socket still surfaces.
-    this.sqs =
-      sqs ?? new SQSClient({ region: awsRegion(), requestHandler: boundedRequestHandler(15_000) });
+    this.sqs = sqs ?? createSqsClient(15_000);
   }
 
   start(): void {

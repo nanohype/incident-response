@@ -21,5 +21,9 @@ export default defineConfig({
     },
     include: ["test/integration/**/*.integration.test.ts"],
     testTimeout: 60000,
+    // The table hooks in test/integration/setup.ts wait for CreateTable and
+    // DeleteTable to reach ACTIVE / gone, which takes seconds on a real table
+    // and would overrun vitest's 10 s hook default.
+    hookTimeout: 60000,
   },
 });

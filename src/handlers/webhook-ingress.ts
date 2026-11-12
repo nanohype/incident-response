@@ -11,23 +11,21 @@
 import * as crypto from "node:crypto";
 import { ConditionalCheckFailedException, DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { GrafanaOnCallPayloadSchema } from "../types/index.js";
 import { boundedRequestHandler } from "../utils/aws-http.js";
 import { awsRegion, requiredEnv } from "../utils/env.js";
 import { stringifyError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
+import { createSqsClient } from "../utils/sqs-client.js";
 import { injectSqsTraceAttributes } from "../utils/tracing.js";
 import { initOtelIfNeeded } from "./webhook-otel-init.js";
 
 // Every client is bounded. This handler answers Grafana OnCall on a latency
 // SLO, and each of these three calls sits between a P1 firing and the event
 // reaching the queue.
-const sqsClient = new SQSClient({
-  region: awsRegion(),
-  requestHandler: boundedRequestHandler(),
-});
+const sqsClient = createSqsClient();
 const dynamoClient = new DynamoDBClient({
   region: awsRegion(),
   requestHandler: boundedRequestHandler(),

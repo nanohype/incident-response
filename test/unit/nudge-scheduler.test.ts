@@ -71,6 +71,34 @@ describe("scheduleNudge", () => {
     });
   });
 
+  it("names a message group, which a FIFO nudge queue requires", async () => {
+    // The nudge queue is FIFO. SQS refuses a FIFO SendMessage with no
+    // MessageGroupId, and Scheduler records the refusal as a failed invocation
+    // rather than surfacing it here, so a target without one never delivers a
+    // nudge while every call in this module still succeeds.
+    const s = scheduler();
+    await s.make().scheduleNudge("INC-2026-001", "C_WARROOM");
+
+    const target = inputOf(s.send).Target as { SqsParameters?: { MessageGroupId?: string } };
+    expect(target.SqsParameters?.MessageGroupId).toBe("INC-2026-001");
+  });
+
+  it("groups nudges per incident, so one incident's backlog does not block another's", async () => {
+    // FIFO holds back every later message in a group while one is in flight.
+    // A shared group would let one incident's failing nudge stall reminders for
+    // every other open incident.
+    const s = scheduler();
+    const nudges = s.make();
+    await nudges.scheduleNudge("INC-A", "C_A");
+    await nudges.scheduleNudge("INC-B", "C_B");
+
+    const groupOf = (i: number) =>
+      (inputOf(s.send, i).Target as { SqsParameters?: { MessageGroupId?: string } }).SqsParameters
+        ?.MessageGroupId;
+    expect(groupOf(0)).toBe("INC-A");
+    expect(groupOf(1)).toBe("INC-B");
+  });
+
   it("does not throw when the schedule cannot be created", async () => {
     // Incident creation continues without nudges rather than failing outright.
     const s = scheduler(() => {
