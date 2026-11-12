@@ -57,6 +57,16 @@ export class NudgeScheduler {
           Target: {
             Arn: this.nudgeQueueArn,
             RoleArn: this.schedulerRoleArn,
+            // The nudge queue is FIFO, and SQS refuses a SendMessage to a FIFO
+            // queue that carries no MessageGroupId. Scheduler records that as a
+            // failed invocation, so without this every nudge is dropped and
+            // nothing here sees an error. The group is the incident: one
+            // incident's nudges stay in order, and a nudge stuck in redelivery
+            // for one incident does not hold back another incident's, since FIFO
+            // blocks only the group a message is in flight for. Webhook ingress
+            // groups the incident queue the same way (by alert_group_id, which
+            // is the incident id).
+            SqsParameters: { MessageGroupId: incidentId },
             Input: JSON.stringify({
               type: "STATUS_UPDATE_NUDGE",
               incident_id: incidentId,
